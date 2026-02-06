@@ -12,12 +12,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact_name: my-tool-linux
-            asset_name: my-tool-x86_64-unknown-linux-gnu.tar.gz
-          - os: windows-latest
-            artifact_name: my-tool.exe
-            asset_name: my-tool-x86_64-pc-windows-msvc.zip
+        #   - os: ubuntu-latest
+        #     artifact_name: my-tool-linux
+        #     asset_name: my-tool-x86_64-unknown-linux-gnu.tar.gz
+        #   - os: windows-latest
+        #     artifact_name: my-tool.exe
+        #     asset_name: my-tool-x86_64-pc-windows-msvc.zip
           - os: macos-latest
             artifact_name: my-tool
             asset_name: my-tool-x86_64-apple-darwin.tar.gz
@@ -33,7 +33,7 @@ jobs:
     - name: Install OpenCC (macOS)
       if: matrix.os == 'macos-latest'
       run: brew install opencc
-      
+
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
 
