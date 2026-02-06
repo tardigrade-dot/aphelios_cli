@@ -1,6 +1,6 @@
-use candle_transformers::models::{bart, donut::DonutConfig, swin};
 use candle_core::{Module, Result, Tensor};
 use candle_nn::VarBuilder;
+use candle_transformers::models::{bart, donut::DonutConfig, swin};
 
 /// Donut model combining Swin encoder and BART decoder.
 pub struct CusDonutModel {
@@ -9,9 +9,7 @@ pub struct CusDonutModel {
 }
 
 impl CusDonutModel {
-
-    pub fn clean_kv(&mut self){
-
+    pub fn clean_kv(&mut self) {
         self.decoder.reset_kv_cache();
     }
     pub fn load(config: &DonutConfig, vb: VarBuilder) -> Result<Self> {

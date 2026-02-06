@@ -1,14 +1,15 @@
-use anyhow::{Result,Error as E};
-use candle_core::{Device, MetalDevice};
+use anyhow::{Error as E, Result};
 use candle_core::backend::BackendDevice;
-use mistralrs::{ModelDType, IsqType, TextMessageRole, TextMessages, TextModelBuilder, VisionMessages, VisionModelBuilder};
+use candle_core::{Device, MetalDevice};
+use mistralrs::{
+    IsqType, ModelDType, TextMessageRole, TextMessages, TextModelBuilder, VisionMessages,
+    VisionModelBuilder,
+};
 use tracing::info;
 
 use crate::measure_time;
 
-
 pub async fn run_vlm(model_id: &str) -> Result<()> {
-    
     let metal: MetalDevice = MetalDevice::new(0)?;
     let model = VisionModelBuilder::new(model_id)
         .with_isq(IsqType::Q4K)
@@ -41,8 +42,7 @@ pub async fn run_vlm(model_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn book_search(model_id: &str) -> Result<String>{
-
+pub async fn book_search(model_id: &str) -> Result<String> {
     let book_list = "1 - 哈耶克作品法律、立法与自由(全三册) ([英]弗里德利希·冯·哈 耶克 [耶克, 弗里德利希·冯·哈]) (Z-Library).epub
 2 - 過去與未來之間：政治思考的八場習練 (漢娜．鄂蘭(Hannah Arendt)) (Z-Library).epub
 3 - 本真性的伦理 ([加]查尔斯·泰勒，程炼译) (Z-Library).pdf
@@ -64,7 +64,10 @@ pub async fn book_search(model_id: &str) -> Result<String>{
 
     let mut messages = TextMessages::new();
     messages = messages.add_message(TextMessageRole::User, book_list);
-    messages = messages.add_message(TextMessageRole::User, "查找与东欧相关的书籍, 返回名称前的编号和书籍名称");
+    messages = messages.add_message(
+        TextMessageRole::User,
+        "查找与东欧相关的书籍, 返回名称前的编号和书籍名称",
+    );
     let response = model.send_chat_request(messages.clone()).await?;
 
     let res = response.choices[0].message.content.as_ref().unwrap();
@@ -73,21 +76,26 @@ pub async fn book_search(model_id: &str) -> Result<String>{
     Ok(res.clone())
 }
 
-pub async fn run_llm(model_id: &str) -> Result<()>{
-
+pub async fn run_llm(model_id: &str) -> Result<()> {
     let metal: MetalDevice = MetalDevice::new(0)?;
 
-    let model = measure_time!("loading model", TextModelBuilder::new(model_id)
+    let model = measure_time!(
+        "loading model",
+        TextModelBuilder::new(model_id)
             .with_isq(IsqType::Q4K)
             .with_logging()
             .with_dtype(ModelDType::F16)
             .with_device(Device::Metal(metal))
             .build()
-            .await?);
+            .await?
+    );
 
     let mut messages = TextMessages::new();
     messages = messages.add_message(TextMessageRole::User, "介绍下博弈论");
-    let response = measure_time!("first chat", model.send_chat_request(messages.clone()).await?);
+    let response = measure_time!(
+        "first chat",
+        model.send_chat_request(messages.clone()).await?
+    );
 
     info!("{}", response.choices[0].message.content.as_ref().unwrap());
 
@@ -101,7 +109,10 @@ pub async fn run_llm(model_id: &str) -> Result<()>{
     // ------------------------------------------------------------------
     messages = messages.add_message(TextMessageRole::User, "天空为什么是蓝色的?");
 
-    let response = measure_time!("second chat", model.send_chat_request(messages.clone()).await?);
+    let response = measure_time!(
+        "second chat",
+        model.send_chat_request(messages.clone()).await?
+    );
 
     info!("{}", response.choices[0].message.content.as_ref().unwrap());
 

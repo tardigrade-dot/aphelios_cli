@@ -18,8 +18,7 @@ macro_rules! say_hello {
     };
 }
 
-fn base_method(){
-
+fn base_method() {
     let x = 4;
     // x = 3;
     let mut y = 19;
@@ -30,11 +29,11 @@ fn base_method(){
 
     if y > 10 {
         println!("y > 10");
-    }else {
+    } else {
         println!("y < 10");
     }
 
-    for i in 1..4{
+    for i in 1..4 {
         println!("{}", i)
     }
 
@@ -52,9 +51,7 @@ fn base_method(){
     say_hello2(3);
 }
 
-fn say_hello2(a: i32){
-
-}
+fn say_hello2(a: i32) {}
 
 #[derive(Debug, Clone, PartialEq)]
 struct Point {

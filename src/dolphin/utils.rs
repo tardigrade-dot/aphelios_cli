@@ -1,8 +1,8 @@
+use anyhow::{Error as E, Result};
 use image::{DynamicImage, GenericImageView};
 use mistralrs::{Device, Tensor};
-use anyhow::{Error as E, Result};
-use tracing::{Level, info};
 use pdfium_render::prelude::*;
+use tracing::{Level, info};
 
 static INIT: std::sync::Once = std::sync::Once::new();
 
@@ -36,8 +36,10 @@ pub fn pdf_to_images(pdf_path: &str) -> Result<Vec<DynamicImage>, E> {
     // let library_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("libpdfium.dylib");
     // let pdfium = Pdfium::new(Pdfium::bind_to_library(library_path)?);
     // let pdfium = Pdfium::new(Pdfium::bind_to_system_library()?);
-    let pdfium = Pdfium::new(Pdfium::bind_to_library("/Users/larry/coderesp/aphelios_cli/libpdfium.dylib")?);
-    
+    let pdfium = Pdfium::new(Pdfium::bind_to_library(
+        "/Users/larry/coderesp/aphelios_cli/libpdfium.dylib",
+    )?);
+
     // 2. 加载 PDF 文档
     let document = pdfium.load_pdf_from_file(pdf_path, None)?;
 
@@ -45,18 +47,17 @@ pub fn pdf_to_images(pdf_path: &str) -> Result<Vec<DynamicImage>, E> {
     // set_target_width(2000) 会在保持比例的前提下，将页面渲染为 2000 像素宽
     // 这决定了输出图片的清晰度 (DPI)
     let render_config = PdfRenderConfig::new()
-        .set_target_width(2000) 
+        .set_target_width(2000)
         .rotate_if_landscape(PdfPageRenderRotation::None, true);
 
     let mut images = Vec::new();
 
     // 4. 遍历并渲染每一页
     for (index, page) in document.pages().iter().enumerate() {
-        
         // 将页面渲染为 PdfBitmap，然后转换为 image::DynamicImage
         let bitmap = page.render_with_config(&render_config)?;
         let dyn_image = bitmap.as_image(); // 这就是 image 库的 DynamicImage
-        
+
         images.push(dyn_image);
     }
 
@@ -64,26 +65,35 @@ pub fn pdf_to_images(pdf_path: &str) -> Result<Vec<DynamicImage>, E> {
 }
 
 fn load_images(path: &str) -> Result<Vec<DynamicImage>> {
-    match path.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
+    match path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
         "pdf" => pdf_to_images(path),
         _ => Ok(vec![image::ImageReader::open(path)?.decode()?]),
     }
 }
 
-pub fn load_image(path: &str, target_height: u32, target_width: u32, device: &Device) -> Result<Vec<(Tensor, DynamicImage)>> {
-
+pub fn load_image(
+    path: &str,
+    target_height: u32,
+    target_width: u32,
+    device: &Device,
+) -> Result<Vec<(Tensor, DynamicImage)>> {
     let images = load_images(path)?;
 
     let mut img_li: Vec<(Tensor, DynamicImage)> = Vec::new();
 
-    for img in images{
-
+    for img in images {
         let resized = img.resize(
             target_width,
             target_height,
             image::imageops::FilterType::Triangle,
         );
-    
+
         // Create a black canvas and center the resized image (HuggingFace uses black padding)
         let mut canvas =
             image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
@@ -95,17 +105,17 @@ pub fn load_image(path: &str, target_height: u32, target_width: u32, device: &De
             x_offset.into(),
             y_offset.into(),
         );
-    
+
         let rgb = canvas;
         let (width, height) = (rgb.width() as usize, rgb.height() as usize);
-    
+
         // Donut uses [0.5, 0.5, 0.5] normalization
         let image_mean = [0.5f32, 0.5, 0.5];
         let image_std = [0.5f32, 0.5, 0.5];
-    
+
         // Normalize: (H, W, C) -> (C, H, W) with normalization
         let mut normalized = vec![0f32; 3 * height * width];
-    
+
         for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
             for y in 0..height {
                 for x in 0..width {

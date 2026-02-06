@@ -1,12 +1,12 @@
 use anyhow::{Error as E, Ok, Result};
 use candle_core::backend::BackendDevice;
-use candle_core::{DType, Device, MetalDevice, Tensor};
 use candle_core::utils::{cuda_is_available, metal_is_available};
+use candle_core::{DType, Device, MetalDevice, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::qwen3::{Config as Config3, ModelForCausalLM as Model3};
-use tokenizers::Tokenizer;
 use std::path::Path;
+use tokenizers::Tokenizer;
 
 struct TextGeneration {
     model: Model3,
@@ -32,7 +32,8 @@ impl TextGeneration {
         let tokenizer_file = model_dir.join("tokenizer.json");
 
         let config: Config3 = serde_json::from_slice(&std::fs::read(config_file)?)?;
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_file], DType::BF16, &device)? };
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[model_file], DType::BF16, &device)? };
         let model = Model3::new(&config, vb)?;
 
         let tokenizer = Tokenizer::from_file(tokenizer_file).map_err(E::msg)?;
@@ -84,14 +85,18 @@ impl TextGeneration {
                 logits
             } else {
                 let start_at = tokens.len().saturating_sub(self.repeat_last_n);
-                candle_transformers::utils::apply_repeat_penalty(&logits, self.repeat_penalty, &tokens[start_at..])?
+                candle_transformers::utils::apply_repeat_penalty(
+                    &logits,
+                    self.repeat_penalty,
+                    &tokens[start_at..],
+                )?
             };
 
             let next_token = self.logits_processor.sample(&logits)?;
             tokens.push(next_token);
             generated_tokens += 1;
 
-            if next_token == eos_token || next_token == eos_token2{
+            if next_token == eos_token || next_token == eos_token2 {
                 break;
             }
         }
@@ -148,7 +153,6 @@ pub fn qwen_infer(
     repeat_penalty: Option<f32>,
     repeat_last_n: Option<usize>,
 ) -> Result<String> {
-
     let repeat_penalty = repeat_penalty.unwrap_or(1.1);
     let repeat_last_n = repeat_last_n.unwrap_or(64);
     let sample_len = sample_len.unwrap_or(10000);
@@ -157,8 +161,7 @@ pub fn qwen_infer(
 
     println!(
         "Qwen Inference on device: {:?}, model dir: {}",
-        device,
-        model_dir
+        device, model_dir
     );
     let mut pipeline = TextGeneration::new(
         Path::new(model_dir),

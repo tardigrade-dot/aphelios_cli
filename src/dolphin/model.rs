@@ -1,20 +1,24 @@
 use crate::commands::donut2::CusDonutModel;
 use crate::dolphin::utils;
 use anyhow::{Error as E, Result};
-use candle_core::{safetensors, DType, Device, Tensor};
+use candle_core::{DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
 use image::{DynamicImage, GenericImageView, RgbImage};
 use regex::Regex;
 use serde_json::Value;
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use tokenizers::AddedToken;
 use tokenizers::Tokenizer;
 use tracing::info;
-use std::fs;
 
-pub fn dolphin_ocr(model_id: &String, image_path: &String, output_dir: &String) -> Result<Vec<String>> {
+pub fn dolphin_ocr(
+    model_id: &String,
+    image_path: &String,
+    output_dir: &String,
+) -> Result<Vec<String>> {
     utils::init_tracing();
     let model_path = PathBuf::from(model_id);
     let output_path = Path::new(output_dir);
@@ -57,12 +61,10 @@ pub fn dolphin_ocr(model_id: &String, image_path: &String, output_dir: &String) 
 
     let mut res_li = Vec::new();
 
-    for (i_index, (tensor, img)) in img_li.iter().enumerate(){
-
+    for (i_index, (tensor, img)) in img_li.iter().enumerate() {
         info!("正在处理第{}页...", i_index);
         let output_file: PathBuf = output_path.join(format!("{}_page.txt", i_index));
-        if fs::exists(&output_file)?{
-
+        if fs::exists(&output_file)? {
             info!("{} exist, to process next ", &output_file.to_str().unwrap());
             continue;
         }
@@ -75,9 +77,10 @@ pub fn dolphin_ocr(model_id: &String, image_path: &String, output_dir: &String) 
             &tokenizer,
             &device,
         )?;
-    
+
         layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
-        let res = run_ocr_second_stage(&img, &layout_str, &mut model, &config, &tokenizer, &device)?;
+        let res =
+            run_ocr_second_stage(&img, &layout_str, &mut model, &config, &tokenizer, &device)?;
 
         let _ = fs::write(&output_file, format!("{}, {}", i_index, &res.join("\n")));
         res_li.push(i_index.to_string());
@@ -145,7 +148,6 @@ fn run_ocr_second_stage(
     Ok(ocr_text_li)
 }
 
-
 #[macro_export]
 macro_rules! measure_time {
 
@@ -178,12 +180,12 @@ fn generate_text(
 ) -> Result<String> {
     model.clean_kv();
 
-    let decoded = measure_time!{
+    let decoded = measure_time! {
         let tokens = tokenizer.encode(prompt, false).map_err(E::msg)?;
         let mut token_ids = tokens.get_ids().to_vec();
         // 编码图像
         let encoder_output = model.encode(&pixel_values)?;
-    
+
         // 解码循环 (带 KV Cache 优化)
         for i in 0..2048 {
             let last_token_only = i > 0;
@@ -192,7 +194,7 @@ fn generate_text(
             } else {
                 &token_ids[..]
             };
-    
+
             let input_tensor = Tensor::new(decoder_input, &device)?.unsqueeze(0)?;
             let logits = match model.decode(
                 &input_tensor,
@@ -209,17 +211,17 @@ fn generate_text(
                     return Err(e.into());
                 }
             };
-    
+
             // 取最后一个 token 的 logits 并贪婪采样
             let logits = logits.squeeze(0)?.get(logits.dim(1)? - 1)?;
             let next_token = logits.argmax(0)?.to_scalar::<u32>()?;
-    
+
             token_ids.push(next_token);
             if next_token == config.decoder.eos_token_id {
                 break;
             }
         }
-    
+
         // 8. 输出结果
         let decoded = tokenizer
             .decode(&token_ids, false)

@@ -54,3 +54,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+
+[build]
+rustc-wrapper = "sccache"
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]

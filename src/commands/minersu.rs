@@ -1,33 +1,25 @@
-use anyhow::{Result,Error as E};
+use anyhow::{Error as E, Result};
 use candle_core::backend::BackendDevice;
-use mistralrs::{TextMessageRole, VisionMessages, Model};
+use image::{DynamicImage, GenericImageView, Rgb, RgbImage, imageops::FilterType};
+use mistralrs::{Model, TextMessageRole, VisionMessages};
 use tracing::info;
-use image::{DynamicImage, GenericImageView, imageops::FilterType, RgbImage, Rgb};
-
 
 const MIN_PIXELS: u32 = 3136;
 const MAX_PIXELS: u32 = 1605632;
 const PATCH_SIZE: u32 = 14;
 
 const IMAGE_MEAN: [f32; 3] = [0.48145466, 0.4578275, 0.40821073];
-const IMAGE_STD:  [f32; 3] = [0.26862954, 0.26130258, 0.27577711];
+const IMAGE_STD: [f32; 3] = [0.26862954, 0.26130258, 0.27577711];
 
 pub async fn run_mineru2(model: &Model, im: DynamicImage, prompt: &String) -> Result<String> {
-
-    let image: DynamicImage = image::ImageReader::open("/Users/larry/Documents/resources/page_32.png")?
-        .decode()
-        .map_err(|e| E::msg(format!("Failed to decode image: {}", e)))?;
+    let image: DynamicImage =
+        image::ImageReader::open("/Users/larry/Documents/resources/page_32.png")?
+            .decode()
+            .map_err(|e| E::msg(format!("Failed to decode image: {}", e)))?;
 
     let messages: VisionMessages = VisionMessages::new()
-        .add_message(
-        TextMessageRole::System, 
-        "You are a helpful assistant.")
-        .add_image_message(
-        TextMessageRole::User,
-        prompt,
-        vec![im],
-        model,
-    )?;
+        .add_message(TextMessageRole::System, "You are a helpful assistant.")
+        .add_image_message(TextMessageRole::User, prompt, vec![im], model)?;
 
     let response = model.send_chat_request(messages).await?;
 
@@ -41,17 +33,9 @@ pub async fn run_mineru2(model: &Model, im: DynamicImage, prompt: &String) -> Re
 }
 
 pub async fn run_mineru(model: &Model, im: DynamicImage, prompt: &String) -> Result<String> {
-
     let messages: VisionMessages = VisionMessages::new()
-        .add_message(
-        TextMessageRole::System, 
-        "You are a helpful assistant.")
-        .add_image_message(
-        TextMessageRole::User,
-        prompt,
-        vec![im],
-        &model,
-    )?;
+        .add_message(TextMessageRole::System, "You are a helpful assistant.")
+        .add_image_message(TextMessageRole::User, prompt, vec![im], &model)?;
 
     let response = model.send_chat_request(messages).await?;
 
@@ -64,7 +48,6 @@ pub async fn run_mineru(model: &Model, im: DynamicImage, prompt: &String) -> Res
 
     Ok(resp_str)
 }
-
 
 pub fn preprocess_to_image(img: DynamicImage) -> DynamicImage {
     let (mut w, mut h) = img.dimensions();

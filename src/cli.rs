@@ -32,5 +32,5 @@ pub enum Commands {
     Dolphin {
         pdf_path: String,
         output_path: String,
-    }
+    },
 }

@@ -15,9 +15,11 @@ pub async fn run(verbose: bool) -> Result<()> {
     // 创建进度条
     let pb = ProgressBar::new(1000);
     pb.set_style(
-        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}%")
-            .unwrap()
-            .progress_chars("#>-"),
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}%",
+        )
+        .unwrap()
+        .progress_chars("#>-"),
     );
 
     // 每 10ms 更新一次

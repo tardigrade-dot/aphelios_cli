@@ -1,6 +1,6 @@
+use anyhow::{Error as E, Result};
 use image::{DynamicImage, GenericImageView};
 use mistralrs::{Device, Tensor};
-use anyhow::{Error as E, Result};
 use tracing::{Level, info};
 
 static INIT: std::sync::Once = std::sync::Once::new();
@@ -29,8 +29,12 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-
-pub fn load_image(path: &str, target_height: u32, target_width: u32, device: &Device) -> Result<Tensor> {
+pub fn load_image(
+    path: &str,
+    target_height: u32,
+    target_width: u32,
+    device: &Device,
+) -> Result<Tensor> {
     let img = image::ImageReader::open(path)?
         .decode()
         .map_err(|e| E::msg(format!("Failed to decode image: {}", e)))?;
