@@ -81,3 +81,50 @@ pub fn load_image(
     let tensor = Tensor::from_vec(normalized, (1, 3, height, width), device)?;
     Ok(tensor)
 }
+
+#[macro_export]
+macro_rules! measure_time {
+
+        ($desc:expr, $expr:expr) => {{
+            let __module = module_path!();
+            let __file = file!();
+            let __line = line!();
+
+            info!("start [{}] {} ({}:{})", __module, $desc, __file, __line);
+
+            let __start = std::time::Instant::now();
+            let __result = $expr;
+            let __duration = __start.elapsed();
+
+            info!(
+                "end   [{}] {} -> type={} | {} ms",
+                __module,
+                $desc,
+                std::any::type_name_of_val(&__result),
+                __duration.as_millis()
+            );
+
+            __result
+        }};
+
+        ($($tt:tt)*) => {{
+            let __module = module_path!();
+            let __file = file!();
+            let __line = line!();
+
+            let __start = std::time::Instant::now();
+            let __result = { $($tt)* };
+            let __duration = __start.elapsed();
+
+            info!(
+                "exec  [{}] ({}:{}) -> type={} | {} ms",
+                __module,
+                __file,
+                __line,
+                std::any::type_name_of_val(&__result),
+                __duration.as_millis()
+            );
+
+            __result
+        }};
+    }

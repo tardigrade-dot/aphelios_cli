@@ -132,3 +132,47 @@ pub fn get_tensor_from_image(
     let tensor: Tensor = Tensor::from_vec(normalized, (1, 3, height, width), device).unwrap();
     tensor
 }
+
+pub fn transform_to_pixel_dynamic(
+    bbox_coords: [i32; 4],
+    img_width: u32,
+    img_height: u32,
+    target_width: u32,
+    target_height: u32,
+) -> [u32; 4] {
+    let [x1, y1, x2, y2] = bbox_coords;
+
+    // Calculate the aspect ratio preserved resize
+    let scale_w = target_width as f32 / img_width as f32;
+    let scale_h = target_height as f32 / img_height as f32;
+    let scale = scale_w.min(scale_h); // Take minimum scale to maintain aspect ratio
+
+    // Calculate the actual size of the resized image within the target canvas
+    let resized_width = (img_width as f32 * scale) as u32;
+    let resized_height = (img_height as f32 * scale) as u32;
+
+    // Calculate the padding (black border) offsets
+    let x_offset = (target_width - resized_width) / 2;
+    let y_offset = (target_height - resized_height) / 2;
+
+    // Transform from model coordinates to original image coordinates
+    // First, subtract the offsets to get coordinates relative to the actual image content
+    let x1_model_space = x1 as f32 - x_offset as f32;
+    let y1_model_space = y1 as f32 - y_offset as f32;
+    let x2_model_space = x2 as f32 - x_offset as f32;
+    let y2_model_space = y2 as f32 - y_offset as f32;
+
+    // Then scale back to original image dimensions
+    let x1_orig = (x1_model_space / scale).max(0.0) as u32;
+    let y1_orig = (y1_model_space / scale).max(0.0) as u32;
+    let x2_orig = (x2_model_space / scale).max(0.0) as u32;
+    let y2_orig = (y2_model_space / scale).max(0.0) as u32;
+
+    // Clamp to image bounds
+    [
+        x1_orig.min(img_width - 1),
+        y1_orig.min(img_height - 1),
+        x2_orig.min(img_width - 1),
+        y2_orig.min(img_height - 1),
+    ]
+}

@@ -30,9 +30,7 @@ pub fn print_banner() {
 "#;
 
     println!("{BOLD}{PURPLE}{banner}{RESET}");
-    println!(
-        "{CYAN}{BOLD}              aphelios_cli  •  OCR Engine{RESET}"
-    );
+    println!("{CYAN}{BOLD}              aphelios_cli  •  OCR Engine{RESET}");
     println!("{CYAN}              Fast • Async • Stream-based OCR{RESET}");
     println!();
 }
