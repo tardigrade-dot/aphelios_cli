@@ -1,7 +1,17 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use anyhow::{Error as E, Result};
-use image::{DynamicImage, GenericImageView};
+use async_stream::{stream, try_stream};
+use futures_util::{Stream, StreamExt, pin_mut};
+use hayro::hayro_interpret::InterpreterSettings;
+use hayro::hayro_syntax::Pdf;
+use hayro::vello_cpu::color::palette::css::WHITE;
+use hayro::{RenderSettings, render};
+use image::{DynamicImage, GenericImageView, Rgba};
+use imageproc::drawing::draw_hollow_rect_mut;
+use imageproc::rect::Rect;
 use mistralrs::{Device, Tensor};
-use pdfium_render::prelude::*;
 use tracing::{Level, info};
 
 static INIT: std::sync::Once = std::sync::Once::new();
@@ -15,6 +25,31 @@ pub fn init_tracing() {
     });
 }
 
+pub fn draw_bbox_and_save_multi(
+    img: &DynamicImage,
+    bbox_list: &Vec<[u32; 4]>,
+    pad: u32,
+    save_path: &PathBuf,
+) {
+    let (img_width, img_height) = img.dimensions();
+    let mut img = img.to_rgba8();
+
+    for bbox in bbox_list {
+        let x1 = bbox[0].saturating_sub(pad).min(img_width - 1);
+        let y1 = bbox[1].saturating_sub(pad).min(img_height - 1);
+        let x2 = (bbox[2] + pad).min(img_width);
+        let y2 = (bbox[3] + pad).min(img_height);
+
+        let w = (x2 - x1).max(1);
+        let h = (y2 - y1).max(1);
+
+        let rect = Rect::at(x1 as i32, y1 as i32).of_size(w, h);
+        draw_hollow_rect_mut(&mut img, rect, Rgba([255, 0, 0, 255]));
+    }
+
+    img.save(save_path).unwrap();
+}
+
 pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage {
     let (img_width, img_height) = img.dimensions();
 
@@ -26,107 +61,74 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     let crop_width = (x2 - x1).max(1);
     let crop_height = (y2 - y1).max(1);
 
-    info!("{} {} {} {}", x1, y1, crop_width, crop_height);
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-pub fn pdf_to_images(pdf_path: &str) -> Result<Vec<DynamicImage>, E> {
-    // 1. 初始化 Pdfium (指向你下载的 dylib)
-    // 建议将 dylib 路径参数化或放在配置文件中
-    // let library_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("libpdfium.dylib");
-    // let pdfium = Pdfium::new(Pdfium::bind_to_library(library_path)?);
-    // let pdfium = Pdfium::new(Pdfium::bind_to_system_library()?);
-    let pdfium = Pdfium::new(Pdfium::bind_to_library(
-        "/Users/larry/coderesp/aphelios_cli/libpdfium.dylib",
-    )?);
+pub fn load_pdf_images(path: &str) -> impl Stream<Item = Result<DynamicImage>> {
+    try_stream! {
+        let pdf_file = std::fs::read(path)?;
+        let pdf = Pdf::new(Arc::new(pdf_file)).unwrap();
 
-    // 2. 加载 PDF 文档
-    let document = pdfium.load_pdf_from_file(pdf_path, None)?;
+        let interpreter_settings = InterpreterSettings::default();
+        let render_settings = RenderSettings {
+            bg_color: WHITE, // 建议显式设置背景色，否则透明 PDF 可能会变黑
+            ..Default::default()
+        };
 
-    // 3. 设置渲染配置
-    // set_target_width(2000) 会在保持比例的前提下，将页面渲染为 2000 像素宽
-    // 这决定了输出图片的清晰度 (DPI)
-    let render_config = PdfRenderConfig::new()
-        .set_target_width(2000)
-        .rotate_if_landscape(PdfPageRenderRotation::None, true);
+        for page in pdf.pages().iter() {
+            let pixmap = render(page, &interpreter_settings, &render_settings);
+            let png_bytes = pixmap.into_png()
+                .map_err(|e| anyhow::anyhow!("PNG encoding failed: {:?}", e))?;
 
-    let mut images = Vec::new();
-
-    // 4. 遍历并渲染每一页
-    for (index, page) in document.pages().iter().enumerate() {
-        // 将页面渲染为 PdfBitmap，然后转换为 image::DynamicImage
-        let bitmap = page.render_with_config(&render_config)?;
-        let dyn_image = bitmap.as_image(); // 这就是 image 库的 DynamicImage
-
-        images.push(dyn_image);
-    }
-
-    Ok(images)
-}
-
-fn load_images(path: &str) -> Result<Vec<DynamicImage>> {
-    match path
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_lowercase()
-        .as_str()
-    {
-        "pdf" => pdf_to_images(path),
-        _ => Ok(vec![image::ImageReader::open(path)?.decode()?]),
+            // 2. 利用 image 库直接从内存字节加载为 DynamicImage
+            let img = image::load_from_memory(&png_bytes)?;
+            yield img;
+        }
     }
 }
 
-pub fn load_image(
-    path: &str,
+pub fn get_tensor_from_image(
+    img: &DynamicImage,
     target_height: u32,
     target_width: u32,
     device: &Device,
-) -> Result<Vec<(Tensor, DynamicImage)>> {
-    let images = load_images(path)?;
+) -> Tensor {
+    let resized = img.resize(
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    );
+    // Create a black canvas and center the resized image (HuggingFace uses black padding)
+    let mut canvas =
+        image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
+    let x_offset = (target_width - resized.width()) / 2;
+    let y_offset = (target_height - resized.height()) / 2;
+    image::imageops::overlay(
+        &mut canvas,
+        &resized.to_rgb8(),
+        x_offset.into(),
+        y_offset.into(),
+    );
 
-    let mut img_li: Vec<(Tensor, DynamicImage)> = Vec::new();
+    let rgb = canvas;
+    let (width, height) = (rgb.width() as usize, rgb.height() as usize);
 
-    for img in images {
-        let resized = img.resize(
-            target_width,
-            target_height,
-            image::imageops::FilterType::Triangle,
-        );
+    // Donut uses [0.5, 0.5, 0.5] normalization
+    let image_mean = [0.5f32, 0.5, 0.5];
+    let image_std = [0.5f32, 0.5, 0.5];
 
-        // Create a black canvas and center the resized image (HuggingFace uses black padding)
-        let mut canvas =
-            image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
-        let x_offset = (target_width - resized.width()) / 2;
-        let y_offset = (target_height - resized.height()) / 2;
-        image::imageops::overlay(
-            &mut canvas,
-            &resized.to_rgb8(),
-            x_offset.into(),
-            y_offset.into(),
-        );
+    // Normalize: (H, W, C) -> (C, H, W) with normalization
+    let mut normalized = vec![0f32; 3 * height * width];
 
-        let rgb = canvas;
-        let (width, height) = (rgb.width() as usize, rgb.height() as usize);
-
-        // Donut uses [0.5, 0.5, 0.5] normalization
-        let image_mean = [0.5f32, 0.5, 0.5];
-        let image_std = [0.5f32, 0.5, 0.5];
-
-        // Normalize: (H, W, C) -> (C, H, W) with normalization
-        let mut normalized = vec![0f32; 3 * height * width];
-
-        for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
-            for y in 0..height {
-                for x in 0..width {
-                    let pixel = rgb.get_pixel(x as u32, y as u32);
-                    let idx = c * height * width + y * width + x;
-                    normalized[idx] = (pixel[c] as f32 / 255.0 - mean) / std;
-                }
+    for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = rgb.get_pixel(x as u32, y as u32);
+                let idx = c * height * width + y * width + x;
+                normalized[idx] = (pixel[c] as f32 / 255.0 - mean) / std;
             }
         }
-        let tensor = Tensor::from_vec(normalized, (1, 3, height, width), device)?;
-        img_li.push((tensor, img));
     }
-    Ok(img_li)
+    let tensor: Tensor = Tensor::from_vec(normalized, (1, 3, height, width), device).unwrap();
+    tensor
 }

@@ -3,6 +3,7 @@ use crate::cli::{Cli, Commands};
 pub mod cli;
 pub mod commands;
 pub mod dolphin;
+pub mod engine;
 pub mod error;
 pub mod opencc;
 
@@ -32,7 +33,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             pdf_path,
             output_path,
         } => {
-            commands::dolphin::run_ocr(&pdf_path, &output_path)?;
+            commands::dolphin::run_ocr(&pdf_path, &output_path).await?;
         }
     }
     Ok(())

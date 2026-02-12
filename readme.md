@@ -12,3 +12,4 @@ aphelios_cli qwen-vlm /Volumes/sw/pretrained_models/Qwen3-VL-2B-Instruct
 aphelios_cli qwen-llm /Volumes/sw/pretrained_models/Qwen3-0.6B
 
 aphelios_cli init /a/b
+

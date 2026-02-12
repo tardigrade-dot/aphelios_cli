@@ -14,17 +14,17 @@ async fn dolphin_test2() -> Result<()> {
         "/Volumes/sw/ocr_result/test",
     )
     .await?;
-    Ok(())
+    Ok(r)
 }
 
-#[test]
-fn dolphin_test() -> Result<()> {
+#[tokio::test]
+async fn dolphin_test() -> Result<()> {
     measure_time! {
         let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
         let image_path = "/Users/larry/Documents/resources/page_32.png"; // 替换为你的测试图路径
-        let output_dir = "/Volumes/sw/ocr_result/aaaa_test";
+        let output_dir = "/Users/larry/coderesp/aphelios_cli/output/aaaa_test";
 
-        let res = dolphin::model::dolphin_ocr(&model_id.to_string(), &image_path.to_string(), &output_dir.to_string())?;
+        let res = dolphin::model::dolphin_ocr(&model_id.to_string(), &image_path.to_string(), &output_dir.to_string()).await?;
 
         for r in &res{
             info!("{}", r);
@@ -33,14 +33,14 @@ fn dolphin_test() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn dolphin_pdf_test() -> Result<()> {
+#[tokio::test]
+async fn dolphin_pdf_test() -> Result<()> {
     measure_time! {
         let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
-        let image_path = "/Users/larry/github.com/tardigrade-dot/colab-script2/data_src/extracted_pages.pdf";
-        let output_dir = "/Users/larry/coderesp/aphelios_cli/output";
+        let image_path = "/Users/larry/github.com/colab-script2/data_src/extracted_pages.pdf";
+        let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages";
 
-        let res = dolphin::model::dolphin_ocr(&model_id.to_string(), &image_path.to_string(), &output_dir.to_string())?;
+        let res = dolphin::model::dolphin_ocr(&model_id.to_string(), &image_path.to_string(), &output_dir.to_string()).await?;
         for r in &res{
             info!("{}", r);
         }

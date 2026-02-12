@@ -1,9 +1,11 @@
 use crate::commands::donut2::CusDonutModel;
 use crate::dolphin::utils;
+use anyhow::Ok;
 use anyhow::{Error as E, Result};
 use candle_core::{DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
+use futures_util::{StreamExt, pin_mut};
 use image::{DynamicImage, GenericImageView, RgbImage};
 use regex::Regex;
 use serde_json::Value;
@@ -14,14 +16,8 @@ use tokenizers::AddedToken;
 use tokenizers::Tokenizer;
 use tracing::info;
 
-pub fn dolphin_ocr(
-    model_id: &String,
-    image_path: &String,
-    output_dir: &String,
-) -> Result<Vec<String>> {
-    utils::init_tracing();
+fn load_model(model_id: &String) -> Result<(CusDonutModel, DonutConfig, Tokenizer, Device)> {
     let model_path = PathBuf::from(model_id);
-    let output_path = Path::new(output_dir);
 
     let device = Device::new_metal(0).unwrap_or(Device::Cpu);
     info!("Using device: {:?}", device);
@@ -47,46 +43,110 @@ pub fn dolphin_ocr(
     let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
 
     // 5. 初始化模型
-    let mut model = CusDonutModel::load(&config, vb)?;
+    let model = CusDonutModel::load(&config, vb)?;
+    Ok((model, config, tokenizer, device))
+}
+
+pub async fn dolphin_ocr(
+    model_id: &String,
+    image_path: &String,
+    output_dir: &String,
+) -> Result<Vec<String>> {
+    utils::init_tracing();
+
+    let output_path = Path::new(output_dir);
+    let (mut model, config, tokenizer, device) = load_model(model_id)?;
+
     println!("Dolphin-1.5 model loaded from local path.");
 
-    // 6. 图像预处理 (复用原有的 load_image 函数逻辑)
-    // 注意：确保你的 image crate 已在 Cargo.toml 中
-    let img_li = utils::load_image(
-        image_path,
-        config.image_height() as u32,
-        config.image_width() as u32,
-        &device,
-    )?;
-
-    let mut res_li = Vec::new();
-
-    for (i_index, (tensor, img)) in img_li.iter().enumerate() {
-        info!("正在处理第{}页...", i_index);
-        let output_file: PathBuf = output_path.join(format!("{}_page.txt", i_index));
-        if fs::exists(&output_file)? {
-            info!("{} exist, to process next ", &output_file.to_str().unwrap());
-            continue;
+    let mut res_li = vec![];
+    if "pdf"
+        == image_path
+            .rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_lowercase()
+            .as_str()
+    {
+        let img_ite = utils::load_pdf_images(image_path).enumerate();
+        pin_mut!(img_ite);
+        while let Some((idx, img_result)) = img_ite.next().await {
+            run_ocr_single_img(
+                &img_result?,
+                output_path,
+                idx,
+                &mut model,
+                &config,
+                &tokenizer,
+                &device,
+                &mut res_li,
+            );
         }
-        let task_prompt = "<s>Parse the reading order of this document. <Answer/>";
-        let mut layout_str = generate_text(
+    } else {
+        let img = image::ImageReader::open(image_path)?.decode()?;
+        run_ocr_single_img(
+            &img,
+            output_path,
+            0,
             &mut model,
-            &tensor,
-            &task_prompt,
             &config,
             &tokenizer,
             &device,
-        )?;
-
-        layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
-        let res =
-            run_ocr_second_stage(&img, &layout_str, &mut model, &config, &tokenizer, &device)?;
-
-        let _ = fs::write(&output_file, format!("{}, {}", i_index, &res.join("\n")));
-        res_li.push(i_index.to_string());
-        res_li.extend(res);
+            &mut res_li,
+        );
     }
     Ok(res_li)
+}
+
+fn run_ocr_single_img(
+    img: &DynamicImage,
+    output_path: &Path,
+    idx: usize,
+    model: &mut CusDonutModel,
+    config: &DonutConfig,
+    tokenizer: &Tokenizer,
+    device: &Device,
+    res_li: &mut Vec<String>,
+) -> Result<()> {
+    let copped_img_path = PathBuf::from(output_path).join("copped_img");
+    let _ = fs::create_dir_all(&copped_img_path);
+
+    info!("正在处理第{}页...", idx);
+    let output_file: PathBuf = output_path.join(format!("{}_page.txt", idx));
+    if fs::exists(&output_file)? {
+        info!("{} exist, to process next ", &output_file.to_str().unwrap());
+    }
+    let img_tensor = utils::get_tensor_from_image(
+        &img,
+        config.image_height() as u32,
+        config.image_width() as u32,
+        &device,
+    );
+    let task_prompt = "<s>Parse the reading order of this document. <Answer/>";
+    let mut layout_str = generate_text(
+        model,
+        &img_tensor,
+        &task_prompt,
+        &config,
+        &tokenizer,
+        &device,
+    )?;
+
+    layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
+    let mut res = run_ocr_second_stage(
+        &img,
+        &layout_str,
+        model,
+        &config,
+        &tokenizer,
+        &device,
+        idx,
+        &copped_img_path,
+    )?;
+
+    let _ = fs::write(&output_file, format!("{}", &res.join("\n")));
+    res_li.append(&mut res);
+    Ok(())
 }
 
 fn run_ocr_second_stage(
@@ -96,6 +156,8 @@ fn run_ocr_second_stage(
     config: &DonutConfig,
     tokenizer: &Tokenizer,
     device: &Device,
+    i_index: usize,
+    copped_img_path: &PathBuf,
 ) -> Result<Vec<String>> {
     let (img_w, img_h) = full_image.dimensions();
     let target_width = config.image_width() as u32;
@@ -104,6 +166,8 @@ fn run_ocr_second_stage(
 
     let mut reading_order = 0;
 
+    let layout_draw_path = copped_img_path.join(format!("{}-layout.png", i_index));
+    let mut bbox_list: Vec<[u32; 4]> = Vec::new();
     let mut ocr_text_li = Vec::new();
     for cap in re.captures_iter(layout_str) {
         let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
@@ -113,11 +177,6 @@ fn run_ocr_second_stage(
             continue;
         }
 
-        info!(
-            "config image_width {} image_height {} ",
-            config.image_width(),
-            config.image_height()
-        );
         let bbox = transform_to_pixel_dynamic(
             [coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
             img_w,
@@ -126,9 +185,8 @@ fn run_ocr_second_stage(
             target_height,
         );
 
+        bbox_list.push(bbox);
         let cropped_img = utils::crop_image(full_image, bbox, 5);
-
-        // cropped_img.save(format!("debug_crop_{}.png", reading_order))?;
         let pixel_values = preprocess_like_donut(&cropped_img, config, device)?;
 
         let prompt = match label {
@@ -143,8 +201,13 @@ fn run_ocr_second_stage(
 
         info!("Result {}: {}", reading_order, result_text);
         reading_order += 1;
-        ocr_text_li.push(format!("{} - {} : {}", reading_order, label, result_text));
+        ocr_text_li.push(format!(
+            "[{}] - [{}] : {}",
+            reading_order, label, result_text
+        ));
     }
+
+    utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
     Ok(ocr_text_li)
 }
 
@@ -205,7 +268,7 @@ fn generate_text(
                     0
                 },
             ) {
-                Ok(l) => l,
+                std::result::Result::Ok(l) => l,
                 Err(e) => {
                     println!("Candle Error detected: {:?}", e);
                     return Err(e.into());

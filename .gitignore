@@ -2,3 +2,4 @@
 /libpdfium.dylib
 .DS_Store
 /output
+.fastembed_cache
