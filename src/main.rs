@@ -7,10 +7,34 @@ use std::{thread, time::Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), slint::PlatformError> {
-    println!("Hello, world!");
+    print_banner();
+    run_cli().await;
+    // run_app()
+    Ok(())
+}
 
-    // run_cli().await
-    run_app()
+pub fn print_banner() {
+    // ANSI 颜色
+    const PURPLE: &str = "\x1b[95m";
+    const CYAN: &str = "\x1b[96m";
+    const RESET: &str = "\x1b[0m";
+    const BOLD: &str = "\x1b[1m";
+
+    let banner = r#"
+ █████╗ ██████╗ ██╗  ██╗███████╗██╗     ██╗ ██████╗ ███████╗
+██╔══██╗██╔══██╗██║  ██║██╔════╝██║     ██║██╔═══██╗██╔════╝
+███████║██████╔╝███████║█████╗  ██║     ██║██║   ██║███████╗
+██╔══██║██╔═══╝ ██╔══██║██╔══╝  ██║     ██║██║   ██║╚════██║
+██║  ██║██║     ██║  ██║███████╗███████╗██║╚██████╔╝███████║
+╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚══════╝
+"#;
+
+    println!("{BOLD}{PURPLE}{banner}{RESET}");
+    println!(
+        "{CYAN}{BOLD}              aphelios_cli  •  OCR Engine{RESET}"
+    );
+    println!("{CYAN}              Fast • Async • Stream-based OCR{RESET}");
+    println!();
 }
 
 async fn run_cli() {

@@ -1,6 +1,6 @@
 pub mod base;
 pub mod dolphin;
-pub mod donut2;
+pub mod donut;
 pub mod init;
 pub mod minersu;
 pub mod mistral3;

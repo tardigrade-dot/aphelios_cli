@@ -1,22 +1,23 @@
-use crate::commands::donut2::CusDonutModel;
+use crate::commands::donut::CusDonutModel;
 use crate::dolphin::utils;
-use anyhow::Ok;
+use std::result::Result::Ok;
+use anyhow::Context;
 use anyhow::{Error as E, Result};
-use candle_core::{DType, Device, Tensor, safetensors};
+use candle_core::{D, DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
 use futures_util::{StreamExt, pin_mut};
 use image::{DynamicImage, GenericImageView, RgbImage};
 use regex::Regex;
 use serde_json::Value;
-use std::fs;
+use std::{fs};
 use std::path::Path;
 use std::path::PathBuf;
 use tokenizers::AddedToken;
 use tokenizers::Tokenizer;
-use tracing::info;
+use tracing::{error, info};
 
-fn load_model(model_id: &String) -> Result<(CusDonutModel, DonutConfig, Tokenizer, Device)> {
+fn load_model(model_id: &str) -> Result<(CusDonutModel, DonutConfig, Tokenizer, Device)> {
     let model_path = PathBuf::from(model_id);
 
     let device = Device::new_metal(0).unwrap_or(Device::Cpu);
@@ -48,43 +49,59 @@ fn load_model(model_id: &String) -> Result<(CusDonutModel, DonutConfig, Tokenize
 }
 
 pub async fn dolphin_ocr(
-    model_id: &String,
-    image_path: &String,
-    output_dir: &String,
+    model_id: &str,
+    image_path: &str,
+    output_dir: &str,
 ) -> Result<Vec<String>> {
     utils::init_tracing();
 
     let output_path = Path::new(output_dir);
-    let (mut model, config, tokenizer, device) = load_model(model_id)?;
+    let (mut model, config, tokenizer, device) =
+        load_model(model_id).context("Failed to load Dolphin model")?;
 
-    println!("Dolphin-1.5 model loaded from local path.");
+    info!("Dolphin-1.5 model loaded from path {}.", model_id);
 
     let mut res_li = vec![];
-    if "pdf"
-        == image_path
-            .rsplit('.')
-            .next()
-            .unwrap_or("")
-            .to_lowercase()
-            .as_str()
-    {
-        let img_ite = utils::load_pdf_images(image_path).enumerate();
-        pin_mut!(img_ite);
-        while let Some((idx, img_result)) = img_ite.next().await {
-            run_ocr_single_img(
-                &img_result?,
-                output_path,
-                idx,
-                &mut model,
-                &config,
-                &tokenizer,
-                &device,
-                &mut res_li,
-            );
+
+    let ext = image_path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext == "pdf" {
+        let img_iter = utils::load_pdf_images(image_path)
+            .enumerate();
+        pin_mut!(img_iter);
+
+        while let Some((idx, img_result)) = img_iter.next().await {
+            match img_result {
+                Ok(img) => {
+                    if let Err(e) = run_ocr_single_img(
+                        &img,
+                        output_path,
+                        idx,
+                        &mut model,
+                        &config,
+                        &tokenizer,
+                        &device,
+                        &mut res_li,
+                    ) {
+                        error!("OCR failed for PDF page {}: {:?}", idx, e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to load PDF page {}: {:?}", idx, e);
+                }
+            }
         }
     } else {
-        let img = image::ImageReader::open(image_path)?.decode()?;
-        run_ocr_single_img(
+        let img = image::ImageReader::open(image_path)
+            .with_context(|| format!("Failed to open image file {}", image_path))?
+            .decode()
+            .with_context(|| format!("Failed to decode image {}", image_path))?;
+
+        if let Err(e) = run_ocr_single_img(
             &img,
             output_path,
             0,
@@ -93,7 +110,9 @@ pub async fn dolphin_ocr(
             &tokenizer,
             &device,
             &mut res_li,
-        );
+        ) {
+            error!("OCR failed for image {}: {:?}", image_path, e);
+        }
     }
     Ok(res_li)
 }
@@ -113,9 +132,44 @@ fn run_ocr_single_img(
 
     info!("正在处理第{}页...", idx);
     let output_file: PathBuf = output_path.join(format!("{}_page.txt", idx));
+
     if fs::exists(&output_file)? {
         info!("{} exist, to process next ", &output_file.to_str().unwrap());
     }
+    let layout_str = run_ocr_first_stage(img, model, config, tokenizer, device)?;
+
+    info!("run_ocr_second_stage, idx {}", idx);
+    let res = run_ocr_second_stage(
+        &img,
+        &layout_str,
+        model,
+        &config,
+        &tokenizer,
+        &device,
+        idx,
+        &copped_img_path,
+    );
+    match res {
+        Ok(mut ok_vec) => {
+            info!("批量执行OK");
+            let _ = fs::write(&output_file, ok_vec.join("\n"));
+            res_li.append(&mut ok_vec);
+            Ok(())
+        },
+        Err(e) => {
+            info!("批量执行NOT OK");
+            Err(e)
+        }
+    }
+}
+
+fn run_ocr_first_stage(
+    img: &DynamicImage,
+    model: &mut CusDonutModel,
+    config: &DonutConfig,
+    tokenizer: &Tokenizer,
+    device: &Device,
+) -> Result<String> {
     let img_tensor = utils::get_tensor_from_image(
         &img,
         config.image_height() as u32,
@@ -133,20 +187,7 @@ fn run_ocr_single_img(
     )?;
 
     layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
-    let mut res = run_ocr_second_stage(
-        &img,
-        &layout_str,
-        model,
-        &config,
-        &tokenizer,
-        &device,
-        idx,
-        &copped_img_path,
-    )?;
-
-    let _ = fs::write(&output_file, format!("{}", &res.join("\n")));
-    res_li.append(&mut res);
-    Ok(())
+    Ok(layout_str)
 }
 
 fn run_ocr_second_stage(
@@ -159,16 +200,20 @@ fn run_ocr_second_stage(
     i_index: usize,
     copped_img_path: &PathBuf,
 ) -> Result<Vec<String>> {
+
+    info!("run_ocr_second_stage {}", i_index);
     let (img_w, img_h) = full_image.dimensions();
     let target_width = config.image_width() as u32;
     let target_height = config.image_height() as u32;
     let re = Regex::new(r"\[(\d+,\d+,\d+,\d+)\]\[([^\]]+)\]")?;
 
-    let mut reading_order = 0;
-
     let layout_draw_path = copped_img_path.join(format!("{}-layout.png", i_index));
     let mut bbox_list: Vec<[u32; 4]> = Vec::new();
-    let mut ocr_text_li = Vec::new();
+
+    let mut pixel_values_li = Vec::new();
+    let mut prompt_li = Vec::new();
+
+    info!("prepare batch infer data....");
     for cap in re.captures_iter(layout_str) {
         let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
         let label = &cap[2];
@@ -194,44 +239,202 @@ fn run_ocr_second_stage(
             "equ" => "<s>Read formula in the image. <Answer/>",
             _ => "<s>Read text in the image. <Answer/>",
         };
-
-        info!("OCR Reading [{}]: [{:?}]", label, bbox);
-
-        let result_text = generate_text(model, &pixel_values, prompt, config, tokenizer, device)?;
-
-        info!("Result {}: {}", reading_order, result_text);
-        reading_order += 1;
-        ocr_text_li.push(format!(
-            "[{}] - [{}] : {}",
-            reading_order, label, result_text
-        ));
+        pixel_values_li.push(pixel_values);
+        prompt_li.push(prompt);
     }
-
+    info!("save layout image");
     utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
-    Ok(ocr_text_li)
+
+    info!("start seconde stage in batch mode...");
+    assert_eq!(&pixel_values_li.len(), &prompt_li.len(), "图片数量与prompt数量不一致, 无法进行模型推理.");
+    let res = generate_text_batch(model, &pixel_values_li, &prompt_li, config, tokenizer, device, 1)?;
+
+    info!("generate_text_batch result: {}", res.join(""));
+    Ok(res)
 }
 
 #[macro_export]
 macro_rules! measure_time {
 
     ($desc:expr, $expr:expr) => {{
-        println!("start {}", $desc);
-        let start = std::time::Instant::now();
-        let result: _ = $expr; // 自动推导类型
-        let duration = start.elapsed();
-        println!("end {}: {} ms", $desc, duration.as_millis());
-        result
+        let __module = module_path!();
+        let __file = file!();
+        let __line = line!();
+
+        info!("start [{}] {} ({}:{})", __module, $desc, __file, __line);
+
+        let __start = std::time::Instant::now();
+        let __result = $expr;
+        let __duration = __start.elapsed();
+
+        info!(
+            "end   [{}] {} -> type={} | {} ms",
+            __module,
+            $desc,
+            std::any::type_name_of_val(&__result),
+            __duration.as_millis()
+        );
+
+        __result
     }};
 
     ($($tt:tt)*) => {{
-        println!("start");
-        let start = std::time::Instant::now();
-        let result: _ = { $($tt)* };
-        let duration = start.elapsed();
-        println!("Time: {} ms", duration.as_millis());
-        result
+        let __module = module_path!();
+        let __file = file!();
+        let __line = line!();
+
+        let __start = std::time::Instant::now();
+        let __result = { $($tt)* };
+        let __duration = __start.elapsed();
+
+        info!(
+            "exec  [{}] ({}:{}) -> type={} | {} ms",
+            __module,
+            __file,
+            __line,
+            std::any::type_name_of_val(&__result),
+            __duration.as_millis()
+        );
+
+        __result
     }};
 }
+
+fn generate_text_batch(
+    model: &mut CusDonutModel,
+    pixel_values_list: &[Tensor],   // 每个 [1,C,H,W] 或 [C,H,W]
+    prompts: &[&str],
+    config: &DonutConfig,
+    tokenizer: &Tokenizer,
+    device: &Device,
+    batch_size: usize,
+) -> Result<Vec<String>> {
+
+    if pixel_values_list.len() != prompts.len() {
+        return Err(E::msg("pixel_values_list and prompts length mismatch"));
+    }
+
+    let mut outputs = Vec::with_capacity(prompts.len());
+
+    for (batch_start, batch_end) in (0..prompts.len())
+        .step_by(batch_size)
+        .map(|s| (s, usize::min(s + batch_size, prompts.len())))
+    {
+        model.clean_kv();
+
+        let batch_prompts = &prompts[batch_start..batch_end];
+        let batch_pixels  = &pixel_values_list[batch_start..batch_end];
+        let bsz = batch_prompts.len();
+
+        // ------------------------------------------------------------
+        // 1️⃣ 拼接图片 -> [B,C,H,W]
+        // ------------------------------------------------------------
+        let pixel_batch = Tensor::cat(batch_pixels, 0)?;
+        let encoder_output = model.encode(&pixel_batch)?;
+
+        // ------------------------------------------------------------
+        // 2️⃣ tokenize + padding
+        // ------------------------------------------------------------
+        let mut token_ids_batch: Vec<Vec<u32>> = Vec::with_capacity(bsz);
+
+        for prompt in batch_prompts {
+            let tokens = tokenizer.encode(*prompt, false).map_err(E::msg)?;
+            token_ids_batch.push(tokens.get_ids().to_vec());
+        }
+
+        let max_prompt_len = token_ids_batch
+            .iter()
+            .map(|v| v.len())
+            .max()
+            .unwrap();
+
+        // padding
+        for ids in &mut token_ids_batch {
+            while ids.len() < max_prompt_len {
+                ids.push(config.decoder.pad_token_id);
+            }
+        }
+
+        // flatten 成连续数组
+        let mut flat: Vec<u32> = Vec::with_capacity(bsz * max_prompt_len);
+        for ids in &token_ids_batch {
+            flat.extend(ids);
+        }
+
+        let input_tensor = Tensor::new(flat, device)?
+            .reshape((bsz, max_prompt_len))?;
+
+        // ------------------------------------------------------------
+        // 3️⃣ 一次性初始化 KV cache
+        // ------------------------------------------------------------
+        model.decode(&input_tensor, &encoder_output, 0)?;
+
+        let mut finished = vec![false; bsz];
+
+        // ------------------------------------------------------------
+        // 4️⃣ 自回归生成
+        // ------------------------------------------------------------
+        for step in 0..2048 {
+
+            // 取每个序列最后一个 token
+            let mut last_tokens = Vec::with_capacity(bsz);
+            for ids in &token_ids_batch {
+                last_tokens.push(*ids.last().unwrap());
+            }
+
+            let input_tensor =
+                Tensor::new(last_tokens, device)?
+                .unsqueeze(1)?;        // [B,1]
+
+            let logits = model.decode(
+                &input_tensor,
+                &encoder_output,
+                max_prompt_len + step - 1,
+            )?;
+
+            // logits: [B,1,V]
+            let logits = logits.squeeze(1)?; // [B,V]
+
+            let next_tokens =
+                logits.argmax(D::Minus1)?
+                .to_vec1::<u32>()?;
+
+            for i in 0..bsz {
+                if finished[i] { continue; }
+
+                let next = next_tokens[i];
+                token_ids_batch[i].push(next);
+
+                if next == config.decoder.eos_token_id {
+                    finished[i] = true;
+                }
+            }
+
+            if finished.iter().all(|&f| f) {
+                break;
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 5️⃣ decode 输出
+        // ------------------------------------------------------------
+        for (i, ids) in token_ids_batch.iter().enumerate() {
+
+            let mut decoded =
+                tokenizer.decode(ids, false).map_err(E::msg)?;
+
+            decoded = decoded
+                .replace(batch_prompts[i], "")
+                .replace("</s>", "")
+                .replace("\n", "");
+
+            outputs.push(decoded);
+        }
+    }
+
+    Ok(outputs)
+}
+
 
 fn generate_text(
     model: &mut CusDonutModel,
