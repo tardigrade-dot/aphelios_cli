@@ -1,0 +1,18 @@
+[package]
+name = "aphelios_ui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+aphelios_core = { path = "../aphelios_core" }
+slint = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+
+[build-dependencies]
+slint-build = "1.15.0"
+
+[package.metadata.slint]
+assets = ["assets/**"]

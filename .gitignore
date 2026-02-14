@@ -1,5 +1,5 @@
 /target
-/libpdfium.dylib
+output
+
 .DS_Store
-/output
 .fastembed_cache
