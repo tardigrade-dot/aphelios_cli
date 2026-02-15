@@ -9,6 +9,9 @@ pub fn init_tracing() {
     INIT.call_once(|| {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(Level::INFO)
+            // .with_env_filter(EnvFilter::from_default_env()) // 支持 RUST_LOG
+            .with_file(true) // 显示文件名
+            .with_line_number(true) // 显示行号
             .finish();
         tracing::subscriber::set_global_default(subscriber).unwrap();
     });

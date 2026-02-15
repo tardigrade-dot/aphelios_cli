@@ -8,7 +8,9 @@ use candle_core::{D, DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
 use futures_util::{StreamExt, pin_mut};
+use glob::glob;
 use image::{DynamicImage, GenericImageView, RgbImage};
+use itertools::izip;
 use regex::Regex;
 use serde_json::Value;
 use std::path::Path;
@@ -28,35 +30,39 @@ pub struct DolphinModel {
 
 impl DolphinModel {
     pub fn load_model(model_id: &str) -> Result<Self> {
-        let model_path = PathBuf::from(model_id);
-        let device = Device::new_metal(0).unwrap_or(Device::Cpu);
-        info!("Using device: {:?}", device);
-        let config_str = std::fs::read_to_string(model_path.join("config.json"))?;
-        let config: DonutConfig = serde_json::from_str(&config_str)?;
-        let tokenizer = Tokenizer::from_file(model_path.join("tokenizer.json")).map_err(E::msg)?;
-        let mut tensors = { safetensors::load(model_path.join("model.safetensors"), &device)? };
+        let model = (|| -> Result<_> {
+            let model_path = PathBuf::from(model_id);
+            let device = Device::new_metal(0).unwrap_or(Device::Cpu);
+            let config_str = std::fs::read_to_string(model_path.join("config.json"))?;
+            let config: DonutConfig = serde_json::from_str(&config_str)
+                .with_context(|| format!("config.json文件解析失败"))?;
+            let tokenizer =
+                Tokenizer::from_file(model_path.join("tokenizer.json")).map_err(E::msg)?;
+            let mut tensors = { safetensors::load(model_path.join("model.safetensors"), &device)? };
 
-        let lm_head_weight_key = "decoder.lm_head.weight";
-        let lm_head_bias_key = "decoder.lm_head.bias";
+            let lm_head_weight_key = "decoder.lm_head.weight";
+            let lm_head_bias_key = "decoder.lm_head.bias";
 
-        if tensors.contains_key(lm_head_weight_key) && !tensors.contains_key(lm_head_bias_key) {
-            info!("Mapping: Detected missing lm_head.bias, injecting zero-bias patch...");
-            let weight = &tensors[lm_head_weight_key];
-            let out_dim = weight.dim(0)?;
+            if tensors.contains_key(lm_head_weight_key) && !tensors.contains_key(lm_head_bias_key) {
+                info!("Mapping: Detected missing lm_head.bias, injecting zero-bias patch...");
+                let weight = &tensors[lm_head_weight_key];
+                let out_dim = weight.dim(0)?;
 
-            let fake_bias = Tensor::zeros(out_dim, DType::F32, &device)?;
-            tensors.insert(lm_head_bias_key.to_string(), fake_bias);
-        }
-        let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
-
-        // 5. 初始化模型
-        let model = CusDonutModel::load(&config, vb)?;
-        Ok(Self {
-            model,
-            config,
-            tokenizer,
-            device,
-        })
+                let fake_bias = Tensor::zeros(out_dim, DType::F32, &device)?;
+                tensors.insert(lm_head_bias_key.to_string(), fake_bias);
+            }
+            let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
+            // 5. 初始化模型
+            let model = CusDonutModel::load(&config, vb)?;
+            Ok(Self {
+                model,
+                config,
+                tokenizer,
+                device,
+            })
+        })()
+        .with_context(|| "模型加载失败")?;
+        Ok(model)
     }
 
     pub async fn dolphin_ocr(&mut self, image_path: &str, output_dir: &str) -> Result<Vec<String>> {
@@ -107,27 +113,23 @@ impl DolphinModel {
         let copped_img_path = PathBuf::from(output_path).join("copped_img");
         let _ = fs::create_dir_all(&copped_img_path);
 
-        info!("正在处理第{}页...", idx);
         let output_file: PathBuf = output_path.join(format!("{}_page.txt", idx));
 
         if fs::exists(&output_file)? {
             info!("{} exist, to process next ", &output_file.to_str().unwrap());
         }
+        info!("start process page [{}] ...", idx);
         let layout_str = self.run_ocr_first_stage(img)?;
 
-        info!("run_ocr_second_stage, idx {}", idx);
+        info!("end first stage layout_str {}", layout_str);
         let res = self.run_ocr_second_stage(&img, &layout_str, idx, &copped_img_path);
         match res {
             Ok(mut ok_vec) => {
-                info!("批量执行OK");
                 let _ = fs::write(&output_file, ok_vec.join("\n"));
                 res_li.append(&mut ok_vec);
                 Ok(())
             }
-            Err(e) => {
-                info!("批量执行NOT OK");
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -152,7 +154,6 @@ impl DolphinModel {
         i_index: usize,
         copped_img_path: &PathBuf,
     ) -> Result<Vec<String>> {
-        info!("run_ocr_second_stage {}", i_index);
         let (img_w, img_h) = full_image.dimensions();
         let target_width = self.config.image_width() as u32;
         let target_height = self.config.image_height() as u32;
@@ -164,8 +165,12 @@ impl DolphinModel {
         let mut pixel_values_li = Vec::new();
         let mut prompt_li = Vec::new();
 
-        info!("prepare batch infer data....");
+        let mut labels = Vec::new();
+        let mut reading_order = 0;
+        let mut reading_orders = Vec::new();
         for cap in re.captures_iter(layout_str) {
+            let curr_reading_order = reading_order;
+            reading_order += 1;
             let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
             let label = &cap[2];
 
@@ -190,17 +195,21 @@ impl DolphinModel {
                 "equ" => "<s>Read formula in the image. <Answer/>",
                 _ => "<s>Read text in the image. <Answer/>",
             };
+            reading_orders.push(curr_reading_order);
+            labels.push(format!("[{}] - [{}]", curr_reading_order, label));
             pixel_values_li.push(pixel_values);
             prompt_li.push(prompt);
         }
-        info!("save layout image");
         dolphin_utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
 
-        info!("start seconde stage in batch mode...");
+        info!("start seconde stage ...");
         let res = self.generate_text_batch(&pixel_values_li, &prompt_li, 1)?;
 
-        info!("generate_text_batch result: {}", res.join(""));
-        Ok(res)
+        let mut full_res = Vec::new();
+        for (_, la, ocr_content) in izip!(&reading_orders, labels, res) {
+            full_res.push(format!("{} : {}", la, ocr_content));
+        }
+        Ok(full_res)
     }
 
     fn generate_text_batch(
@@ -326,8 +335,7 @@ impl DolphinModel {
 
         let decoded = measure_time! {
             let tokens = self.tokenizer.encode(prompt, false).map_err(E::msg)?;
-            let mut token_ids = tokens.get_ids().to_vec();
-            // 编码图像
+            let mut token_ids = tokens.get_ids().to_vec();            // 编码图像
             let encoder_output = self.model.encode(&pixel_values)?;
 
             // 解码循环 (带 KV Cache 优化)
@@ -474,13 +482,67 @@ pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
 
     let mut dm = DolphinModel::load_model(&model_id)?;
 
-    let r = &dm
+    let _ = &dm
         .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())
         .await?;
-    println!("finished");
+    info!("ocr finished");
 
+    let page_datas = get_page_datas(output_path)?;
+    info!("start merge all file to single one");
     let output = Path::new(output_path);
-    let output_file: PathBuf = output.join("total.txt");
-    fs::write(&output_file, format!("{}", &r.join("\n")))?;
+    let output_file: PathBuf = output.join("total_in_one.txt");
+    fs::write(&output_file, format!("{}", &page_datas.join("\n")))?;
     Ok(())
+}
+
+fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
+    let mut page_datas: Vec<String> = Vec::new();
+    let re =
+        Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
+
+    let mut last_label = String::new();
+
+    for entry in glob(&format!("{}/[0-9]*_page.txt", output_path))? {
+        let path = entry?;
+        // 读取文件内容
+        let content = fs::read_to_string(&path)?;
+        let mut i_index = 0;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            if let Some(caps) = re.captures(line) {
+                let mut item_tag = caps["tag"].to_string();
+                let item_content = caps["content"].trim().to_string();
+
+                // 过滤掉不需要的标签
+                if ["fig", "tab", "equ", "code", "header", "foot", "fnote"]
+                    .contains(&item_tag.as_str())
+                {
+                    continue;
+                }
+                // half_para 统一为 para
+                if item_tag == "half_para" {
+                    item_tag = "para".to_string();
+                }
+
+                // 如果同标签且是本文件第一条，追加到上一条
+                if item_tag == last_label && i_index == 0 {
+                    if let Some(last) = page_datas.last_mut() {
+                        last.push_str(&item_content);
+                    }
+                } else {
+                    page_datas.push(item_content);
+                }
+
+                last_label = item_tag;
+                i_index += 1;
+            }
+        }
+    }
+
+    Ok(page_datas)
 }

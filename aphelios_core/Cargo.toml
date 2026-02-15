@@ -58,3 +58,4 @@ jieba-rs = { workspace = true }
 hf-hub = { workspace = true }
 rustfft = { workspace = true }
 num-complex = { workspace = true }
+itertools = { workspace = true }

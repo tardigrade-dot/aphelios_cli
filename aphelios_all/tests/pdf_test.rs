@@ -9,7 +9,7 @@ use image::DynamicImage;
 
 #[test]
 fn pdf_hayro_test() -> anyhow::Result<()> {
-    let pdf_path = "/Users/larry/github.com/colab-script2/data_src/extracted_pages.pdf";
+    let pdf_path = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
     let file = std::fs::read(pdf_path)?;
     let pdf = Pdf::new(Arc::new(file)).unwrap();
 

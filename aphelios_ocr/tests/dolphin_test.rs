@@ -1,6 +1,6 @@
-use anyhow::Result;
-use aphelios_core::measure_time;
-use aphelios_ocr::dolphin::model::DolphinModel;
+use anyhow::{Error, Result};
+use aphelios_core::{common::core_utils, measure_time};
+use aphelios_ocr::dolphin::model::{DolphinModel, run_ocr};
 use tracing::{error, info};
 
 #[tokio::test]
@@ -31,7 +31,7 @@ async fn dolphin_pdf_test() -> Result<()> {
     measure_time! {
         let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
         let mut dm = DolphinModel::load_model(model_id)?;
-        let image_path = "/Users/larry/github.com/colab-script2/data_src/extracted_pages.pdf";
+        let image_path = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
         // let image_path = "/Users/larry/Documents/resources/page_32.png";
         let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages";
 
@@ -44,6 +44,24 @@ async fn dolphin_pdf_test() -> Result<()> {
             Err(e) => {
                 error!("Failed to load PDF page {}", e);
             }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn dolphin_test2() -> Result<()> {
+    core_utils::init_tracing();
+    measure_time! {
+        let image_path = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
+        let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages";
+
+        let res = run_ocr(image_path, output_dir).await;
+        match res{
+            Ok(_) => {
+                info!("test success ");
+            }
+            Err(e) => error!("{:?}", e)
         }
     }
     Ok(())
