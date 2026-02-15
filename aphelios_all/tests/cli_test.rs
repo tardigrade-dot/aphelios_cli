@@ -2,7 +2,7 @@ use anyhow::Result;
 use aphelios_cli::commands::qwen_llm::qwen_infer;
 use assert_cmd::cargo::cargo_bin_cmd;
 use std::time::Instant;
-use tracing::{Level, debug, error, info, span, warn};
+use tracing::{debug, error, info, span, warn, Level};
 use tracing_subscriber;
 
 #[test]

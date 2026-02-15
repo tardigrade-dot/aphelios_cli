@@ -1,10 +1,9 @@
 [package]
-# 继承父项目的版本、编辑版本和作者信息
+name = "aphelios_search"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-
-name = "aphelios_cli"
+license.workspace = true
 
 [dependencies]
 aphelios_ocr = { path = "../aphelios_ocr" }
@@ -56,23 +55,3 @@ tracing-test = { workspace = true }
 imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
 #hf-hub = { workspace = true }
-
-[dev-dependencies]
-assert_cmd = "2"
-predicates = "3"
-
-
-[profile.bench]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-
-
-[build]
-rustc-wrapper = "sccache"
-
-#[target.x86_64-apple-darwin]
-#rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]
-
-

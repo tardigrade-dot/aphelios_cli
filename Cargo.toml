@@ -3,9 +3,11 @@
 members = [
     "aphelios_all",
     "aphelios_ui",
-    "aphelios_core",
+    "aphelios_ocr",
+    "aphelios_core", 
+    "aphelios_search",
 ]
-
+resolver = "1"
 # 2. 解决依赖版本冲突：在父项目统一管理依赖版本
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }  # 异步 sleep
@@ -54,7 +56,10 @@ futures-util = "0.3.31"
 tracing-test = "0.2.6"
 imara-diff = "0.2.0"
 jieba-rs = "0.8.1"
-#hf-hub = "0.4.3"
+hf-hub = "0.4.3"
+
+rustfft = "6.4.1"
+num-complex = "0.4.6"
 
 # 3. 统一管理包信息（可选，Rust 1.64+ 支持）
 [workspace.package]

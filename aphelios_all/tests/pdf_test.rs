@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::{Error as e, Result};
-use aphelios_cli::dolphin::utils;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;
-use hayro::{RenderSettings, render};
+use hayro::{render, RenderSettings};
 use image::DynamicImage;
 
 #[test]

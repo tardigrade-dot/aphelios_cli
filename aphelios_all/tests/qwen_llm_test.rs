@@ -1,14 +1,12 @@
 use anyhow::Result;
-use aphelios_cli::{
-    commands::{
-        qwen_llm,
-        qwenvl::{self},
-    },
-    measure_time,
+use aphelios_cli::commands::{
+    qwen_llm,
+    qwenvl::{self},
 };
+use aphelios_core::measure_time;
 use std::thread::sleep;
 use std::time::Duration;
-use tracing::{Level, info};
+use tracing::{info, Level};
 
 #[tokio::test]
 async fn qwen_vlm() -> Result<()> {

@@ -1,4 +1,5 @@
 use anyhow::{Error as E, Result};
+use aphelios_core::measure_time;
 use candle_core::backend::BackendDevice;
 use candle_core::{Device, MetalDevice};
 use mistralrs::{
@@ -6,8 +7,6 @@ use mistralrs::{
     VisionModelBuilder,
 };
 use tracing::info;
-
-use crate::measure_time;
 
 pub async fn run_vlm(model_id: &str) -> Result<()> {
     let metal: MetalDevice = MetalDevice::new(0)?;

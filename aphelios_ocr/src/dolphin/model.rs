@@ -1,12 +1,13 @@
+use crate::dolphin::dolphin_utils;
 use crate::dolphin::donut::CusDonutModel;
-use crate::dolphin::utils;
-use crate::measure_time;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
-use candle_core::{safetensors, DType, Device, Tensor, D};
+use aphelios_core::common::core_utils;
+use aphelios_core::measure_time;
+use candle_core::{D, DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use image::{DynamicImage, GenericImageView, RgbImage};
 use regex::Regex;
 use serde_json::Value;
@@ -59,14 +60,15 @@ impl DolphinModel {
     }
 
     pub async fn dolphin_ocr(&mut self, image_path: &str, output_dir: &str) -> Result<Vec<String>> {
-        utils::init_tracing();
+        core_utils::init_tracing();
 
         let output_path = Path::new(output_dir);
         let _ = std::fs::create_dir_all(output_path);
         let mut res_li = vec![];
         let ext = image_path.rsplit('.').next().unwrap_or("").to_lowercase();
         if ext == "pdf" {
-            let img_iter = utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
+            let img_iter =
+                dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
             pin_mut!(img_iter);
 
             while let Some((idx, img_result)) = img_iter.next().await {
@@ -130,7 +132,7 @@ impl DolphinModel {
     }
 
     fn run_ocr_first_stage(&mut self, img: &DynamicImage) -> Result<String> {
-        let img_tensor = utils::get_tensor_from_image(
+        let img_tensor = dolphin_utils::get_tensor_from_image(
             &img,
             self.config.image_height() as u32,
             self.config.image_width() as u32,
@@ -171,7 +173,7 @@ impl DolphinModel {
                 continue;
             }
 
-            let bbox = utils::transform_to_pixel_dynamic(
+            let bbox = dolphin_utils::transform_to_pixel_dynamic(
                 [coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
                 img_w,
                 img_h,
@@ -180,7 +182,7 @@ impl DolphinModel {
             );
 
             bbox_list.push(bbox);
-            let cropped_img = utils::crop_image(full_image, bbox, 5);
+            let cropped_img = dolphin_utils::crop_image(full_image, bbox, 5);
             let pixel_values = self.preprocess_like_donut(&cropped_img)?;
 
             let prompt = match label {
@@ -192,7 +194,7 @@ impl DolphinModel {
             prompt_li.push(prompt);
         }
         info!("save layout image");
-        utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
+        dolphin_utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
 
         info!("start seconde stage in batch mode...");
         let res = self.generate_text_batch(&pixel_values_li, &prompt_li, 1)?;

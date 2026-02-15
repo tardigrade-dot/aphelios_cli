@@ -2,11 +2,11 @@ use crate::cli::{Cli, Commands};
 
 pub mod cli;
 pub mod commands;
-pub mod dolphin;
 pub mod engine;
 pub mod error;
 
 use crate::error::Result;
+use aphelios_ocr::dolphin::model::run_ocr;
 
 pub async fn run(cli: Cli) -> Result<()> {
     match cli.command {
@@ -32,7 +32,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             pdf_path,
             output_path,
         } => {
-            dolphin::model::run_ocr(&pdf_path, &output_path).await?;
+            run_ocr(&pdf_path, &output_path).await?;
         }
     }
     Ok(())

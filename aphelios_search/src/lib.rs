@@ -1,11 +1,12 @@
 use anyhow::Result;
-use aphelios_cli::commands::utils;
-use fastembed::{EmbeddingModel, InitOptions, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank};
+use fastembed::{
+    EmbeddingModel, InitOptions, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank,
+};
 use jieba_rs::Jieba;
 use once_cell::sync::Lazy;
 use rusqlite::{params, Connection};
-use tracing::info;
 use std::collections::HashMap;
+use tracing::info;
 use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
 
 pub struct SearchEngine {
@@ -52,7 +53,7 @@ impl SearchEngine {
             "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY, path TEXT)",
             [],
         )?;
-        
+
         // 创建 FTS5 虚拟表，使用 unicode61 分词器以支持中文
         db.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
@@ -62,7 +63,6 @@ impl SearchEngine {
             [],
         )?;
 
-        utils::init_tracing();
         Ok(Self {
             index,
             db,
@@ -72,7 +72,6 @@ impl SearchEngine {
     }
 
     pub fn build_index(&mut self, file_names: Vec<String>) -> Result<()> {
-
         info!("start build index for search[sqlit, usearch]");
         let embeddings = self.embedding_model.embed(file_names.clone(), None)?;
 
@@ -95,16 +94,20 @@ impl SearchEngine {
         Ok(())
     }
 
-    pub fn search(&mut self, query: &str, top_k: usize) -> Result<Vec<(String, f32, String)>> {
-
+    /// 混合搜索：结合BM25和向量搜索
+    pub fn hybrid_search(
+        &mut self,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<(String, f32, String)>> {
         // =========================
         // 1️⃣ BM25 召回
         // =========================
         let tokenized_query = tokenize_chinese(query);
 
-        let mut stmt = self.db.prepare(
-            "SELECT rowid FROM files_fts WHERE path MATCH ?1 LIMIT ?2"
-        )?;
+        let mut stmt = self
+            .db
+            .prepare("SELECT rowid FROM files_fts WHERE path MATCH ?1 LIMIT ?2")?;
 
         let bm25_rows = stmt.query_map(params![tokenized_query, top_k as i64], |row| {
             Ok(row.get::<_, i64>(0)?)
@@ -112,23 +115,25 @@ impl SearchEngine {
 
         let mut candidate_ids = HashMap::new();
 
-        // for row in bm25_rows {
-        //     let id = row?;
-        //     candidate_ids.insert(id, "精确".to_string());
-        // }
+        for row in bm25_rows {
+            let id = row?;
+            candidate_ids.insert(id, "精确".to_string());
+        }
 
         info!("bm25 candidate size: {}", candidate_ids.len());
 
         // =========================
         // 2️⃣ 向量召回
         // =========================
-        let bge_query = query;//format!("为这个句子生成表示以用于检索相关文章：{}", query);
+        let bge_query = query;
         let query_embeddings = self.embedding_model.embed(vec![bge_query], None)?;
         let query_vec = &query_embeddings[0];
 
-        let vec_matches = self.index.search(query_vec, top_k)?;
+        // 增加向量召回的数量，以提高召回率
+        let extended_top_k = std::cmp::max(top_k * 2, 10); // 至少召回10个，或top_k的两倍
+        let vec_matches = self.index.search(query_vec, extended_top_k)?;
 
-        for (&key_u64, &distance) in vec_matches.keys.iter().zip(vec_matches.distances.iter()){
+        for (&key_u64, &distance) in vec_matches.keys.iter().zip(vec_matches.distances.iter()) {
             let id_i64 = key_u64 as i64;
 
             candidate_ids
@@ -141,15 +146,13 @@ impl SearchEngine {
                 params![id_i64],
                 |row| row.get(0),
             )?;
-            
+
             let similarity = 1.0 - distance;
 
-            info!(
-                "vector hit: path={}, distance={:.4}, similarity={:.4}",
-                path,
-                distance,
-                similarity
-            );
+            // info!(
+            //     "vector hit: path={}, distance={:.4}, similarity={:.4}",
+            //     path, distance, similarity
+            // );
         }
 
         info!("total merged candidates: {}", candidate_ids.len());
@@ -160,17 +163,25 @@ impl SearchEngine {
         let mut rerank_documents = Vec::new();
         let mut id_list = Vec::new();
         let mut label_map = HashMap::new();
+        let mut original_similarities = Vec::new(); // 存储原始相似度分数
 
         for (id, label) in candidate_ids {
-            let path: String = self.db.query_row(
-                "SELECT path FROM files WHERE id = ?1",
-                params![id],
-                |row| row.get(0),
-            )?;
+            let path: String =
+                self.db
+                    .query_row("SELECT path FROM files WHERE id = ?1", params![id], |row| {
+                        row.get(0)
+                    })?;
+
+            // 获取原始相似度分数
+            let query_embeddings = self.embedding_model.embed(vec![query], None)?;
+            let doc_embeddings = self.embedding_model.embed(vec![path.clone()], None)?;
+            let original_similarity =
+                self.calculate_cosine_similarity(&query_embeddings[0], &doc_embeddings[0]);
 
             rerank_documents.push(path);
             id_list.push(id);
             label_map.insert(id, label);
+            original_similarities.push(original_similarity);
         }
 
         if rerank_documents.is_empty() {
@@ -180,30 +191,32 @@ impl SearchEngine {
         // =========================
         // 4️⃣ rerank 精排
         // =========================
-        let prompt = "Given a web search query, retrieve relevant passages that answer the query";
-
-        let rerank_query = format!("{}:{}", prompt, query);
-        let rerank_scores = self
-            .rerank_model
-            .rerank(rerank_query, &rerank_documents, false, None)?;
+        let rerank_scores =
+            self.rerank_model
+                .rerank(query.to_string(), &rerank_documents, false, None)?;
 
         // =========================
-        // 5️⃣ 组织结果
+        // 5️⃣ 组织结果 - 结合原始相似度和重排序分数
         // =========================
         let mut final_results = Vec::new();
 
-        for (i, rerank_result) in rerank_scores.iter().enumerate() {
-            let id = id_list[i];
-            let label = label_map.get(&id).unwrap().clone();
-            let path = rerank_documents[i].clone();
-            let i_score = rerank_result.score;
+        for rerank_result in rerank_scores.iter() {
+            let doc_index = rerank_result.index; // 这是原始文档列表中的索引
+            if doc_index < id_list.len() {
+                let id = id_list[doc_index];
+                let label = label_map.get(&id).unwrap().clone();
+                let path = rerank_documents[doc_index].clone();
+                let rerank_score = rerank_result.score;
+                let original_similarity = original_similarities[doc_index];
 
-            // let prob = 1.0 / (1.0 + (-i_score).exp());
+                // 结合原始相似度和重排序分数
+                let combined_score = 0.3 * original_similarity + 0.7 * rerank_score;
 
-            final_results.push((path.to_string(), i_score, label));
+                final_results.push((path.to_string(), combined_score, label));
+            }
         }
 
-        // rerank 分数越大越相关
+        // 按组合分数排序
         final_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
         // 只返回 top_k
@@ -212,30 +225,20 @@ impl SearchEngine {
         Ok(final_results)
     }
 
-}
+    // 辅助函数：计算余弦相似度
+    fn calculate_cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() {
+            return 0.0;
+        }
 
-#[test]
-fn main_test() -> Result<()> {
-    let mut se = SearchEngine::new()?;
+        let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-    let file_list = vec![
-        "二手时间".into(),
-        "苏联简史".into(),
-        "切尔诺贝利的悲鸣".into(),
-        "中国文学史".into(),
-        "论人生短暂".into(),
-        "地图在动".into(),
-        "苏联的最后一天".into(),
-    ];
+        if magnitude_a == 0.0 || magnitude_b == 0.0 {
+            return 0.0;
+        }
 
-    se.build_index(file_list)?;
-
-    println!("\n搜索关键词: '苏联'");
-    let results = se.search("苏联历史", 5)?;
-
-    for (name, score, label) in results {
-        println!("[{}] {} (得分: {:.4})", label, name, score);
+        dot_product / (magnitude_a * magnitude_b)
     }
-
-    Ok(())
 }

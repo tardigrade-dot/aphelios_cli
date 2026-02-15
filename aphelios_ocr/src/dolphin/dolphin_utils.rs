@@ -3,27 +3,18 @@ use std::sync::Arc;
 
 use anyhow::{Error as E, Result};
 use async_stream::{stream, try_stream};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, pin_mut};
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;
-use hayro::{render, RenderSettings};
+use hayro::{RenderSettings, render};
 use image::{DynamicImage, GenericImageView, Rgba};
 use imageproc::drawing::draw_hollow_rect_mut;
 use imageproc::rect::Rect;
 use mistralrs::{Device, Tensor};
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 static INIT: std::sync::Once = std::sync::Once::new();
-
-pub fn init_tracing() {
-    INIT.call_once(|| {
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(Level::TRACE)
-            .finish();
-        tracing::subscriber::set_global_default(subscriber).unwrap();
-    });
-}
 
 pub fn draw_bbox_and_save_multi(
     img: &DynamicImage,

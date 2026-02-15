@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
 use anyhow::{Error as E, Result};
-use aphelios_cli::commands::{
-    minersu::{self, preprocess_to_image},
-    utils,
-};
-use candle_core::{MetalDevice, backend::BackendDevice};
+use aphelios_cli::commands::minersu::{self, preprocess_to_image};
+use aphelios_core::common;
+use candle_core::{backend::BackendDevice, MetalDevice};
 use mistralrs::{Device, IsqType, Model, VisionModelBuilder};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use tracing::{Level, info};
+use tracing::{info, Level};
 
 static DEFAULT_PROMPTS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     HashMap::from([
@@ -96,7 +94,7 @@ async fn ocr_stage_second(model: &Model, layout_str: String) -> Result<()> {
             .get(item.label.as_str()) // 动态 key → Option
             .unwrap_or(&DEFAULT_PROMPTS["[default]"]);
 
-        let i1 = utils::crop_image(&image2, [item.x1, item.x2, item.y1, item.y2], 5);
+        let i1 = common::core_utils::crop_image(&image2, [item.x1, item.x2, item.y1, item.y2], 5);
         let _ = i1.save(format!("./debug_{}.png", i));
 
         let res = minersu::run_mineru2(&model, i1, &prompt.to_string()).await?;
@@ -114,7 +112,7 @@ fn pic_cap() -> Result<()> {
         .map_err(|e| E::msg(format!("Failed to decode image: {}", e)))?;
 
     let image2 = preprocess_to_image(image);
-    let i1 = utils::crop_image(&image2, [152, 113, 862, 132], 5);
+    let i1 = common::core_utils::crop_image(&image2, [152, 113, 862, 132], 5);
     let _ = i1.save("./aaa.png");
 
     Ok(())

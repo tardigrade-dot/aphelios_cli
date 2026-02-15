@@ -1,5 +1,6 @@
 use anyhow::Result;
-use aphelios_cli::{dolphin::model::DolphinModel, measure_time};
+use aphelios_core::measure_time;
+use aphelios_ocr::dolphin::model::DolphinModel;
 use tracing::{error, info};
 
 #[tokio::test]
