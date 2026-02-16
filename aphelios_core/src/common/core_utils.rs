@@ -223,6 +223,21 @@ pub fn load_and_resample_audio(path: &str, target_sr: u32) -> Result<Vec<Vec<f32
     Ok(resample_audio_linear(&channel_data, src_sr, target_sr))
 }
 
+pub fn get_append_filename_with_ext(input: &str, appender: &str, ext: &str) -> String {
+    let path = Path::new(input);
+
+    // 1. 获取父目录，如果没有则默认为当前目录 "."
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+
+    // 2. 获取文件名主体 (Stem)
+    let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+
+    // 4. 使用 join 构建新路径，自动处理路径分隔符
+    let new_filename = format!("{}{}.{}", file_stem, appender, ext);
+
+    parent.join(new_filename).to_string_lossy().into_owned()
+}
+
 pub fn get_append_filename(input: &str, appender: &str) -> String {
     let path = Path::new(input);
 

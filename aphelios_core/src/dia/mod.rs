@@ -1,11 +1,11 @@
 use std::time::Instant;
 
-use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
+use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, SpeakerSegment};
 
-use anyhow::{Ok, Result};
 use crate::common::core_utils::load_and_resample_audio;
+use anyhow::{Ok, Result};
 
-pub fn dia_process(audio_path: &str, model_path: &str) -> Result<()> {
+pub fn dia_process(audio_path: &str, model_path: &str) -> Result<Vec<SpeakerSegment>> {
     let target_sample_rate = 16000;
     // 使用一站式加载函数 (处理了位深转换、声道对齐、重采样)
     let audio_data = load_and_resample_audio(audio_path, target_sample_rate)?;
@@ -46,14 +46,5 @@ pub fn dia_process(audio_path: &str, model_path: &str) -> Result<()> {
         speaker_segments.len(),
         (Instant::now() - start).as_secs(),
     );
-
-    // Print raw diarization segments
-    println!("\nRaw diarization segments:");
-    for seg in &speaker_segments {
-        println!(
-            "  [{:06.2}s - {:06.2}s] Speaker {}",
-            seg.start, seg.end, seg.speaker_id
-        );
-    }
-    Ok(())
+    Ok(speaker_segments)
 }

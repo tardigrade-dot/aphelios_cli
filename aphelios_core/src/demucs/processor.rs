@@ -199,6 +199,7 @@ impl DemucsProcessor {
         })
     }
 
+    /// coreml会卡住
     pub fn load_model(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let coreml_options = CoreML::default().with_subgraphs(true);
         let cpu_provider = CPU::default().build();
