@@ -53,3 +53,4 @@ imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
 #hf-hub = { workspace = true }
 itertools = { workspace = true }
+measureme = { workspace = true }

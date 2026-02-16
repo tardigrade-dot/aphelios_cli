@@ -5,3 +5,4 @@ output
 .fastembed_cache
 assets
 onnx_models
+/test_data

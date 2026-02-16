@@ -333,9 +333,9 @@ impl DolphinModel {
     fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str) -> Result<String> {
         self.model.clean_kv();
 
-        let decoded = measure_time! {
+        let decoded = measure_time!("模型访问", {
             let tokens = self.tokenizer.encode(prompt, false).map_err(E::msg)?;
-            let mut token_ids = tokens.get_ids().to_vec();            // 编码图像
+            let mut token_ids = tokens.get_ids().to_vec(); // 编码图像
             let encoder_output = self.model.encode(&pixel_values)?;
 
             // 解码循环 (带 KV Cache 优化)
@@ -375,14 +375,15 @@ impl DolphinModel {
             }
 
             // 8. 输出结果
-            let decoded = self.tokenizer
+            let decoded = self
+                .tokenizer
                 .decode(&token_ids, false)
                 .map_err(E::msg)?
                 .replace(prompt, "")
                 .replace("</s>", "")
                 .replace("\n", "");
             decoded
-        };
+        });
 
         Ok(decoded)
     }
@@ -485,13 +486,14 @@ pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     let _ = &dm
         .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())
         .await?;
-    info!("ocr finished");
+    info!("ocr finished. start merge all file to single one");
 
     let page_datas = get_page_datas(output_path)?;
-    info!("start merge all file to single one");
     let output = Path::new(output_path);
     let output_file: PathBuf = output.join("total_in_one.txt");
     fs::write(&output_file, format!("{}", &page_datas.join("\n")))?;
+
+    info!("all text saved in {}", &output_file.to_str().unwrap());
     Ok(())
 }
 

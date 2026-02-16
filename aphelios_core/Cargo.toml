@@ -59,3 +59,8 @@ hf-hub = { workspace = true }
 rustfft = { workspace = true }
 num-complex = { workspace = true }
 itertools = { workspace = true }
+eyre = { workspace = true }
+parakeet-rs = { workspace = true }
+symphonia = { workspace = true }
+byteorder = { workspace = true }
+rubato = { workspace = true }

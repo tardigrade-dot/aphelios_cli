@@ -1,23 +1,14 @@
-use std::path::Path;
-
 use anyhow::Result;
-use anyhow::bail;
 use candle_core::{DType, Device};
-use qwen_tts::io::batch_items::load_batch_items;
-use qwen_tts::io::model_path::get_model_path;
-use qwen_tts::io::output_path::get_output_path;
 use qwen_tts::io::{GenerationArgs, IoArgs};
 use qwen_tts::model::loader::{LoaderConfig, ModelLoader};
-use qwen_tts::nn::mt_rng::set_seed;
-use qwen_tts::synthesis::detect_mode::{DetectedMode, determine_mode};
-use qwen_tts::synthesis::synthesize_voice::{
-    synthesize_custom_voice_item, synthesize_voice_clone_item, synthesize_voice_design_item,
-};
-use qwen_tts::synthesis::tokenizer::{TokenizerCommand, run_tokenizer};
+use qwen_tts::synthesis::synthesize_voice::synthesize_voice_clone_item;
+use std::path::Path;
+use tracing::info;
 
 #[test]
 fn qwen3_tts_test() -> Result<()> {
-    let device = Device::new_metal(0).unwrap();
+    let device: Device = Device::new_metal(0).unwrap();
     let mut dtype = DType::BF16;
 
     let loader_config: LoaderConfig = LoaderConfig {
@@ -36,8 +27,7 @@ fn qwen3_tts_test() -> Result<()> {
         .load_tts_model(&device, &loader_config)
         .map_err(|e| anyhow::anyhow!("Failed to load model: {}", e))?;
 
-    println!("Model loaded!");
-    tracing::info!(
+    info!(
         model_type = ?model.model_type(),
         has_text_tokenizer = model.has_text_processor(),
         "Model details"

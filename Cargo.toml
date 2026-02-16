@@ -22,7 +22,7 @@ thiserror = "2"
 rand = "0.9"           # 生成随机数
 indicatif = "0.17"     # 进度条
 
-ort = { version = "2.0.0-rc.11", features = [ "coreml" ] }
+ort = { version = "2.0.0-rc.11", features = [ "coreml", "ndarray" ] }
 ndarray = "0.17.2"
 tokenizers = "0.22.2"
 image = "0.25.9"
@@ -58,7 +58,12 @@ imara-diff = "0.2.0"
 jieba-rs = "0.8.1"
 hf-hub = "0.4.3"
 itertools = "0.14.0"
-
+measureme = "12.0.3"
+eyre = "0.6.12"
+parakeet-rs = { version = "0.2", features = ["sortformer"] }
+symphonia = "0.5.5"
+byteorder = "1.5.0"
+rubato = "0.16.2"
 rustfft = "6.4.1"
 num-complex = "0.4.6"
 
@@ -74,6 +79,6 @@ qwen_tts = { git = "https://github.com/danielclough/qwen3-tts-rs", branch = "mai
 candle-core = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
 candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
 candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
+#candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
 #candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
 candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
