@@ -21,7 +21,7 @@ fn asr_test() -> Result<()> {
     let device = Device::Metal(metal);
 
     let model_dir = "/Volumes/sw/pretrained_models/whisper-large-v3-turbo";
-    let input = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.wav";
+    let input = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
 
     let output_path = Path::new(input)
         .with_extension("srt")

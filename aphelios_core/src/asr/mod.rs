@@ -12,6 +12,7 @@ use rand::distr::weighted::WeightedIndex;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use tokenizers::Tokenizer;
+use tracing::info;
 
 pub fn get_mei(config: &Config) -> Result<Vec<u8>> {
     let mel_bytes = match config.num_mel_bins {
@@ -528,6 +529,12 @@ impl Decoder {
                 let mut tokens_to_decode = vec![];
                 let mut prev_timestamp_s = 0f32;
 
+                let all_tokens: Vec<String> = dr
+                    .tokens
+                    .iter()
+                    .map(|&id| self.tokenizer.id_to_token(id).unwrap_or_default())
+                    .collect();
+                println!("Raw tokens: {:?}", all_tokens);
                 for &token in dr.tokens.iter() {
                     if token == self.sot_token || token == self.eot_token {
                         continue;
@@ -554,6 +561,8 @@ impl Decoder {
                                 });
                             }
                             tokens_to_decode.clear();
+                        } else {
+                            info!("tokens is empty, {} - {}", prev_timestamp_s, timestamp_s);
                         }
                         prev_timestamp_s = timestamp_s;
                     } else {
@@ -645,7 +654,9 @@ pub fn run_whisper(model_dir: &str, input: &str, device: &Device) -> Result<Vec<
         unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
 
-    let language_token = None;
+    // Whisper v3/v3-turbo requires explicit language token
+    // Detect language or default to English
+    let language_token = Some(token_id(&tokenizer, "<|en|>").unwrap_or(50259));
     let mut dc = Decoder::new(
         model,
         tokenizer,
