@@ -534,7 +534,6 @@ impl Decoder {
                     .iter()
                     .map(|&id| self.tokenizer.id_to_token(id).unwrap_or_default())
                     .collect();
-                println!("Raw tokens: {:?}", all_tokens);
                 for &token in dr.tokens.iter() {
                     if token == self.sot_token || token == self.eot_token {
                         continue;
@@ -588,7 +587,7 @@ impl Decoder {
             }
 
             // 构建 Segment
-            let mut segment = Segment {
+            let segment = Segment {
                 start: time_offset,
                 duration: segment_duration,
                 dr,

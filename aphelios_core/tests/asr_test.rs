@@ -20,7 +20,7 @@ fn asr_test() -> Result<()> {
     let metal = MetalDevice::new(0)?;
     let device = Device::Metal(metal);
 
-    let model_dir = "/Volumes/sw/pretrained_models/whisper-large-v3-turbo";
+    let model_dir = "/Volumes/sw/pretrained_models/distil-large-v3.5";
     let input = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
 
     let output_path = Path::new(input)

@@ -13,6 +13,7 @@ use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::Value,
 };
+use tracing::info;
 
 const MODEL_PATH: &str = "/Volumes/sw/onnx_models/silero-vad/onnx/model.onnx";
 const AUDIO_PATH: &str = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
@@ -25,7 +26,7 @@ fn load_wav_audio(path: &str) -> Result<Vec<f32>> {
     let mut reader = WavReader::open(path)?;
     let spec = reader.spec();
 
-    eprintln!("音频规格：{:?} channels={}", spec, spec.channels);
+    info!("音频规格：{:?} channels={}", spec, spec.channels);
 
     let samples: Vec<f32> = match spec.sample_format {
         hound::SampleFormat::Int => match spec.bits_per_sample {
@@ -62,7 +63,7 @@ fn chunk_audio(audio: &[f32], chunk_size: usize) -> Vec<Vec<f32>> {
 
 #[test]
 fn test_silero_vad() -> Result<()> {
-    eprintln!("加载模型：{}", MODEL_PATH);
+    info!("加载模型：{}", MODEL_PATH);
 
     let coreml_options = CoreML::default().with_subgraphs(true);
     let coreml_provider = coreml_options.build();
@@ -74,11 +75,11 @@ fn test_silero_vad() -> Result<()> {
         .with_intra_threads(1)?
         .commit_from_file(MODEL_PATH)?;
 
-    eprintln!("模型加载完成");
+    info!("模型加载完成");
 
     // 2. 加载音频
     let audio_data = load_wav_audio(AUDIO_PATH)?;
-    eprintln!("音频加载完成：{} 采样点", audio_data.len());
+    info!("音频加载完成：{} 采样点", audio_data.len());
 
     // 3. 准备初始状态 [2, 1, 128] - Silero VAD v4/v5 使用 128 维状态
     let mut state = Array::<f32, _>::zeros((2, 1, 128));
@@ -86,7 +87,7 @@ fn test_silero_vad() -> Result<()> {
 
     // 4. 分块处理
     let chunks = chunk_audio(&audio_data, CHUNK_SIZE);
-    eprintln!("分块数量：{}", chunks.len());
+    info!("分块数量：{}", chunks.len());
 
     let mut speech_frames = 0;
     let mut total_frames = 0;
@@ -122,7 +123,7 @@ fn test_silero_vad() -> Result<()> {
 
         // 每 100 帧打印一次进度
         if (i + 1) % 100 == 0 {
-            eprintln!(
+            info!(
                 "处理进度：{}/{} 帧 ({:.1}%)",
                 i + 1,
                 chunks.len(),
@@ -133,20 +134,20 @@ fn test_silero_vad() -> Result<()> {
 
     // 5. 统计结果
     let speech_ratio = speech_frames as f32 / total_frames as f32;
-    eprintln!("\n========== VAD 检测结果 ==========");
-    eprintln!("总帧数：{}", total_frames);
-    eprintln!("语音帧数：{} ({:.1}%)", speech_frames, speech_ratio * 100.0);
-    eprintln!(
+    info!("\n========== VAD 检测结果 ==========");
+    info!("总帧数：{}", total_frames);
+    info!("语音帧数：{} ({:.1}%)", speech_frames, speech_ratio * 100.0);
+    info!(
         "音频时长：{:.2} 秒",
         audio_data.len() as f32 / SAMPLE_RATE as f32
     );
-    eprintln!("================================");
+    info!("================================");
 
     // 6. 检测语音片段
     let segments = detect_speech_segments(&probabilities, CHUNK_SIZE, SAMPLE_RATE);
-    eprintln!("\n检测到的语音片段数量：{}", segments.len());
+    info!("\n检测到的语音片段数量：{}", segments.len());
     for (i, (start, end, duration)) in segments.iter().enumerate() {
-        eprintln!(
+        info!(
             "  片段 {}: {:.2}s - {:.2}s (时长：{:.2}s)",
             i + 1,
             start,
