@@ -8,34 +8,37 @@ use std::path::Path;
 use anyhow::Result;
 use aphelios_core::{
     asr::{generate_srt, run_whisper},
-    common::core_utils,
+    utils,
 };
-use candle_core::{Device, MetalDevice, backend::BackendDevice};
+use candle_core::Device;
 
 use tracing::{error, info};
 
-#[test]
-fn asr_test() -> Result<()> {
-    core_utils::init_tracing();
-    let metal = MetalDevice::new(0)?;
-    let device = Device::Metal(metal);
+const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/distil-large-v3.5";
+const AUDIO_16K: &str = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
+// const AUDIO_44K: &str = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.wav";
+const AUDIO_44K: &str = "/Users/larry/coderesp/aphelios_cli/test_data/RYdrPg6xdYo_16k.wav";
 
-    let model_dir = "/Volumes/sw/pretrained_models/distil-large-v3.5";
-    let input = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
+fn run_asr_test(input: &str, output_suffix: &str) -> Result<()> {
+    let device = Device::new_metal(0)?;
 
     let output_path = Path::new(input)
+        .with_file_name(format!(
+            "{}{}",
+            Path::new(input).file_stem().unwrap().to_str().unwrap(),
+            output_suffix
+        ))
         .with_extension("srt")
         .to_str()
         .unwrap()
         .to_string();
 
     println!("正在处理音频：{}", input);
-    let result = run_whisper(model_dir, input, &device);
+    let result = run_whisper(ASR_MODEL_DIR, input, &device);
     info!("print asr result");
     match result {
         Ok(segments) => {
             for segment in &segments {
-                // 1. 打印大段落的边界（可选，用颜色或分隔线增加可读性）
                 println!(
                     "\n[Segment: {:.2}s - {:.2}s]",
                     segment.start,
@@ -43,7 +46,6 @@ fn asr_test() -> Result<()> {
                 );
 
                 if !segment.sub_segments.is_empty() {
-                    // 2. 如果有详细时间戳，逐行对齐打印
                     for sub in &segment.sub_segments {
                         println!(
                             "  => [{:>6.2}s -> {:>6.2}s]  {}",
@@ -53,7 +55,6 @@ fn asr_test() -> Result<()> {
                         );
                     }
                 } else {
-                    // 3. 兜底逻辑：如果没有子片段，打印整段文本（并清理掉可能残留的特殊字符）
                     let clean_text = segment.dr.text.replace(
                         |c: char| c == '<' || c == '|' || c == '>' || c.is_numeric() || c == '.',
                         "",
@@ -71,4 +72,18 @@ fn asr_test() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[test]
+fn asr_test_16k() -> Result<()> {
+    utils::init_logging();
+    info!("=== ASR Test with 16kHz audio ===");
+    run_asr_test(AUDIO_16K, "_asr_16k")
+}
+
+#[test]
+fn asr_test_44k_to_16k() -> Result<()> {
+    utils::init_logging();
+    info!("=== ASR Test with 44.1kHz audio (auto resampled to 16kHz) ===");
+    run_asr_test(AUDIO_44K, "_asr_44k")
 }

@@ -2,18 +2,26 @@ use std::time::Instant;
 
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, SpeakerSegment};
 
-use crate::common::core_utils::load_and_resample_audio;
+use crate::audio::{AudioLoader, Resampler, ResampleQuality, StereoBuffer};
 use anyhow::{Ok, Result};
 
 pub fn dia_process(audio_path: &str, model_path: &str) -> Result<Vec<SpeakerSegment>> {
     let target_sample_rate = 16000;
-    // 使用一站式加载函数 (处理了位深转换、声道对齐、重采样)
-    let audio_data = load_and_resample_audio(audio_path, target_sample_rate)?;
+    
+    // 加载音频
+    let audio = AudioLoader::new().load(audio_path)?;
+    let mut stereo = audio.to_stereo();
+    
+    // 重采样到 16kHz
+    if stereo.sample_rate != target_sample_rate {
+        let resampler = Resampler::new().with_quality(ResampleQuality::Fast);
+        stereo = resampler.resample_stereo(&stereo, target_sample_rate)?;
+    }
 
-    // audio_data 结构为 [Left_Channel, Right_Channel]，转换为交错格式
-    let audio: Vec<f32> = audio_data[0]
+    // 转换为交错格式
+    let audio: Vec<f32> = stereo.left
         .iter()
-        .zip(audio_data[1].iter())
+        .zip(stereo.right.iter())
         .flat_map(|(&l, &r)| vec![l, r])
         .collect();
 

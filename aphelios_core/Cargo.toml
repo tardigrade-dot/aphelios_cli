@@ -37,7 +37,7 @@ candle-nn = { workspace = true }
 candle-transformers = { workspace = true }
 
 regex = { workspace = true }
-mistralrs = { workspace = true }
+#mistralrs = { workspace = true }
 
 reqwest = { workspace = true }
 once_cell = { workspace = true }
@@ -64,3 +64,19 @@ parakeet-rs = { workspace = true }
 symphonia = { workspace = true }
 byteorder = { workspace = true }
 rubato = { workspace = true }
+
+[features]
+wgpu = [
+    "candle-core/wgpu", 
+    "candle-nn/wgpu", 
+    "candle-transformers/wgpu",
+]
+metal = [
+    "candle-core/metal", 
+    "candle-nn/metal", 
+    "candle-transformers/metal",
+    #"mistralrs/metal",
+    "ort/coreml",
+    "qwen_tts/metal", 
+    "qwen_tts/accelerate",
+]

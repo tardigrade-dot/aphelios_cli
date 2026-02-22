@@ -2,7 +2,7 @@
 
 创建: cargo new hello_cli
 安装指令: cargo install --path .
-卸载指令: cargo uninstall hello_cli
+卸载指令: cargo uninstall aphelios_cli
 运行指令: aphelios_cli run --verbose
 
 cargo run --profile bench

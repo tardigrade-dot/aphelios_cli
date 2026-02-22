@@ -6,3 +6,5 @@ output
 assets
 onnx_models
 /test_data
+
+Cargo.lock

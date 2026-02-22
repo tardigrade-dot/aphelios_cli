@@ -2,8 +2,7 @@ use crate::dolphin::dolphin_utils;
 use crate::dolphin::donut::CusDonutModel;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
-use aphelios_core::common::core_utils;
-use aphelios_core::measure_time;
+use aphelios_core::{measure_time, utils};
 use candle_core::{D, DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
@@ -66,7 +65,7 @@ impl DolphinModel {
     }
 
     pub async fn dolphin_ocr(&mut self, image_path: &str, output_dir: &str) -> Result<Vec<String>> {
-        core_utils::init_tracing();
+        utils::logger::init_logging();
 
         let output_path = Path::new(output_dir);
         let _ = std::fs::create_dir_all(output_path);
@@ -537,7 +536,7 @@ fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
                         last.push_str(&item_content);
                     }
                 } else {
-                    page_datas.push(item_content);
+                    page_datas.push(item_content.to_string());
                 }
 
                 last_label = item_tag;

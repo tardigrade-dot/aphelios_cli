@@ -1,13 +1,15 @@
 [workspace]
 # 1. 包含哪些子项目
 members = [
-    "aphelios_all",
+    "aphelios_tool",
     "aphelios_ui",
     "aphelios_ocr",
     "aphelios_core", 
-    "aphelios_search",
+    "aphelios_search", 
+    "aphelios_models", 
+    "aphelios_wasm",
 ]
-resolver = "1"
+resolver = "2"
 # 2. 解决依赖版本冲突：在父项目统一管理依赖版本
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }  # 异步 sleep
@@ -20,11 +22,11 @@ anyhow = "1"
 thiserror = "2"
 
 rand = "0.9"           # 生成随机数
-indicatif = "0.17"     # 进度条
+indicatif = "0.18.4"     # 进度条
 
-ort = { version = "2.0.0-rc.11", features = [ "coreml", "ndarray" ] }
+ort = { version = "2.0.0-rc.11", features = [ "ndarray" ] }
 ndarray = "0.17.2"
-tokenizers = "0.22.2"
+tokenizers = { version = "0.22.0", default-features = false }
 image = "0.25.9"
 imageproc = "0.26.0"
 
@@ -33,18 +35,20 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3" }
 tracing-indicatif = "0.3.14"
 
-candle-core = { version = "0.9.2", features = ["metal"] }
-candle-nn = { version = "0.9.2", features = ["metal"] }
+candle-core = { version = "0.9.2" }
+candle-nn = { version = "0.9.2" }
 candle-transformers = { version = "0.9.2" }
+candle-wgpu-kernels = { version = "0.9.2" }
+wgpu-compute-layer = { version = "0.9.2" }
 
 regex = "1.12.2"
-mistralrs = {version = "0.7.0", features = ["metal"]}
+#mistralrs = {version = "0.7.1-alpha.1" }
 
 reqwest = "0.13.1"
 once_cell = "1.21.3"
 epub = "2.1.5"
 
-qwen_tts = { version = "0.1.1", features = ["metal", "accelerate", "audio-loading", "timing"] }
+qwen_tts = { version = "0.1.1", features = ["audio-loading", "timing", "progressbar"] }
 usearch = "2.23.0"
 
 fastembed = { version = "5.8.1", features = ["qwen3"] }
@@ -67,6 +71,11 @@ rubato = "0.16.2"
 rustfft = "6.4.1"
 num-complex = "0.4.6"
 
+log = "0.4"
+num-traits = "0.2.15"
+safetensors = "0.7.0"
+web-time = "=1.1.0"
+
 # 3. 统一管理包信息（可选，Rust 1.64+ 支持）
 [workspace.package]
 version = "0.1.0"
@@ -75,10 +84,22 @@ authors = ["Your Name <email@example.com>"]
 license = "MIT"
 
 [patch.crates-io]
-qwen_tts = { git = "https://github.com/danielclough/qwen3-tts-rs", branch = "main" }
-candle-core = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-#candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-#candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
-candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", branch = "main" }
+
+qwen_tts = { path = "/Users/larry/github.com/qwen3-tts-rs/qwen_tts" }
+#qwen_tts = { git = "https://github.com/tardigrade-dot/qwen3-tts-rs", version = "0.9.2", rev = "e3c341f" }
+
+candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+candle-wgpu-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+wgpu-compute-layer = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+#candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+#candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+#mistralrs = {git = "https://github.com/EricLBuehler/mistral.rs", version = "0.7.1-alpha.1", rev = "2a10942" }
+
+[profile.release]
+opt-level = 3        # 最高等级优化
+debug = true         # 关键！保留调试符号，这样火焰图才能显示函数名
+lto = "thin"         # 链接时优化，能进一步提速
+

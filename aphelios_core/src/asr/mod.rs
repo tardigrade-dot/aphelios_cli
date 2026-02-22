@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result};
-use candle_core::{Device, IndexOp, MetalDevice, Tensor, backend::BackendDevice};
+use candle_core::{Device, IndexOp, Tensor, backend::BackendDevice};
 use candle_nn::{
     VarBuilder,
     ops::{log_softmax, softmax},
@@ -655,6 +655,67 @@ pub fn run_whisper(model_dir: &str, input: &str, device: &Device) -> Result<Vec<
 
     // Whisper v3/v3-turbo requires explicit language token
     // Detect language or default to English
+    let language_token = Some(token_id(&tokenizer, "<|en|>").unwrap_or(50259));
+    let mut dc = Decoder::new(
+        model,
+        tokenizer,
+        299792458,
+        &device,
+        language_token,
+        true,
+        None,
+        false,
+    )?;
+    let res = dc.run(&mel)?;
+    Ok(res)
+}
+
+/// Run Whisper ASR on PCM data directly (without reading from file)
+///
+/// # Arguments
+/// * `model_dir` - Path to the Whisper model directory
+/// * `pcm_data` - Audio samples as f32 values normalized to [-1, 1]
+/// * `sample_rate` - Sample rate of the audio (must be 16000 Hz)
+/// * `device` - Candle device for inference
+///
+/// # Returns
+/// * `Result<Vec<Segment>>` - Transcription segments with timestamps
+pub fn run_whisper_with_pcm(
+    model_dir: &str,
+    pcm_data: &[f32],
+    sample_rate: u32,
+    device: &Device,
+) -> Result<Vec<Segment>> {
+    let config_filename = format!("{}/{}", model_dir, "config.json");
+    let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
+    let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
+
+    let config: Config = serde_json::from_str(&std::fs::read_to_string(config_filename)?)?;
+    let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
+
+    let mel_bytes = &get_mei(&config)?;
+    let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
+    <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
+
+    if sample_rate != m::SAMPLE_RATE as u32 {
+        anyhow::bail!("audio must have a {} sampling rate", m::SAMPLE_RATE)
+    }
+    println!("processing pcm data: {} samples", pcm_data.len());
+
+    let mel = audio::pcm_to_mel(&config, pcm_data, &mel_filters);
+    let mel_len = mel.len();
+    let mel = Tensor::from_vec(
+        mel,
+        (1, config.num_mel_bins, mel_len / config.num_mel_bins),
+        &device,
+    )?;
+    println!("loaded mel: {:?}", mel.dims());
+
+    let vb =
+        unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
+    let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
+
+    // Whisper v3/v3-turbo requires explicit language token
     let language_token = Some(token_id(&tokenizer, "<|en|>").unwrap_or(50259));
     let mut dc = Decoder::new(
         model,

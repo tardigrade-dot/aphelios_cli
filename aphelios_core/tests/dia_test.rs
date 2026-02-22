@@ -1,54 +1,76 @@
-use anyhow::{Ok, Result, anyhow};
-use aphelios_core::{common::core_utils::get_append_filename_with_ext, dia};
+//! DIA (Speaker Diarization) 测试
+
+mod common;
+
+use anyhow::Result;
+use aphelios_core::dia::dia_process;
+use common::{TEST_AUDIO_16K, TEST_AUDIO_44K, TestConfig, setup};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use tracing::error;
+use tracing::{error, info};
 
-#[test]
-fn dia_test() -> Result<()> {
-    // Use a more generic test file or allow any WAV file
-    let audio_path = std::env::var("TEST_AUDIO_PATH")
-        .unwrap_or("/Users/larry/coderesp/aphelios_cli/test_data/RYdrPg6xdYo.wav".to_string());
-    let model_path = "/Users/larry/coderesp/aphelios_cli/aphelios_core/onnx_models/dia/diar_streaming_sortformer_4spk-v2.onnx";
+/// 运行 DIA 测试
+fn run_dia_test(audio_path: &str, label: &str) -> Result<()> {
+    setup();
 
-    let _ = dia::dia_process(&audio_path, model_path);
+    info!("=== DIA Test: {} ===", label);
+    info!("Audio file: {}", audio_path);
+
+    let config = TestConfig::default();
+    let result = dia_process(audio_path, &config.dia_model());
+
+    match result {
+        Ok(segments) => {
+            info!("Detected {} speaker segments", segments.len());
+
+            for (i, seg) in segments.iter().enumerate() {
+                info!(
+                    "  Segment {}: {:.2}s - {:.2}s (Speaker {})",
+                    i + 1,
+                    seg.start,
+                    seg.end,
+                    seg.speaker_id
+                );
+            }
+
+            // 保存结果
+            let output_path = format!("{}_dia_output.txt", audio_path.trim_end_matches(".wav"));
+            let file = File::create(&output_path)?;
+            let mut writer = BufWriter::new(file);
+
+            for seg in segments {
+                writeln!(
+                    writer,
+                    "[{:06.2}s - {:06.2}s] Speaker {}",
+                    seg.start, seg.end, seg.speaker_id
+                )?;
+            }
+            writer.flush()?;
+
+            info!("Results saved to: {}", output_path);
+        }
+        Err(e) => {
+            error!("DIA failed: {}", e);
+            return Err(e);
+        }
+    }
+
     Ok(())
 }
 
-// Additional test that can handle any WAV file
 #[test]
-fn dia_test_arbitrary_wav() -> Result<()> {
-    let audio_path = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.wav";
-    // This test can be run with any WAV file by setting the environment variable
-    let audio_path = std::env::var("ARBITRARY_WAV_PATH").unwrap_or(audio_path.to_string());
+fn test_dia_16k() -> Result<()> {
+    run_dia_test(TEST_AUDIO_16K, "16kHz audio (native)")
+}
 
-    // Check if the file exists
-    if !std::path::Path::new(&audio_path).exists() {
-        eprintln!("Warning: Audio file does not exist: {}", audio_path);
-        return Ok(());
-    }
+#[test]
+fn test_dia_44k_to_16k() -> Result<()> {
+    run_dia_test(TEST_AUDIO_44K, "44.1kHz audio (resampled to 16kHz)")
+}
 
-    let model_path = "/Users/larry/coderesp/aphelios_cli/aphelios_core/onnx_models/dia/diar_streaming_sortformer_4spk-v2.onnx";
-
-    let dia_file = get_append_filename_with_ext(&audio_path, "_dia", ".txt");
-    let res = dia::dia_process(&audio_path, model_path);
-
-    let file = File::create(dia_file)?;
-    let mut writer = BufWriter::new(file);
-    match res {
-        core::result::Result::Ok(ss_list) => {
-            for seg in ss_list {
-                let line: String = format!(
-                    "[{:06.2}s - {:06.2}s] Speaker {}",
-                    seg.start, seg.end, seg.speaker_id
-                );
-                writeln!(writer, "{}", line)?;
-            }
-        }
-        Err(e) => {
-            error!("{}", e);
-        }
-    }
-    writer.flush()?;
-    Ok(())
+#[test]
+fn test_dia_arbitrary_wav() -> Result<()> {
+    // 保留原有的任意 WAV 文件测试
+    let audio_path = std::env::var("ARBITRARY_WAV_PATH").unwrap_or(TEST_AUDIO_44K.to_string());
+    run_dia_test(&audio_path, "arbitrary WAV file")
 }
