@@ -2,6 +2,7 @@ use crate::dolphin::dolphin_utils;
 use crate::dolphin::donut::CusDonutModel;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
+use aphelios_core::utils::core_utils;
 use aphelios_core::{measure_time, utils};
 use candle_core::{D, DType, Device, Tensor, safetensors};
 use candle_nn::VarBuilder;
@@ -10,6 +11,7 @@ use futures_util::{StreamExt, pin_mut};
 use glob::glob;
 use image::{DynamicImage, GenericImageView, RgbImage};
 use itertools::izip;
+use ndarray::Array;
 use regex::Regex;
 use serde_json::Value;
 use std::path::Path;
@@ -31,7 +33,7 @@ impl DolphinModel {
     pub fn load_model(model_id: &str) -> Result<Self> {
         let model = (|| -> Result<_> {
             let model_path = PathBuf::from(model_id);
-            let device = Device::new_metal(0).unwrap_or(Device::Cpu);
+            let device = core_utils::get_default_device(false)?;
             let config_str = std::fs::read_to_string(model_path.join("config.json"))?;
             let config: DonutConfig = serde_json::from_str(&config_str)
                 .with_context(|| format!("config.json文件解析失败"))?;
@@ -178,7 +180,7 @@ impl DolphinModel {
             }
 
             let bbox = dolphin_utils::transform_to_pixel_dynamic(
-                [coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
+                &[coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
                 img_w,
                 img_h,
                 target_width,
@@ -332,7 +334,7 @@ impl DolphinModel {
     fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str) -> Result<String> {
         self.model.clean_kv();
 
-        let decoded = measure_time!("模型访问", {
+        let decoded = measure_time!("模型推理中...", {
             let tokens = self.tokenizer.encode(prompt, false).map_err(E::msg)?;
             let mut token_ids = tokens.get_ids().to_vec(); // 编码图像
             let encoder_output = self.model.encode(&pixel_values)?;
@@ -391,17 +393,17 @@ impl DolphinModel {
         let target_height = self.config.image_height() as u32;
         let target_width = self.config.image_width() as u32;
 
+        // 1. Resize 保持比例
         let resized = img.resize(
             target_width,
             target_height,
             image::imageops::FilterType::Triangle,
         );
 
+        // 2. 创建黑色画布并居中叠加
         let mut canvas = RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
-
         let x_offset = (target_width - resized.width()) / 2;
         let y_offset = (target_height - resized.height()) / 2;
-
         image::imageops::overlay(
             &mut canvas,
             &resized.to_rgb8(),
@@ -409,20 +411,29 @@ impl DolphinModel {
             y_offset.into(),
         );
 
-        let (w, h) = (canvas.width() as usize, canvas.height() as usize);
-        let mut normalized = vec![0f32; 3 * w * h];
+        // 3. 将 RgbImage 转换为 ndarray (H, W, C)
+        // canvas.as_raw() 返回的是 [R, G, B, R, G, B...] 的一维 Vec
+        let h = target_height as usize;
+        let w = target_width as usize;
 
-        for c in 0..3 {
-            for y in 0..h {
-                for x in 0..w {
-                    let pixel = canvas.get_pixel(x as u32, y as u32);
-                    let idx = c * h * w + y * w + x;
-                    normalized[idx] = (pixel[c] as f32 / 255.0 - 0.5) / 0.5;
-                }
-            }
-        }
+        let array = Array::from_shape_vec((h, w, 3), canvas.into_raw())
+            .map_err(|e| anyhow::anyhow!("Failed to create array: {}", e))?;
 
-        Ok(Tensor::from_vec(normalized, (1, 3, h, w), &self.device)?)
+        // 4. 规范化并转换维度 (H, W, C) -> (C, H, W)
+        // 公式简化: (x / 255.0 - 0.5) / 0.5  =>  x / 127.5 - 1.0
+        let normalized = array
+            .mapv(|x| (x as f32 / 127.5) - 1.0)
+            .permuted_axes([2, 0, 1]); // 移动 Channel 到第一维
+
+        // 5. 转换为 Candle Tensor，并添加 Batch 维度 (1, C, H, W)
+        let tensor = Tensor::from_vec(
+            normalized.iter().cloned().collect(),
+            (3, h, w),
+            &self.device,
+        )?
+        .unsqueeze(0)?;
+
+        Ok(tensor)
     }
 
     pub fn load_hf_tokenizer<P: AsRef<Path>>(model_dir: P) -> anyhow::Result<Tokenizer> {

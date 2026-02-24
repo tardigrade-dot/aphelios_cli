@@ -1,7 +1,9 @@
 use anyhow::{Error as E, Result, bail};
 use candle_core::{Device, Tensor, backend::BackendDevice, utils::cuda_is_available};
+use fastembed::ExecutionProviderDispatch;
 use hound;
 use image::{DynamicImage, GenericImageView};
+use ort::ep::CPU;
 use std::path::Path;
 use tracing::{Level, info};
 
@@ -309,6 +311,22 @@ pub fn save_audio_track_with_spec(audio: &StereoAudio, filename: &str, sample_ra
     }
 
     writer.finalize().expect("Failed to finalize WAV writer");
+}
+
+pub fn get_available_ep() -> Vec<ExecutionProviderDispatch> {
+    let mut execution_providers = Vec::new();
+    #[cfg(feature = "metal")]
+    {
+        use ort::ep::CoreML;
+        execution_providers.push(CoreML::default().build().into());
+    }
+    #[cfg(feature = "cuda")]
+    {
+        use ort::ep::CUDA;
+        execution_providers.push(CUDA::default().build().into());
+    }
+    execution_providers.push(CPU::default().build().into());
+    execution_providers
 }
 
 pub fn get_default_device(cpu: bool) -> Result<Device> {

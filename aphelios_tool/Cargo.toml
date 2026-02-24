@@ -62,12 +62,6 @@ jieba-rs = { workspace = true }
 assert_cmd = "2"
 predicates = "3"
 
-[build]
-rustc-wrapper = "sccache"
-
-#[target.x86_64-apple-darwin]
-#rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]
-
 [[bin]]
 name = "aphelios_tool"
 path = "src/main.rs"
@@ -79,4 +73,4 @@ metal = [
     "candle-transformers/metal",
     #"mistralrs/metal",
     "ort/coreml"
-    ]
+]

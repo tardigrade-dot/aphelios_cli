@@ -71,3 +71,11 @@ metal = [
     "ort/coreml",
     "aphelios_core/metal",
 ]
+cuda = [
+    "candle-core/cuda", 
+    "candle-nn/cuda", 
+    "candle-transformers/cuda",
+    #"mistralrs/cuda",
+    "ort/coreml",
+    "aphelios_core/cuda",
+]

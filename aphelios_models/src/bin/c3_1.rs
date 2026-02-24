@@ -78,10 +78,7 @@ fn main() -> Result<()> {
     // 形状必须是 [Batch, Channel, Height, Width] -> [1, 1, 28, 28]
     // let input = Tensor::zeros((1, 1, 28, 28), DType::F32, &device)?;
     let input = load_image_as_tensor(
-        // "/Users/larry/coderesp/aphelios_cli/test_data/mnist_test_7.png",
-        // "/Users/larry/coderesp/aphelios_cli/test_data/mnist_digit_4x.png",
-        // "/Users/larry/coderesp/aphelios_cli/test_data/mnist_digit_1x.png",
-        "/Users/larry/coderesp/aphelios_cli/test_data/mnist_digit1.png",
+        "/Users/larry/coderesp/aphelios_cli/test_data/mnist_digit_7.png",
         &device,
     )?;
 

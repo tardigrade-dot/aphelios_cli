@@ -7,7 +7,8 @@ members = [
     "aphelios_core", 
     "aphelios_search", 
     "aphelios_models", 
-    "aphelios_wasm",
+    "aphelios_wasm", 
+    "aphelios_onnx",
 ]
 resolver = "2"
 # 2. 解决依赖版本冲突：在父项目统一管理依赖版本

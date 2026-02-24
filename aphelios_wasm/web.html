@@ -7,15 +7,16 @@
   <body>
     <script type="module">
       // 注意：路径指向你刚刚生成的 js 文件
-      import init, { test_add } from './pkg/aphelios_wasm.js';
+      import init, { add_method, run_vector_add } from './build/aphelios_wasm.js';
 
       async function run() {
         // 1. 初始化 WASM 模块
         await init();
 
         // 2. 调用你在 Rust 里写的 #[wasm_bindgen] 函数
-        // 假设你有一个函数叫 test_add
-        console.log(test_add(10, 20));
+        // 假设你有一个函数叫 add_method
+        console.log(add_method(10, 20));
+        console.log(run_vector_add());
       }
 
       run();

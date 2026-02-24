@@ -80,3 +80,12 @@ metal = [
     "qwen_tts/metal", 
     "qwen_tts/accelerate",
 ]
+cuda = [
+    "candle-core/cuda", 
+    "candle-nn/cuda", 
+    "candle-transformers/cuda",
+    #"mistralrs/cuda",
+    "ort/cuda",
+    "qwen_tts/cuda", 
+    "qwen_tts/cuda",
+]

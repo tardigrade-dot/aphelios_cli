@@ -8,8 +8,8 @@ async fn dolphin_test() -> Result<()> {
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
     let mut dm = DolphinModel::load_model(model_id)?;
 
-    let image_path = "/Users/larry/Documents/resources/page_32.png";
-    let output_dir = "/Users/larry/coderesp/aphelios_cli/output/aaaa_test";
+    let image_path = "/Users/larry/coderesp/aphelios_cli/test_data/page_32.png";
+    let output_dir = "/Users/larry/coderesp/aphelios_cli/output/page_32";
 
     let res = dm.dolphin_ocr(&image_path, &output_dir).await;
     info!("执行完成, 打印结果....");

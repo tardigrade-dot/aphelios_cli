@@ -1,5 +1,6 @@
 运行一个run指令: cargo run -- run --verbose
 
+cargo clean
 创建: cargo new hello_cli
 安装指令: cargo install --path .
 卸载指令: cargo uninstall aphelios_cli

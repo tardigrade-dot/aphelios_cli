@@ -125,7 +125,7 @@ pub fn get_tensor_from_image(
 }
 
 pub fn transform_to_pixel_dynamic(
-    bbox_coords: [i32; 4],
+    bbox_coords: &[i32; 4],
     img_width: u32,
     img_height: u32,
     target_width: u32,
@@ -148,10 +148,10 @@ pub fn transform_to_pixel_dynamic(
 
     // Transform from model coordinates to original image coordinates
     // First, subtract the offsets to get coordinates relative to the actual image content
-    let x1_model_space = x1 as f32 - x_offset as f32;
-    let y1_model_space = y1 as f32 - y_offset as f32;
-    let x2_model_space = x2 as f32 - x_offset as f32;
-    let y2_model_space = y2 as f32 - y_offset as f32;
+    let x1_model_space = *x1 as f32 - x_offset as f32;
+    let y1_model_space = *y1 as f32 - y_offset as f32;
+    let x2_model_space = *x2 as f32 - x_offset as f32;
+    let y2_model_space = *y2 as f32 - y_offset as f32;
 
     // Then scale back to original image dimensions
     let x1_orig = (x1_model_space / scale).max(0.0) as u32;
