@@ -6,7 +6,6 @@ pub mod engine;
 pub mod error;
 
 use crate::error::Result;
-use aphelios_core::tts::qwen_tts_infer;
 use aphelios_ocr::dolphin::model::run_ocr;
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -36,7 +35,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             run_ocr(&pdf_path, &output_path).await?;
         }
         Commands::Qwen3TTS {} => {
-            let _ = qwen_tts_infer::qwen3_test();
+            // let _ = qwen_tts_infer::qwen3_test();
         }
     }
     Ok(())

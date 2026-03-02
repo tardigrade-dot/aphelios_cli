@@ -6,13 +6,14 @@ edition = "2024"
 [dependencies]
 
 aphelios_core = { path = "../aphelios_core" }
-slint = { workspace = true }
 anyhow = { workspace = true }
-clap = { workspace = true }
 tokio = { workspace = true }
-
-[build-dependencies]
-slint-build = "1.15.0"
+futures-util = { workspace = true }
+rand = { workspace = true }
 
 [package.metadata.slint]
 assets = ["assets/**"]
+
+[features]
+metal = [
+]

@@ -66,11 +66,6 @@ byteorder = { workspace = true }
 rubato = { workspace = true }
 
 [features]
-wgpu = [
-    "candle-core/wgpu", 
-    "candle-nn/wgpu", 
-    "candle-transformers/wgpu",
-]
 metal = [
     "candle-core/metal", 
     "candle-nn/metal", 
@@ -79,6 +74,7 @@ metal = [
     "ort/coreml",
     "qwen_tts/metal", 
     "qwen_tts/accelerate",
+    "qwen_tts/audio-loading"
 ]
 cuda = [
     "candle-core/cuda", 
@@ -87,5 +83,5 @@ cuda = [
     #"mistralrs/cuda",
     "ort/cuda",
     "qwen_tts/cuda", 
-    "qwen_tts/cuda",
+    "qwen_tts/audio-loading"
 ]

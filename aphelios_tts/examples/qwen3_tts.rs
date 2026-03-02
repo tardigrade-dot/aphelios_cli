@@ -1,10 +1,10 @@
 use anyhow::Result;
+use aphelios_core::utils::core_utils;
+use aphelios_tts::tts::qwen3_tts;
 
-use crate::{tts::qwen3_tts, utils::core_utils};
-
-pub fn qwen3_test() -> Result<()> {
+pub fn main() -> Result<()> {
     core_utils::init_tracing();
-    let text_to_speech = r"第一章
+    let text_to_speech2 = r"第一章
     
     从《乌托邦》到《国富论》
     
@@ -27,6 +27,10 @@ pub fn qwen3_test() -> Result<()> {
     从政治上来看，威尼斯也另有独特之处——由于威尼斯是一个共和国，总督虽掌有大权，却是经由选举产生，并受到由金主及各行会组织的多层议会监督。这在当时欧洲其他地方几乎是闻所未闻的。
     
     圈地运动与“乌托邦”的理念";
+
+    let text_to_speech = r"
+    一九一七年，俄国发生二月革命，接着又爆发十月革命，世界上第一个共产国家就此诞生。
+    ";
 
     qwen3_tts(text_to_speech.to_string())
 }

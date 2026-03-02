@@ -32,7 +32,7 @@ fn run_demucs_test(test_wav: &str, output_suffix: &str) -> Result<(), String> {
     // 加载模型
     processor
         .load_model()
-        .map_err(|e| format!("模型加载失败：{}", e))?;
+        .map_err(|e| format!("模型加载失败,请检查模型路径、文件是否存在：{}", e))?;
 
     // 执行音频分离
     let result = processor.separate(&left_channel, &right_channel);
@@ -105,7 +105,7 @@ fn run_vocal_separation_test(test_wav: &str, output_suffix: &str) -> Result<(), 
         DemucsProcessor::new(MODEL_FILE.to_string()).expect("Failed to create DemucsProcessor");
     processor
         .load_model()
-        .map_err(|e| format!("模型加载失败：{}", e))?;
+        .map_err(|e| format!("模型加载失败,请检查模型路径、文件是否存在：{}", e))?;
 
     // 执行音频分离
     let result = processor.separate(&left_channel, &right_channel);

@@ -6,6 +6,8 @@ cargo clean
 卸载指令: cargo uninstall aphelios_cli
 运行指令: aphelios_cli run --verbose
 
+cargo run --example texify2_onnx
+
 cargo run --profile bench
 
 aphelios_cli qwen-vlm /Volumes/sw/pretrained_models/Qwen3-VL-2B-Instruct

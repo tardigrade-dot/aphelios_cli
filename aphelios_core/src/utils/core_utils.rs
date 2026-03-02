@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result, bail};
-use candle_core::{Device, Tensor, backend::BackendDevice, utils::cuda_is_available};
+use candle_core::{Device, Tensor};
 use fastembed::ExecutionProviderDispatch;
 use hound;
 use image::{DynamicImage, GenericImageView};
@@ -359,3 +359,19 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
     }
     Ok(Device::Cpu)
 }
+
+pub const MODEL_PATH_TEXT_MATCHING: &str =
+    "/Volumes/sw/aphelios_cli_models/gguf_models/v5-small-text-matching-Q4_K_M.gguf";
+pub const MODEL_PATH_RETRIEVAL: &str =
+    "/Volumes/sw/aphelios_cli_models/gguf_models/v5-small-retrieval-Q4_K_M.gguf";
+pub const RERANKER_MODEL_PATH: &str =
+    "/Volumes/sw/aphelios_cli_models/gguf_models/jina-reranker-v3-Q4_K_M.gguf";
+pub const MODEL_PATH_JINA_TOKENIZER: &str =
+    "/Volumes/sw/aphelios_cli_models/gguf_models/tokenizer.json";
+
+pub const TEXIFY2_MODEL_DECODER_PATH: &str =
+    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/decoder_model_merged.onnx";
+pub const TEXIFY2_MODEL_ENCODER_PATH: &str =
+    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/encoder_model.onnx";
+pub const TEXIFY2_TOKENIZER_PATH: &str =
+    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/tokenizer.json";

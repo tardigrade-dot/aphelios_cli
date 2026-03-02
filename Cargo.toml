@@ -7,8 +7,8 @@ members = [
     "aphelios_core", 
     "aphelios_search", 
     "aphelios_models", 
-    "aphelios_wasm", 
-    "aphelios_onnx",
+    #"aphelios_wasm", 
+    "aphelios_onnx", "aphelios_tts",
 ]
 resolver = "2"
 # 2. 解决依赖版本冲突：在父项目统一管理依赖版本
@@ -39,8 +39,6 @@ tracing-indicatif = "0.3.14"
 candle-core = { version = "0.9.2" }
 candle-nn = { version = "0.9.2" }
 candle-transformers = { version = "0.9.2" }
-candle-wgpu-kernels = { version = "0.9.2" }
-wgpu-compute-layer = { version = "0.9.2" }
 
 regex = "1.12.2"
 #mistralrs = {version = "0.7.1-alpha.1" }
@@ -57,7 +55,8 @@ rusqlite = { version = "0.38.0", features = ["bundled"] }
 glob = "0.3.3"
 hayro = "0.5.0"
 async-stream = "0.3.6"
-futures-util = "0.3.31"
+futures-util = "0.3.32"
+futures = "0.3.32"
 tracing-test = "0.2.6"
 imara-diff = "0.2.0"
 jieba-rs = "0.8.1"
@@ -86,21 +85,20 @@ license = "MIT"
 
 [patch.crates-io]
 
-qwen_tts = { path = "/Users/larry/github.com/qwen3-tts-rs/qwen_tts" }
-#qwen_tts = { git = "https://github.com/tardigrade-dot/qwen3-tts-rs", version = "0.9.2", rev = "e3c341f" }
+qwen_tts = { git = "https://github.com/tardigrade-dot/qwen3-tts-rs", rev = "fad7cf6" }
 
-candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-candle-wgpu-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-wgpu-compute-layer = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-#candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-#candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
-candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "e3c341f" }
+candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+
+#candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+#candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+
 #mistralrs = {git = "https://github.com/EricLBuehler/mistral.rs", version = "0.7.1-alpha.1", rev = "2a10942" }
 
 [profile.release]
-opt-level = 3        # 最高等级优化
-debug = true         # 关键！保留调试符号，这样火焰图才能显示函数名
-lto = "thin"         # 链接时优化，能进一步提速
+opt-level = 3
+debug = true
+lto = "thin"
 

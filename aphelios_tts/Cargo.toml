@@ -1,14 +1,18 @@
 [package]
-name = "aphelios_models"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+name = "aphelios_tts"
+version = "0.1.0"
+edition = "2024"
 
 [dependencies]
-aphelios_core = { path = "../aphelios_core" }
+aphelios_core = { path = "../aphelios_core", features = ["metal"] }
+
+# Audio processing dependencies
+ndarray = { workspace = true }
+hound = "3.5"
+lazy_static = "1.4"
+
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["full"] }  # 异步 sleep
+tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 slint = { workspace = true }
 
@@ -20,7 +24,6 @@ rand = { workspace = true }
 indicatif = { workspace = true }
 
 ort = { workspace = true }
-ndarray = { workspace = true }
 tokenizers = { workspace = true }
 image = { workspace = true }
 imageproc = { workspace = true }
@@ -53,14 +56,15 @@ futures-util = { workspace = true }
 tracing-test = { workspace = true }
 imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
-#hf-hub = { workspace = true }
-itertools = { workspace = true }
-measureme = { workspace = true }
 hf-hub = { workspace = true }
-tempfile = "3"
-
-[dev-dependencies]
-tempfile = "3"
+rustfft = { workspace = true }
+num-complex = { workspace = true }
+itertools = { workspace = true }
+eyre = { workspace = true }
+parakeet-rs = { workspace = true }
+symphonia = { workspace = true }
+byteorder = { workspace = true }
+rubato = { workspace = true }
 
 [features]
 metal = [
@@ -69,13 +73,16 @@ metal = [
     "candle-transformers/metal",
     #"mistralrs/metal",
     "ort/coreml",
-    "aphelios_core/metal",
+    "qwen_tts/metal", 
+    "qwen_tts/accelerate",
+    "qwen_tts/audio-loading"
 ]
 cuda = [
     "candle-core/cuda", 
     "candle-nn/cuda", 
     "candle-transformers/cuda",
     #"mistralrs/cuda",
-    "ort/coreml",
-    "aphelios_core/cuda",
+    "ort/cuda",
+    "qwen_tts/cuda", 
+    "qwen_tts/audio-loading"
 ]

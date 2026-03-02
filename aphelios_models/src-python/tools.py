@@ -1,3 +1,4 @@
+#!/Volumes/sw/conda_envs/vibevoice/bin/python
 from pydub import AudioSegment
 
 def cut_wav(input_path: str, output_path: str, t1: float, t2: float):
@@ -22,4 +23,4 @@ def cut_wav(input_path: str, output_path: str, t1: float, t2: float):
 
 
 # 示例
-cut_wav("/Users/larry/Documents/resources/qinsheng.wav", "/Users/larry/Documents/resources/qinsheng-5s.wav", 0.0, 5.0)
+cut_wav("/Users/larry/Documents/resources/qinsheng-5s.wav", "/Users/larry/Documents/resources/qinsheng-4s.wav", 0.0, 3.8)

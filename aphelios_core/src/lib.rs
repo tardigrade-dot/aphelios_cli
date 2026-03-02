@@ -16,7 +16,6 @@ pub mod asr;
 pub mod audio;
 pub mod demucs;
 pub mod dia;
-pub mod tts;
 pub mod utils;
 pub mod vad;
 

@@ -11,6 +11,9 @@ async fn main() -> Result<()> {
     let image_path = "/Users/larry/coderesp/aphelios_cli/test_data/page_32.png";
     let output_dir = "/Users/larry/coderesp/aphelios_cli/output/page_32";
 
+    // let image_path = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
+    // let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages";
+
     let res = measure_time!(dm.dolphin_ocr(&image_path, &output_dir).await);
     info!("执行完成, 打印结果....");
     match res {

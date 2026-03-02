@@ -1,4 +1,7 @@
 use anyhow::{Context, Result};
+use aphelios_core::utils::core_utils::{
+    TEXIFY2_MODEL_DECODER_PATH, TEXIFY2_MODEL_ENCODER_PATH, TEXIFY2_TOKENIZER_PATH,
+};
 use ndarray::Array4;
 use ort::ep::CPU;
 use ort::execution_providers::ExecutionProviderDispatch;
@@ -33,13 +36,13 @@ fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
 
     // Normalize: convert u8 [0, 255] to f32 [0, 1] and rearrange to CHW format
     let mut input_data = vec![0.0f32; 3 * IMAGE_HEIGHT * IMAGE_WIDTH];
-    
+
     for (y, row) in resized.rows().enumerate() {
         for (x, pixel) in row.enumerate() {
             let base_idx = y * IMAGE_WIDTH + x;
             // CHW format: [C, H, W]
-            input_data[base_idx] = pixel[0] as f32 / 255.0;           // R channel
-            input_data[IMAGE_HEIGHT * IMAGE_WIDTH + base_idx] = pixel[1] as f32 / 255.0;   // G channel
+            input_data[base_idx] = pixel[0] as f32 / 255.0; // R channel
+            input_data[IMAGE_HEIGHT * IMAGE_WIDTH + base_idx] = pixel[1] as f32 / 255.0; // G channel
             input_data[2 * IMAGE_HEIGHT * IMAGE_WIDTH + base_idx] = pixel[2] as f32 / 255.0; // B channel
         }
     }
@@ -52,7 +55,10 @@ fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
 }
 
 /// Load ONNX model with specified execution providers
-fn load_model(model_path: &Path, execution_providers: Vec<ExecutionProviderDispatch>) -> Result<Session> {
+fn load_model(
+    model_path: &Path,
+    execution_providers: Vec<ExecutionProviderDispatch>,
+) -> Result<Session> {
     let session = Session::builder()?
         .with_execution_providers(execution_providers)?
         .commit_from_file(model_path)
@@ -62,10 +68,7 @@ fn load_model(model_path: &Path, execution_providers: Vec<ExecutionProviderDispa
 }
 
 /// Run encoder model to get encoder hidden states
-fn run_encoder(
-    encoder_session: &mut Session,
-    pixel_values: &Array4<f32>,
-) -> Result<Value> {
+fn run_encoder(encoder_session: &mut Session, pixel_values: &Array4<f32>) -> Result<Value> {
     let input_tensor = Value::from_array(pixel_values.clone())?;
 
     // Get input name from model metadata
@@ -76,14 +79,15 @@ fn run_encoder(
 
     // Get the first output and extract tensor data
     let (_name, value_ref) = outputs.iter().next().context("No output from encoder")?;
-    
+
     // Extract the tensor data to create a new owned Value
     let tensor_data = value_ref.try_extract_tensor::<f32>()?;
     let (shape_info, data) = tensor_data;
     let data_vec: Vec<f32> = data.iter().copied().collect();
     let shape: Vec<usize> = shape_info.iter().map(|&x| x as usize).collect();
-    
-    let output_value: Value = Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(shape, data_vec)?)?.into_dyn();
+
+    let output_value: Value =
+        Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(shape, data_vec)?)?.into_dyn();
 
     Ok(output_value)
 }
@@ -97,10 +101,8 @@ fn run_decoder(
     // Create decoder input IDs tensor - 2D shape (batch, seq_len)
     let batch_size = 1;
     let seq_len = decoder_input_ids.len();
-    let input_ids_array = ndarray::Array2::from_shape_vec(
-        (batch_size, seq_len),
-        decoder_input_ids.to_vec(),
-    )?;
+    let input_ids_array =
+        ndarray::Array2::from_shape_vec((batch_size, seq_len), decoder_input_ids.to_vec())?;
     let input_ids_tensor: Value = Value::from_array(input_ids_array)?.into_dyn();
 
     // Get encoder hidden states data - shape should be (batch, seq, hidden)
@@ -108,11 +110,12 @@ fn run_decoder(
     let (shape_info, data) = encoder_hs_array;
     let data_vec: Vec<f32> = data.iter().copied().collect();
     let shape: Vec<usize> = shape_info.iter().map(|&x| x as usize).collect();
-    
+
     let encoder_hs_tensor = Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(
         shape.clone(),
         data_vec,
-    )?)?.into_dyn();
+    )?)?
+    .into_dyn();
 
     // Get input names
     let input_names: Vec<String> = decoder_session
@@ -123,17 +126,17 @@ fn run_decoder(
 
     // Build inputs vec - provide all required inputs
     let mut inputs_vec: Vec<(String, Value)> = Vec::new();
-    
+
     // Add input_ids
     if input_names.len() > 0 {
         inputs_vec.push((input_names[0].clone(), input_ids_tensor));
     }
-    
+
     // Add encoder_hidden_states
     if input_names.len() > 1 {
         inputs_vec.push((input_names[1].clone(), encoder_hs_tensor));
     }
-    
+
     // Add past_key_values as zeros (for first iteration, no cache)
     // Each past_key_values entry has shape (batch, num_heads, seq_len, head_dim)
     // Model uses 16 heads with 64 dimension each
@@ -144,7 +147,8 @@ fn run_decoder(
             let pk_tensor = Value::from_array(ndarray::Array4::<f32>::from_shape_vec(
                 (1, 16, 1, 64),
                 zeros,
-            )?)?.into_dyn();
+            )?)?
+            .into_dyn();
             inputs_vec.push((input_names[2 + i * 4].clone(), pk_tensor));
         }
         if input_names.len() > 3 + i * 4 {
@@ -152,7 +156,8 @@ fn run_decoder(
             let pv_tensor = Value::from_array(ndarray::Array4::<f32>::from_shape_vec(
                 (1, 16, 1, 64),
                 zeros,
-            )?)?.into_dyn();
+            )?)?
+            .into_dyn();
             inputs_vec.push((input_names[3 + i * 4].clone(), pv_tensor));
         }
         // encoder key/value
@@ -162,7 +167,8 @@ fn run_decoder(
             let ek_tensor = Value::from_array(ndarray::Array4::<f32>::from_shape_vec(
                 (1, 16, encoder_seq_len, 64),
                 zeros,
-            )?)?.into_dyn();
+            )?)?
+            .into_dyn();
             inputs_vec.push((input_names[4 + i * 4].clone(), ek_tensor));
         }
         if input_names.len() > 5 + i * 4 {
@@ -171,11 +177,12 @@ fn run_decoder(
             let ev_tensor = Value::from_array(ndarray::Array4::<f32>::from_shape_vec(
                 (1, 16, encoder_seq_len, 64),
                 zeros,
-            )?)?.into_dyn();
+            )?)?
+            .into_dyn();
             inputs_vec.push((input_names[5 + i * 4].clone(), ev_tensor));
         }
     }
-    
+
     // Add use_cache_branch (boolean, false for first iteration)
     if input_names.iter().any(|n| n == "use_cache_branch") {
         let use_cache = Value::from_array(ndarray::arr1(&[false]))?.into_dyn();
@@ -191,7 +198,7 @@ fn run_decoder(
     for (name, value) in &outputs {
         if let Ok((shape, data)) = value.try_extract_tensor::<f32>() {
             let data_vec: Vec<f32> = data.iter().copied().collect();
-            
+
             // Get logits output
             if name == "logits" {
                 logits = Some(data_vec);
@@ -200,10 +207,7 @@ fn run_decoder(
         }
     }
 
-    Ok((
-        logits.unwrap_or_default(),
-        vec![],
-    ))
+    Ok((logits.unwrap_or_default(), vec![]))
 }
 
 /// Greedy decoding to generate token sequence
@@ -229,16 +233,20 @@ fn greedy_decode(
         // For our case: batch=1, seq=current_seq_len, vocab=vocab_size
         // We only need the logits for the last position
         let current_seq_len = tokens.len();
-        
+
         // The logits for the last token position starts at:
         // (batch-1) * seq * vocab + (seq-1) * vocab = (seq-1) * vocab when batch=1
         let last_token_start = (current_seq_len - 1) * vocab_size;
-        
+
         let last_token_logits = if last_token_start + vocab_size <= logits.len() {
             &logits[last_token_start..last_token_start + vocab_size]
         } else {
-            eprintln!("Logits out of bounds: start={}, vocab_size={}, logits_len={}", 
-                     last_token_start, vocab_size, logits.len());
+            eprintln!(
+                "Logits out of bounds: start={}, vocab_size={}, logits_len={}",
+                last_token_start,
+                vocab_size,
+                logits.len()
+            );
             break;
         };
 
@@ -269,14 +277,10 @@ fn decode_tokens(tokenizer: &Tokenizer, tokens: &[i64]) -> String {
 
 fn main() -> Result<()> {
     // File paths
-    let encoder_file = Path::new(
-        "/Users/larry/coderesp/aphelios_cli/aphelios_core/onnx_models/texify2/encoder_model.onnx",
-    );
-    let decoder_file = Path::new(
-        "/Users/larry/coderesp/aphelios_cli/aphelios_core/onnx_models/texify2/decoder_model_merged.onnx",
-    );
+    let encoder_file = Path::new(TEXIFY2_MODEL_ENCODER_PATH);
+    let decoder_file = Path::new(TEXIFY2_MODEL_DECODER_PATH);
     let test_image = Path::new("/Users/larry/coderesp/aphelios_cli/test_data/texify2_test.png");
-    let tokenizer_file = Path::new("/Users/larry/coderesp/aphelios_cli/aphelios_core/onnx_models/texify2/tokenizer.json");
+    let tokenizer_file = Path::new(TEXIFY2_TOKENIZER_PATH);
 
     // Verify files exist
     for (name, path) in [
@@ -308,14 +312,42 @@ fn main() -> Result<()> {
     println!("\nLoading encoder model...");
     let mut encoder_session = load_model(encoder_file, execution_providers.clone())?;
     println!("Encoder loaded successfully");
-    println!("  Inputs: {:?}", encoder_session.inputs().iter().map(|i| i.name()).collect::<Vec<_>>());
-    println!("  Outputs: {:?}", encoder_session.outputs().iter().map(|o| o.name()).collect::<Vec<_>>());
+    println!(
+        "  Inputs: {:?}",
+        encoder_session
+            .inputs()
+            .iter()
+            .map(|i| i.name())
+            .collect::<Vec<_>>()
+    );
+    println!(
+        "  Outputs: {:?}",
+        encoder_session
+            .outputs()
+            .iter()
+            .map(|o| o.name())
+            .collect::<Vec<_>>()
+    );
 
     println!("\nLoading decoder model...");
     let mut decoder_session = load_model(decoder_file, execution_providers)?;
     println!("Decoder loaded successfully");
-    println!("  Inputs: {:?}", decoder_session.inputs().iter().map(|i| i.name()).collect::<Vec<_>>());
-    println!("  Outputs: {:?}", decoder_session.outputs().iter().map(|o| o.name()).collect::<Vec<_>>());
+    println!(
+        "  Inputs: {:?}",
+        decoder_session
+            .inputs()
+            .iter()
+            .map(|i| i.name())
+            .collect::<Vec<_>>()
+    );
+    println!(
+        "  Outputs: {:?}",
+        decoder_session
+            .outputs()
+            .iter()
+            .map(|o| o.name())
+            .collect::<Vec<_>>()
+    );
 
     // Preprocess image
     println!("\nPreprocessing image...");
@@ -340,8 +372,8 @@ fn main() -> Result<()> {
     // Token IDs from generation_config.json and tokenizer_config.json
     let vocab_size = 50000; // Texify2 vocab size (from logits output)
     let max_tokens = 256;
-    let eos_token_id = 2i64;   // </s>
-    let pad_token_id = 1i64;   // <pad>
+    let eos_token_id = 2i64; // </s>
+    let pad_token_id = 1i64; // <pad>
     let decoder_start_token_id = 0i64; // <s>
 
     println!("\nRunning decoder with greedy decoding...");

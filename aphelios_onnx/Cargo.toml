@@ -6,4 +6,25 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-ort = "2.0.0-rc.11"
+aphelios_core = { path = "../aphelios_core" }
+ort = { workspace = true }
+ndarray = { workspace = true }
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+qwen_tts = { workspace = true, features = ["audio-loading"] }
+tokenizers = { workspace = true }
+hound = "3.5"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rand = { workspace = true }
+rustfft = { workspace = true }
+num-complex = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+metal = ["ort/coreml"]
+audio-loading = ["qwen_tts/audio-loading"]

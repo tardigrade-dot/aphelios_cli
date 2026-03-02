@@ -62,7 +62,7 @@ impl DolphinModel {
                 device,
             })
         })()
-        .with_context(|| "模型加载失败")?;
+        .with_context(|| "模型加载失败,检查模型路径是否存在")?;
         Ok(model)
     }
 
@@ -118,6 +118,7 @@ impl DolphinModel {
 
         if fs::exists(&output_file)? {
             info!("{} exist, to process next ", &output_file.to_str().unwrap());
+            // return Ok(());
         }
         info!("start process page [{}] ...", idx);
         let layout_str = self.run_ocr_first_stage(img)?;
