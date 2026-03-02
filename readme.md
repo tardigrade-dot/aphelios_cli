@@ -16,3 +16,6 @@ aphelios_cli qwen-llm /Volumes/sw/pretrained_models/Qwen3-0.6B
 
 aphelios_cli init /a/b
 
+sudo cargo flamegraph --release -p aphelios_core --test tts_test -- qwen3_test --nocapture
+
+copy code from : https://github.com/TrevorS/qwen3-tts-rs

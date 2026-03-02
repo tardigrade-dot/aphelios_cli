@@ -573,6 +573,7 @@ dependencies = [
  "serde_json",
  "slint",
  "symphonia",
+ "tempfile",
  "thiserror 2.0.18",
  "tokenizers 0.22.2",
  "tokio",

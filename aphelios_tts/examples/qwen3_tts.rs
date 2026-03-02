@@ -1,6 +1,6 @@
 use anyhow::Result;
 use aphelios_core::utils::core_utils;
-use aphelios_tts::tts::qwen3_tts;
+use aphelios_tts::qwen_tts::qwen3_tts;
 
 pub fn main() -> Result<()> {
     core_utils::init_tracing();
@@ -28,9 +28,8 @@ pub fn main() -> Result<()> {
     
     圈地运动与“乌托邦”的理念";
 
-    let text_to_speech = r"
-    一九一七年，俄国发生二月革命，接着又爆发十月革命，世界上第一个共产国家就此诞生。
-    ";
+    let text_to_speech =
+        "近年来的研究表明，在中国文化中“家”的含义十分广泛，学者们对其所下定义也是五花八门";
 
     qwen3_tts(text_to_speech.to_string())
 }

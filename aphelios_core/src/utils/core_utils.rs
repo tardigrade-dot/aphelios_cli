@@ -95,49 +95,50 @@ pub fn load_image(
 #[macro_export]
 macro_rules! measure_time {
 
-        ($desc:expr, $expr:expr) => {{
-            let __module = module_path!();
-            let __file = file!();
-            let __line = line!();
+    ($desc:expr, $expr:expr) => {{
+        use tracing::{Level, info};
+        let __module = module_path!();
+        let __file = file!();
+        let __line = line!();
 
-            info!("start [{}] {} ({}:{})", __module, $desc, __file, __line);
+        info!("start [{}] {} ({}:{})", __module, $desc, __file, __line);
 
-            let __start = std::time::Instant::now();
-            let __result = $expr;
-            let __duration = __start.elapsed();
+        let __start = std::time::Instant::now();
+        let __result = $expr;
+        let __duration = __start.elapsed();
 
-            info!(
-                "end [{}] {} -> type={} | {} ms",
-                __module,
-                $desc,
-                std::any::type_name_of_val(&__result),
-                __duration.as_millis()
-            );
+        info!(
+            "end [{}] {} -> type={} | {} ms",
+            __module,
+            $desc,
+            std::any::type_name_of_val(&__result),
+            __duration.as_millis()
+        );
 
-            __result
-        }};
+        __result
+    }};
 
-        ($($tt:tt)*) => {{
-            let __module = module_path!();
-            let __file = file!();
-            let __line = line!();
+    ($($tt:tt)*) => {{
+        let __module = module_path!();
+        let __file = file!();
+        let __line = line!();
 
-            let __start = std::time::Instant::now();
-            let __result = { $($tt)* };
-            let __duration = __start.elapsed();
+        let __start = std::time::Instant::now();
+        let __result = { $($tt)* };
+        let __duration = __start.elapsed();
 
-            info!(
-                "exec  [{}] ({}:{}) -> type={} | {} ms",
-                __module,
-                __file,
-                __line,
-                std::any::type_name_of_val(&__result),
-                __duration.as_millis()
-            );
+        info!(
+            "exec  [{}] ({}:{}) -> type={} | {} ms",
+            __module,
+            __file,
+            __line,
+            std::any::type_name_of_val(&__result),
+            __duration.as_millis()
+        );
 
-            __result
-        }};
-    }
+        __result
+    }};
+}
 
 /// 使用线性插值重采样音频（参考 Web Audio API 实现）
 fn resample_audio_linear(channel_data: &[Vec<f32>], src_sr: u32, target_sr: u32) -> Vec<Vec<f32>> {

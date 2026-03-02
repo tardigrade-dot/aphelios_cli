@@ -65,6 +65,7 @@ parakeet-rs = { workspace = true }
 symphonia = { workspace = true }
 byteorder = { workspace = true }
 rubato = { workspace = true }
+tempfile = "3.26.0"
 
 [features]
 metal = [

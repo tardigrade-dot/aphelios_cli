@@ -38,14 +38,14 @@ pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
     let synth_item1 = qwen_tts::io::SynthesisItem {
         text: text_to_speech.to_owned(),
         language: "chinese".to_string(),
-        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-12.wav")
+        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-BF16.wav")
             .to_path_buf(),
     };
 
     let synth_item2 = qwen_tts::io::SynthesisItem {
         text: text_to_speech.to_owned(),
         language: "chinese".to_string(),
-        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-22.wav")
+        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-2-BF16.wav")
             .to_path_buf(),
     };
 
