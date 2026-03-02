@@ -18,4 +18,8 @@ aphelios_cli init /a/b
 
 sudo cargo flamegraph --release -p aphelios_core --test tts_test -- qwen3_test --nocapture
 
+cargo run --release --example qwen3_tts_streaming --features metal
+
+sudo cargo flamegraph --release --example qwen3_tts_streaming --features metal -- --nocapture
+
 copy code from : https://github.com/TrevorS/qwen3-tts-rs

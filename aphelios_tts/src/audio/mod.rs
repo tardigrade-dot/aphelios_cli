@@ -5,14 +5,17 @@
 //! - Audio resampling
 //! - Mel-spectrogram computation
 //! - Audio normalization
+//! - Audio playback
 
 mod io;
 mod mel;
 pub mod resample;
+pub mod player;
 
 pub use io::{load_wav, save_wav, AudioBuffer};
 pub use mel::{MelConfig, MelSpectrogram};
 pub use resample::{resample, resample_to_24k, Resampler};
+pub use player::{AudioPlayer, play_streaming};
 
 /// Standard sample rate used by Qwen3-TTS
 pub const SAMPLE_RATE: u32 = 24000;

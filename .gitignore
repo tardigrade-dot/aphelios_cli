@@ -9,3 +9,4 @@ onnx_models
 
 Cargo.lock
 build
+flamegraph*

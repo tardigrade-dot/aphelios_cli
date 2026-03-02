@@ -10,6 +10,7 @@ aphelios_core = { path = "../aphelios_core", features = ["metal"] }
 ndarray = { workspace = true }
 hound = "3.5"
 lazy_static = "1.4"
+rodio = "0.20"
 
 serde_json = { workspace = true }
 tokio = { version = "1", features = ["full"] }
@@ -69,21 +70,31 @@ tempfile = "3.26.0"
 
 [features]
 metal = [
-    "candle-core/metal", 
-    "candle-nn/metal", 
+    "candle-core/metal",
+    "candle-nn/metal",
     "candle-transformers/metal",
     #"mistralrs/metal",
     "ort/coreml",
-    "qwen_tts/metal", 
+    "qwen_tts/metal",
     "qwen_tts/accelerate",
     "qwen_tts/audio-loading"
 ]
 cuda = [
-    "candle-core/cuda", 
-    "candle-nn/cuda", 
+    "candle-core/cuda",
+    "candle-nn/cuda",
     "candle-transformers/cuda",
     #"mistralrs/cuda",
     "ort/cuda",
-    "qwen_tts/cuda", 
+    "qwen_tts/cuda",
     "qwen_tts/audio-loading"
 ]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 4
