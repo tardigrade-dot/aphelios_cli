@@ -67,9 +67,12 @@ rubato = { workspace = true }
 
 [features]
 metal = [
-    "candle-core/metal", 
-    "candle-nn/metal", 
+    "candle-core/metal",
+    "candle-core/accelerate", 
+    "candle-nn/metal",
+    "candle-nn/accelerate", 
     "candle-transformers/metal",
+    "candle-transformers/accelerate",
     #"mistralrs/metal",
     "ort/coreml",
     "qwen_tts/metal", 
