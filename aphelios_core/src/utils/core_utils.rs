@@ -376,3 +376,5 @@ pub const TEXIFY2_MODEL_ENCODER_PATH: &str =
     "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/encoder_model.onnx";
 pub const TEXIFY2_TOKENIZER_PATH: &str =
     "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/tokenizer.json";
+
+pub const PARAKEET_TDT_MODEL_PATH: &str = "/Volumes/sw/onnx_models/parakeet-tdt-0.6b-v3-onnx";

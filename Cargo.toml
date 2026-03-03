@@ -2,13 +2,14 @@
 # 1. 包含哪些子项目
 members = [
     "aphelios_tool",
-    "aphelios_ui",
+    "aphelios_slint",
     "aphelios_ocr",
     "aphelios_core", 
     "aphelios_search", 
     "aphelios_models", 
     #"aphelios_wasm", 
-    "aphelios_onnx", "aphelios_tts",
+    "aphelios_asr", 
+    "aphelios_tts",
 ]
 resolver = "2"
 # 2. 解决依赖版本冲突：在父项目统一管理依赖版本
@@ -75,6 +76,9 @@ log = "0.4"
 num-traits = "0.2.15"
 safetensors = "0.7.0"
 web-time = "=1.1.0"
+tempfile = "3.26.0"
+strum_macros = "0.28.0"
+vibevoice = { version="0.1.0" }
 
 # 3. 统一管理包信息（可选，Rust 1.64+ 支持）
 [workspace.package]
@@ -87,6 +91,7 @@ license = "MIT"
 
 qwen_tts = { git = "https://github.com/tardigrade-dot/qwen3-tts-rs", rev = "fad7cf6" }
 
+vibevoice = { path = "/Users/larry/coderesp/vibevoice-rs/vibevoice" }
 candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }

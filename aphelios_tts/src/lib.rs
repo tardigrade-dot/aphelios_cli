@@ -1595,6 +1595,10 @@ pub struct StreamingSession<'a> {
     suppression_mask: generation::SuppressionMask,
     // Pre-allocated code predictor KV caches (reused + reset each frame)
     cp_kv_caches: Vec<AnyKVCache>,
+    // 连续静音帧计数 - 用于检测何时停止生成
+    consecutive_silent_frames: usize,
+    // 最大连续静音帧阈值
+    max_silent_frames: usize,
 }
 
 impl<'a> StreamingSession<'a> {
@@ -1866,6 +1870,9 @@ impl<'a> StreamingSession<'a> {
         let done = config.eos_token_id == Some(first_token_id);
         let cp_kv_caches = model.code_predictor.new_kv_caches();
 
+        // 计算最大静音帧阈值：基于 chunk_frames 的 2-3 倍，最少 30 帧
+        let max_silent_frames = (chunk_frames * 3).max(30);
+
         Ok(Self {
             model,
             config,
@@ -1886,6 +1893,8 @@ impl<'a> StreamingSession<'a> {
             token_count: 1,
             suppression_mask,
             cp_kv_caches,
+            consecutive_silent_frames: 0,
+            max_silent_frames,
         })
     }
 
@@ -1934,6 +1943,9 @@ impl<'a> StreamingSession<'a> {
         let done = config.eos_token_id == Some(first_token_id);
         let cp_kv_caches = model.code_predictor.new_kv_caches();
 
+        // 计算最大静音帧阈值：基于 chunk_frames 的 2-3 倍，最少 30 帧
+        let max_silent_frames = (chunk_frames * 3).max(30);
+
         Ok(Self {
             model,
             config,
@@ -1954,6 +1966,8 @@ impl<'a> StreamingSession<'a> {
             token_count: 1,
             suppression_mask,
             cp_kv_caches,
+            consecutive_silent_frames: 0,
+            max_silent_frames,
         })
     }
 
@@ -1983,6 +1997,7 @@ impl<'a> StreamingSession<'a> {
                 match (self.current_token, self.current_token_tensor.take()) {
                     (Some(id), Some(t)) => (id, t),
                     _ => {
+                        tracing::warn!("⚠️ 生成终止：current_token={:?}, frames_generated={}", self.current_token, self.frames_generated);
                         self.done = true;
                         break;
                     }
@@ -2050,6 +2065,19 @@ impl<'a> StreamingSession<'a> {
 
             // Keep token on GPU for next iteration
             let next_token_id: u32 = next_token_tensor.flatten_all()?.to_vec1::<u32>()?[0];
+
+            // 检查 token 是否有效
+            if next_token_id >= codec_tokens::CODEC_VOCAB_SIZE as u32 {
+                tracing::error!(
+                    "❌ 无效 token: {} (vocab_size={}), frames_generated={}",
+                    next_token_id,
+                    codec_tokens::CODEC_VOCAB_SIZE,
+                    self.frames_generated
+                );
+                self.done = true;
+                break;
+            }
+
             Qwen3TTS::update_penalty_mask(
                 &mut self.penalty_mask,
                 next_token_id,
@@ -2058,6 +2086,7 @@ impl<'a> StreamingSession<'a> {
             self.token_count += 1;
 
             if self.config.eos_token_id == Some(next_token_id) {
+                tracing::info!("🏁 检测到 EOS token，frames_generated={}", self.frames_generated);
                 self.current_token = None;
                 self.current_token_tensor = None;
                 self.done = true;
@@ -2065,6 +2094,51 @@ impl<'a> StreamingSession<'a> {
                 self.current_token = Some(next_token_id);
                 self.current_token_tensor = Some(next_token_tensor);
             }
+
+            // 检测静音帧：检查 acoustic codes 是否接近静音（code 值很小）
+            // 静音通常对应于接近 0 的 code 值
+            let acoustic_codes_vec: Vec<u32> = acoustic_codes_tensor.flatten_all()?.to_vec1()?;
+            let avg_acoustic_code: f32 = acoustic_codes_vec.iter().map(|&c| c as f32).sum::<f32>() / acoustic_codes_vec.len() as f32;
+
+            // 如果平均 acoustic code 值小于阈值（例如 50），认为是静音帧
+            let is_silent = avg_acoustic_code < 50.0;
+
+            if is_silent {
+                self.consecutive_silent_frames += 1;
+                if self.consecutive_silent_frames >= self.max_silent_frames {
+                    tracing::info!(
+                        "🔇 连续静音帧过多 ({} >= {})，自动停止生成，frames_generated={}",
+                        self.consecutive_silent_frames,
+                        self.max_silent_frames,
+                        self.frames_generated
+                    );
+                    self.done = true;
+                    break;
+                }
+            } else {
+                // 重置静音计数
+                self.consecutive_silent_frames = 0;
+            }
+        }
+
+        // 检查是否因为静音而停止
+        if self.done && self.consecutive_silent_frames >= self.max_silent_frames {
+            // 如果还有未处理的帧，先处理它们
+            if !gpu_frame_tensors.is_empty() {
+                let stacked = Tensor::stack(&gpu_frame_tensors, 0)?;
+                let flat: Vec<u32> = stacked.flatten_all()?.to_vec1()?;
+                let n_frames = gpu_frame_tensors.len();
+                for f in 0..n_frames {
+                    let start = f * 16;
+                    self.frame_buffer.push(flat[start..start + 16].to_vec());
+                }
+                // 解码并返回这个 chunk
+                let codes = self.model.codes_to_tensor(&self.frame_buffer)?;
+                self.frame_buffer.clear();
+                let audio = self.model.decoder.decode(&codes)?;
+                return Ok(Some(AudioBuffer::from_tensor(audio, 24000)?));
+            }
+            return Ok(None);
         }
 
         // Single GPU→CPU transfer for all frames in this chunk

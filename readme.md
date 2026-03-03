@@ -20,6 +20,9 @@ sudo cargo flamegraph --release -p aphelios_core --test tts_test -- qwen3_test -
 
 cargo run --release --example qwen3_tts_streaming --features metal
 
+cargo run --release --example qwen3_tts_streaming_cv --features metal
+
 sudo cargo flamegraph --release --example qwen3_tts_streaming --features metal -- --nocapture
 
 copy code from : https://github.com/TrevorS/qwen3-tts-rs
+

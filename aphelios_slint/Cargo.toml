@@ -1,0 +1,27 @@
+[package]
+name = "aphelios_slint"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+aphelios_ocr = { path = "../aphelios_ocr" }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+rand = { workspace = true }
+slint = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rfd = "0.15"
+
+[build-dependencies]
+slint-build = "1.15.0"
+
+[package.metadata.slint]
+assets = ["assets/**"]
+
+[features]
+metal = [
+    "aphelios_ocr/metal",
+]

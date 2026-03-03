@@ -22,10 +22,11 @@ pub fn init_logging() {
             .with_line_number(true)
             .pretty();
 
-        tracing_subscriber::registry()
+        // ✅ 使用 try_init() 并忽略 "already set" 错误
+        let _ = tracing_subscriber::registry()
             .with(filter)
             .with(fmt_layer)
-            .init();
+            .try_init(); // 返回 Result，不会 panic
     });
 }
 

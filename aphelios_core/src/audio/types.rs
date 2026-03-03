@@ -9,7 +9,10 @@ pub struct MonoBuffer {
 
 impl MonoBuffer {
     pub fn new(samples: Vec<f32>, sample_rate: u32) -> Self {
-        Self { samples, sample_rate }
+        Self {
+            samples,
+            sample_rate,
+        }
     }
 
     pub fn duration_secs(&self) -> f64 {
@@ -35,7 +38,11 @@ pub struct StereoBuffer {
 
 impl StereoBuffer {
     pub fn new(left: Vec<f32>, right: Vec<f32>, sample_rate: u32) -> Self {
-        Self { left, right, sample_rate }
+        Self {
+            left,
+            right,
+            sample_rate,
+        }
     }
 
     /// 从单声道创建伪立体声
@@ -49,7 +56,8 @@ impl StereoBuffer {
 
     /// 转换为单声道（取左右声道平均值）
     pub fn to_mono(&self) -> MonoBuffer {
-        let samples: Vec<f32> = self.left
+        let samples: Vec<f32> = self
+            .left
             .iter()
             .zip(self.right.iter())
             .map(|(&l, &r)| (l + r) / 2.0)
@@ -103,6 +111,18 @@ impl AudioBuffer {
         match self {
             Self::Mono(m) => m.duration_secs(),
             Self::Stereo(s) => s.duration_secs(),
+        }
+    }
+
+    pub fn to_vec_f32(&self) -> Vec<f32> {
+        match self {
+            Self::Mono(m) => m.samples.clone(),
+            Self::Stereo(s) => s
+                .left
+                .iter()
+                .zip(&s.right)
+                .map(|(l, r)| (l + r) * 0.5)
+                .collect(),
         }
     }
 }
