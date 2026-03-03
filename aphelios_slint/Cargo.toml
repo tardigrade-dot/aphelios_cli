@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 
 aphelios_ocr = { path = "../aphelios_ocr" }
+aphelios_asr = { path = "../aphelios_asr" }
+aphelios_tts = { path = "../aphelios_tts" }
+aphelios_core = { path = "../aphelios_core" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
@@ -14,6 +17,9 @@ slint = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 rfd = "0.15"
+rodio = "0.20"
+candle-core = { workspace = true }
+parakeet-rs = { workspace = true }
 
 [build-dependencies]
 slint-build = "1.15.0"

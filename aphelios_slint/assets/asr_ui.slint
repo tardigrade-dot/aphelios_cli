@@ -1,26 +1,24 @@
-import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit, ListView, StandardListView } from "std-widgets.slint";
+import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit, StandardListView } from "std-widgets.slint";
 import "./pingfang-sc-regular.ttf";
 
-export component OcrWindow inherits Window {
+export component AsrWindow inherits Window {
     width: 900px;
     height: 700px;
-    title: "Dolphin OCR";
+    title: "Parakeet ASR";
 
     default-font-family: "PingFang SC";
     default-font-size: 14px;
 
-    in-out property <string> input_file_path;
-    in-out property <string> output_dir_path;
-    in-out property <string> model_path;
+    in-out property <string> audio_file_path;
+    in-out property <string> output_path;
     in-out property <string> status_message;
     in-out property <bool> is_running;
     in-out property <[string]> log_messages;
-    in-out property <int> log_scroll_position;
+    in-out property <string> transcription_result;
 
-    callback select_input_file();
-    callback select_output_dir();
-    callback start_ocr();
-    callback stop_ocr();
+    callback select_audio_file();
+    callback select_output_path();
+    callback start_asr();
     callback go_back();
 
     VerticalBox {
@@ -29,7 +27,7 @@ export component OcrWindow inherits Window {
         HorizontalBox {
             alignment: center;
             spacing: 10px;
-
+            
             Button {
                 text: "← 返回主菜单";
                 min-width: 100px;
@@ -37,9 +35,9 @@ export component OcrWindow inherits Window {
                     root.go_back();
                 }
             }
-
+            
             Text {
-                text: "Dolphin OCR";
+                text: "Parakeet ASR 语音识别";
                 font-size: 20px;
                 font-weight: 700;
                 color: #333333;
@@ -47,32 +45,17 @@ export component OcrWindow inherits Window {
         }
 
         GroupBox {
-            title: "模型设置";
-            HorizontalBox {
-                Text {
-                    text: "模型路径:";
-                    vertical-alignment: center;
-                }
-                LineEdit {
-                    text <=> model_path;
-                    placeholder-text: "请输入 Dolphin 模型路径";
-                    enabled: !is_running;
-                }
-            }
-        }
-
-        GroupBox {
             title: "输入文件";
             HorizontalBox {
                 LineEdit {
-                    text <=> input_file_path;
-                    placeholder-text: "选择图片或 PDF 文件";
+                    text <=> audio_file_path;
+                    placeholder-text: "选择音频文件 (WAV, MP3, FLAC 等)";
                     enabled: !is_running;
                 }
                 Button {
                     text: "选择文件";
                     clicked => {
-                        root.select_input_file();
+                        root.select_audio_file();
                     }
                     enabled: !is_running;
                 }
@@ -80,17 +63,17 @@ export component OcrWindow inherits Window {
         }
 
         GroupBox {
-            title: "输出目录";
+            title: "输出路径";
             HorizontalBox {
                 LineEdit {
-                    text <=> output_dir_path;
-                    placeholder-text: "选择输出目录";
+                    text <=> output_path;
+                    placeholder-text: "选择输出文件路径";
                     enabled: !is_running;
                 }
                 Button {
-                    text: "选择目录";
+                    text: "选择路径";
                     clicked => {
-                        root.select_output_dir();
+                        root.select_output_path();
                     }
                     enabled: !is_running;
                 }
@@ -99,19 +82,14 @@ export component OcrWindow inherits Window {
 
         HorizontalBox {
             alignment: center;
+            spacing: 20px;
+            
             Button {
-                text: "开始 OCR";
+                text: "开始识别";
                 clicked => {
-                    root.start_ocr();
+                    root.start_asr();
                 }
-                enabled: input_file_path != "" && output_dir_path != "" && !is_running;
-            }
-            Button {
-                text: "停止";
-                clicked => {
-                    root.stop_ocr();
-                }
-                enabled: is_running;
+                enabled: audio_file_path != "" && !is_running;
             }
         }
 
@@ -127,8 +105,21 @@ export component OcrWindow inherits Window {
         }
 
         GroupBox {
+            title: "识别结果";
+            min-height: 150px;
+            VerticalBox {
+                LineEdit {
+                    text <=> transcription_result;
+                    placeholder-text: "识别结果将显示在这里...";
+                    enabled: false;
+                    height: 100px;
+                }
+            }
+        }
+
+        GroupBox {
             title: "日志";
-            min-height: 200px;
+            min-height: 150px;
             VerticalBox {
                 StandardListView {
                     width: 100%;

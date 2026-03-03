@@ -1,0 +1,77 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component MainMenu inherits Window {
+    width: 500px;
+    height: 400px;
+    title: "Aphelios AI Toolkit";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 16px;
+
+    callback open_ocr();
+    callback open_asr();
+    callback open_tts();
+
+    VerticalBox {
+        alignment: center;
+        spacing: 30px;
+
+        Text {
+            text: "Aphelios AI Toolkit";
+            font-size: 28px;
+            font-weight: 700;
+            color: #333333;
+        }
+
+        Text {
+            text: "请选择功能模块";
+            font-size: 18px;
+            color: #666666;
+        }
+
+        GroupBox {
+            title: "功能选择";
+            min-width: 400px;
+            min-height: 250px;
+            
+            VerticalBox {
+                alignment: center;
+                spacing: 20px;
+
+                Button {
+                    text: "📝 OCR 文字识别";
+                    min-width: 300px;
+                    min-height: 50px;
+                    clicked => {
+                        root.open_ocr();
+                    }
+                }
+
+                Button {
+                    text: "🎤 ASR 语音识别";
+                    min-width: 300px;
+                    min-height: 50px;
+                    clicked => {
+                        root.open_asr();
+                    }
+                }
+
+                Button {
+                    text: "🔊 TTS 语音合成";
+                    min-width: 300px;
+                    min-height: 50px;
+                    clicked => {
+                        root.open_tts();
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: "© 2024 Aphelios CLI";
+            font-size: 12px;
+            color: #999999;
+        }
+    }
+}

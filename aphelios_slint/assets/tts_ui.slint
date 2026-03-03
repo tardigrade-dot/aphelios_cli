@@ -1,0 +1,174 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit, StandardListView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component TtsWindow inherits Window {
+    width: 900px;
+    height: 750px;
+    title: "Qwen3 TTS";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 14px;
+
+    in-out property <string> input_text;
+    in-out property <string> model_path;
+    in-out property <string> output_path;
+    in-out property <string> ref_audio_path;
+    in-out property <string> ref_text;
+    in-out property <string> status_message;
+    in-out property <bool> is_running;
+    in-out property <bool> has_audio;
+    in-out property <[string]> log_messages;
+
+    callback select_model_path();
+    callback select_output_path();
+    callback select_ref_audio();
+    callback start_tts();
+    callback play_audio();
+    callback go_back();
+
+    VerticalBox {
+        alignment: start;
+
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+            
+            Button {
+                text: "← 返回主菜单";
+                min-width: 100px;
+                clicked => {
+                    root.go_back();
+                }
+            }
+            
+            Text {
+                text: "Qwen3 TTS 语音合成";
+                font-size: 20px;
+                font-weight: 700;
+                color: #333333;
+            }
+        }
+
+        GroupBox {
+            title: "模型设置";
+            HorizontalBox {
+                LineEdit {
+                    text <=> model_path;
+                    placeholder-text: "Qwen3-TTS 模型路径";
+                    enabled: !is_running;
+                }
+                Button {
+                    text: "选择模型";
+                    clicked => {
+                        root.select_model_path();
+                    }
+                    enabled: !is_running;
+                }
+            }
+        }
+
+        GroupBox {
+            title: "输入文本";
+            min-height: 120px;
+            VerticalBox {
+                LineEdit {
+                    text <=> input_text;
+                    placeholder-text: "请输入要合成的文本内容...";
+                    enabled: !is_running;
+                    height: 80px;
+                }
+            }
+        }
+
+        GroupBox {
+            title: "语音克隆设置 (可选)";
+            VerticalBox {
+                HorizontalBox {
+                    LineEdit {
+                        text <=> ref_audio_path;
+                        placeholder-text: "参考音频路径";
+                        enabled: !is_running;
+                    }
+                    Button {
+                        text: "选择音频";
+                        clicked => {
+                            root.select_ref_audio();
+                        }
+                        enabled: !is_running;
+                    }
+                }
+                HorizontalBox {
+                    LineEdit {
+                        text <=> ref_text;
+                        placeholder-text: "参考音频文本内容";
+                        enabled: !is_running;
+                    }
+                }
+            }
+        }
+
+        GroupBox {
+            title: "输出路径";
+            HorizontalBox {
+                LineEdit {
+                    text <=> output_path;
+                    placeholder-text: "输出音频文件路径";
+                    enabled: !is_running;
+                }
+                Button {
+                    text: "选择路径";
+                    clicked => {
+                        root.select_output_path();
+                    }
+                    enabled: !is_running;
+                }
+            }
+        }
+
+        HorizontalBox {
+            alignment: center;
+            spacing: 20px;
+            
+            Button {
+                text: "开始合成";
+                clicked => {
+                    root.start_tts();
+                }
+                enabled: input_text != "" && !is_running;
+            }
+            
+            Button {
+                text: "🔊 播放";
+                clicked => {
+                    root.play_audio();
+                }
+                enabled: has_audio && !is_running;
+            }
+        }
+
+        GroupBox {
+            title: "状态";
+            VerticalBox {
+                Text {
+                    text: status_message;
+                    font-weight: 700;
+                    color: is_running ? #0066cc : #333333;
+                }
+            }
+        }
+
+        GroupBox {
+            title: "日志";
+            min-height: 150px;
+            VerticalBox {
+                StandardListView {
+                    width: 100%;
+                    height: 100%;
+                    for msg in log_messages: Text {
+                        text: msg;
+                    }
+                }
+            }
+        }
+    }
+}

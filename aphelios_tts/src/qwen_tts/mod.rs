@@ -9,7 +9,14 @@ use std::path::Path;
 use std::time::Instant;
 use tracing::info;
 
-pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
+/// TTS 合成函数，支持自定义输出路径和参考音频
+pub fn qwen3_tts_with_output(
+    text: &str,
+    model_path: &str,
+    output_path: &str,
+    ref_audio_path: Option<&str>,
+    ref_text: Option<&str>,
+) -> Result<()> {
     let device = core_utils::get_default_device(false)?;
     let dtype = DType::BF16;
 
@@ -21,8 +28,7 @@ pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
         use_flash_attn: false,
     };
 
-    let model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base";
-    let loader = ModelLoader::from_local_dir(&model_path)
+    let loader = ModelLoader::from_local_dir(model_path)
         .map_err(|e| anyhow::anyhow!("Failed to create model loader: {}", e))?;
 
     let mut model = loader
@@ -35,26 +41,16 @@ pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
         "Model details"
     );
 
-    let synth_item1 = qwen_tts::io::SynthesisItem {
-        text: text_to_speech.to_owned(),
+    let synth_item = qwen_tts::io::SynthesisItem {
+        text: text.to_owned(),
         language: "chinese".to_string(),
-        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-BF16.wav")
-            .to_path_buf(),
-    };
-
-    let synth_item2 = qwen_tts::io::SynthesisItem {
-        text: text_to_speech.to_owned(),
-        language: "chinese".to_string(),
-        output: Path::new("/Users/larry/coderesp/aphelios_cli/output/newvoice-2-BF16.wav")
-            .to_path_buf(),
+        output: Path::new(output_path).to_path_buf(),
     };
 
     let clone_params = qwen_tts::io::VoiceCloneParams {
-        ref_audio: Some(
-            Path::new("/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav").to_path_buf(),
-        ),
-        ref_text: Some("写这本书的目的在于通过我的走访和观察".into()),
-        x_vector_only: false,
+        ref_audio: ref_audio_path.map(|p| Path::new(p).to_path_buf()),
+        ref_text: ref_text.map(|t| t.to_string()),
+        x_vector_only: ref_audio_path.is_some(),
         save_prompt: false,
     };
 
@@ -74,17 +70,22 @@ pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
     let io_args = IoArgs::default();
     let _start = Instant::now();
     let _ = measure_time!(
-        "TTS 耗时1",
-        synthesize_voice_clone_item(&mut model, &gen_args, &io_args, &clone_params, &synth_item1)?
-    );
-
-    let _ = measure_time!(
-        "TTS 耗时2",
-        synthesize_voice_clone_item(&mut model, &gen_args, &io_args, &clone_params, &synth_item2)?
+        "TTS 耗时",
+        synthesize_voice_clone_item(&mut model, &gen_args, &io_args, &clone_params, &synth_item)?
     );
 
     let du = (Instant::now() - _start).as_secs();
-    info!("tts 耗时: {}秒", du);
+    info!("tts 耗时：{}秒", du);
 
     Ok(())
+}
+
+pub fn qwen3_tts(text_to_speech: String) -> Result<()> {
+    qwen3_tts_with_output(
+        &text_to_speech,
+        "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base",
+        "/Users/larry/coderesp/aphelios_cli/output/newvoice-BF16.wav",
+        Some("/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav"),
+        Some("写这本书的目的在于通过我的走访和观察"),
+    )
 }
