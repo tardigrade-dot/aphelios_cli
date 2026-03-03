@@ -4,11 +4,14 @@ include!(concat!(env!("OUT_DIR"), "/ocr_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/asr_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/tts_ui.rs"));
 
+mod config;
+
 use anyhow::Result;
 use aphelios_core::{utils::core_utils, AudioLoader};
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_tts::qwen_tts::qwen3_tts_with_output;
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use config::AppSettings;
+use slint::{ComponentHandle, Model, ModelRc, PlatformError, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,14 +20,24 @@ use tracing::{error, info};
 // 全局音频路径，用于播放
 static AUDIO_OUTPUT_PATH: Mutex<Option<String>> = Mutex::new(None);
 
-// 辅助函数：向日志添加消息
-fn add_log_message(log_model: &Rc<VecModel<SharedString>>, msg: impl Into<SharedString>) {
-    log_model.push(msg.into());
-}
+// 全局设置
+static APP_SETTINGS: Mutex<Option<AppSettings>> = Mutex::new(None);
 
 fn main() -> Result<()> {
     core_utils::init_tracing();
 
+    // 加载配置
+    let settings = AppSettings::load().unwrap_or_default();
+
+    // 设置全局配置
+    if let Ok(mut global_settings) = APP_SETTINGS.lock() {
+        *global_settings = Some(settings.clone());
+    }
+
+    // 设置 macOS 菜单栏 (仅 macOS)
+    setup_macos_menu();
+
+    // 显示主菜单
     let main_menu = MainMenu::new()?;
     let main_menu_weak = main_menu.as_weak();
 
@@ -52,24 +65,73 @@ fn main() -> Result<()> {
         }
     });
 
+    main_menu.on_quit_app({
+        move || {
+            // 保存配置
+            if let Ok(settings) = APP_SETTINGS.lock() {
+                if let Some(s) = settings.as_ref() {
+                    let _ = s.save();
+                }
+            }
+            std::process::exit(0);
+        }
+    });
+
     main_menu.run()?;
     Ok(())
 }
 
+/// 设置 macOS 菜单栏
+#[cfg(target_os = "macos")]
+fn setup_macos_menu() {
+    // 使用 slint 的内置菜单支持
+    // Slint 会自动在 macOS 上创建应用程序菜单
+}
+
+#[cfg(not(target_os = "macos"))]
+fn setup_macos_menu() {
+    // 非 macOS 平台不做任何操作
+}
+
+fn get_settings() -> Option<AppSettings> {
+    APP_SETTINGS.lock().ok().and_then(|s| s.clone())
+}
+
+fn save_settings(settings: &AppSettings) {
+    if let Ok(mut global_settings) = APP_SETTINGS.lock() {
+        *global_settings = Some(settings.clone());
+        let _ = settings.save();
+    }
+}
+
 fn run_ocr_ui() -> Result<()> {
     let window = OcrWindow::new()?;
-    window.set_model_path(
-        "/Volumes/sw/pretrained_models/Dolphin-v1.5"
-            .to_string()
-            .into(),
-    );
+
+    // 加载保存的设置
+    if let Some(settings) = get_settings() {
+        if let Some(model_path) = settings.ocr_model_path {
+            window.set_model_path(model_path.into());
+        }
+        if let Some(output_dir) = settings.ocr_output_dir {
+            window.set_output_dir_path(output_dir.into());
+        }
+    }
+
     let window_weak = window.as_weak();
 
     window.on_go_back({
         let w = window_weak.clone();
         move || {
             if let Some(win) = w.upgrade() {
-                let _: Result<(), _> = win.hide();
+                // 保存当前设置
+                if let Ok(mut settings) = APP_SETTINGS.lock() {
+                    if let Some(s) = settings.as_mut() {
+                        s.ocr_model_path = Some(win.get_model_path().to_string());
+                        s.ocr_output_dir = Some(win.get_output_dir_path().to_string());
+                        let _ = s.save();
+                    }
+                }
+                let _: Result<(), PlatformError> = win.hide();
             }
         }
     });
@@ -118,11 +180,19 @@ fn run_ocr_ui() -> Result<()> {
             let output_dir: String = win.get_output_dir_path().to_string();
             let model_path: String = win.get_model_path().to_string();
 
+            // 保存设置
+            if let Ok(mut settings) = APP_SETTINGS.lock() {
+                if let Some(s) = settings.as_mut() {
+                    s.ocr_model_path = Some(model_path.clone());
+                    s.ocr_output_dir = Some(output_dir.clone());
+                }
+            }
+
             win.set_is_running(true);
             win.set_status_message("OCR 执行中...".into());
-            add_log_message(&lm, format!("开始 OCR: {}", input_file));
-            add_log_message(&lm, format!("输出目录：{}", output_dir));
-            add_log_message(&lm, format!("模型路径：{}", model_path));
+            lm.push(format!("开始 OCR: {}", input_file).into());
+            lm.push(format!("输出目录：{}", output_dir).into());
+            lm.push(format!("模型路径：{}", model_path).into());
 
             let w2 = w.clone();
             let w3 = w.clone();
@@ -201,7 +271,7 @@ fn run_ocr_ui() -> Result<()> {
             if let Some(win) = w.upgrade() {
                 win.set_is_running(false);
                 win.set_status_message("OCR 已停止".into());
-                add_log_message(&lm, "OCR 已停止");
+                lm.push("OCR 已停止".into());
             }
         }
     });
@@ -211,14 +281,28 @@ fn run_ocr_ui() -> Result<()> {
 }
 
 fn run_asr_ui() -> Result<()> {
-    let window: AsrWindow = AsrWindow::new()?;
+    let window = AsrWindow::new()?;
     let window_weak = window.as_weak();
+
+    // 加载保存的设置
+    if let Some(settings) = get_settings() {
+        if let Some(output_path) = settings.asr_output_path {
+            window.set_output_path(output_path.into());
+        }
+    }
 
     window.on_go_back({
         let w = window_weak.clone();
         move || {
             if let Some(win) = w.upgrade() {
-                let _: Result<(), slint::PlatformError> = win.hide();
+                // 保存设置
+                if let Ok(mut settings) = APP_SETTINGS.lock() {
+                    if let Some(s) = settings.as_mut() {
+                        s.asr_output_path = Some(win.get_output_path().to_string());
+                        let _ = s.save();
+                    }
+                }
+                let _: Result<(), PlatformError> = win.hide();
             }
         }
     });
@@ -261,12 +345,19 @@ fn run_asr_ui() -> Result<()> {
             let audio_file: String = win.get_audio_file_path().to_string();
             let output_path: String = win.get_output_path().to_string();
 
+            // 保存设置
+            if let Ok(mut settings) = APP_SETTINGS.lock() {
+                if let Some(s) = settings.as_mut() {
+                    s.asr_output_path = Some(output_path.clone());
+                }
+            }
+
             win.set_is_running(true);
             win.set_status_message("ASR 识别中...".into());
 
             let log_model: Rc<VecModel<SharedString>> = Rc::new(VecModel::default());
             win.set_log_messages(ModelRc::from(log_model.clone()));
-            add_log_message(&log_model, format!("开始 ASR 识别：{}", audio_file));
+            log_model.push(format!("开始 ASR 识别：{}", audio_file).into());
 
             let w2 = w.clone();
             let w3 = w.clone();
@@ -327,18 +418,40 @@ fn run_asr_ui() -> Result<()> {
 
 fn run_tts_ui() -> Result<()> {
     let window = TtsWindow::new()?;
-    window.set_model_path(
-        "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base"
-            .to_string()
-            .into(),
-    );
+
+    // 加载保存的设置
+    if let Some(settings) = get_settings() {
+        if let Some(model_path) = settings.tts_model_path {
+            window.set_model_path(model_path.into());
+        }
+        if let Some(output_path) = settings.tts_output_path {
+            window.set_output_path(output_path.into());
+        }
+        if let Some(ref_audio) = settings.tts_ref_audio_path {
+            window.set_ref_audio_path(ref_audio.into());
+        }
+        if let Some(ref_text) = settings.tts_ref_text {
+            window.set_ref_text(ref_text.into());
+        }
+    }
+
     let window_weak = window.as_weak();
 
     window.on_go_back({
         let w = window_weak.clone();
         move || {
             if let Some(win) = w.upgrade() {
-                let _: Result<(), _> = win.hide();
+                // 保存设置
+                if let Ok(mut settings) = APP_SETTINGS.lock() {
+                    if let Some(s) = settings.as_mut() {
+                        s.tts_model_path = Some(win.get_model_path().to_string());
+                        s.tts_output_path = Some(win.get_output_path().to_string());
+                        s.tts_ref_audio_path = Some(win.get_ref_audio_path().to_string());
+                        s.tts_ref_text = Some(win.get_ref_text().to_string());
+                        let _ = s.save();
+                    }
+                }
+                let _: Result<(), PlatformError> = win.hide();
             }
         }
     });
@@ -398,14 +511,26 @@ fn run_tts_ui() -> Result<()> {
             let ref_audio_path: String = win.get_ref_audio_path().to_string();
             let ref_text: String = win.get_ref_text().to_string();
 
+            // 保存设置
+            if let Ok(mut settings) = APP_SETTINGS.lock() {
+                if let Some(s) = settings.as_mut() {
+                    s.tts_model_path = Some(model_path.clone());
+                    s.tts_output_path = Some(output_path.clone());
+                    s.tts_ref_audio_path = Some(ref_audio_path.clone());
+                    s.tts_ref_text = Some(ref_text.clone());
+                }
+            }
+
             win.set_is_running(true);
             win.set_status_message("TTS 合成中...".into());
             win.set_has_audio(false);
-            add_log_message(&lm, format!("开始 TTS 合成：{}", input_text));
-            add_log_message(&lm, format!("模型路径：{}", model_path));
-            add_log_message(&lm, format!("输出路径：{}", output_path));
+            lm.push(format!("开始 TTS 合成：{}", input_text).into());
+            lm.push(format!("模型路径：{}", model_path).into());
+            lm.push(format!("输出路径：{}", output_path).into());
 
             let w_inner = w.clone();
+            let w2 = w_inner.clone();
+            let w3 = w_inner.clone();
             std::thread::spawn(move || {
                 info!("Starting TTS: text={}, output={}", input_text, output_path);
                 let result = qwen3_tts_with_output(
@@ -424,8 +549,6 @@ fn run_tts_ui() -> Result<()> {
                     },
                 );
 
-                let w2 = w_inner.clone();
-                let w3 = w_inner.clone();
                 match result {
                     Ok(_) => {
                         info!("TTS completed: {}", output_path);
@@ -472,7 +595,7 @@ fn run_tts_ui() -> Result<()> {
             let Some(_win) = w.upgrade() else { return };
             if let Ok(path_guard) = AUDIO_OUTPUT_PATH.lock() {
                 if let Some(ref path) = *path_guard {
-                    add_log_message(&lm, format!("播放音频：{}", path));
+                    lm.push(format!("播放音频：{}", path).into());
                     let path_clone = path.clone();
                     std::thread::spawn(move || {
                         play_audio_file(&path_clone);

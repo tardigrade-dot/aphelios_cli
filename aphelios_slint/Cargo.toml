@@ -20,6 +20,9 @@ rfd = "0.15"
 rodio = "0.20"
 candle-core = { workspace = true }
 parakeet-rs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = "5.0"
 
 [build-dependencies]
 slint-build = "1.15.0"

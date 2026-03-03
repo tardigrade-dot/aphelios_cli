@@ -2,7 +2,7 @@ fn main() {
     // 使用 SLINT_OUTPUT_GENERATED 环境变量来指定输出文件
     // 所有 UI 文件将合并到一个文件中
 
-    let mut config = slint_build::CompilerConfiguration::new()
+    let config = slint_build::CompilerConfiguration::new()
         .embed_resources(slint_build::EmbedResourcesKind::EmbedFiles);
 
     // 编译所有 UI 文件

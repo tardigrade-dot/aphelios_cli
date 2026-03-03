@@ -5,7 +5,8 @@ use hound;
 use image::{DynamicImage, GenericImageView};
 use ort::ep::CPU;
 use std::path::Path;
-use tracing::{Level, info};
+use tracing::info;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::demucs::processor::StereoAudio;
 
@@ -13,14 +14,21 @@ static INIT: std::sync::Once = std::sync::Once::new();
 
 pub fn init_tracing() {
     INIT.call_once(|| {
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(Level::INFO)
-            // .with_env_filter(EnvFilter::from_default_env()) // 支持 RUST_LOG
-            .with_file(true) // 显示文件名
-            .with_env_filter("info,ort=off")
-            .with_line_number(true) // 显示行号
-            .finish();
-        tracing::subscriber::set_global_default(subscriber).unwrap();
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+
+        let fmt_layer = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_file(true)
+            .with_line_number(true)
+            .pretty();
+
+        // ✅ 使用 try_init() 并忽略 "already set" 错误
+        let _ = tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt_layer)
+            .try_init(); // 返回 Result，不会 panic
     });
 }
 
