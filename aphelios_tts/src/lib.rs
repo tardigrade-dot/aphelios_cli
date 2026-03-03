@@ -1293,6 +1293,9 @@ impl Qwen3TTS {
         language: Language,
         options: SynthesisOptions,
     ) -> Result<StreamingSession<'_>> {
+        // Set SDPA preference on the model
+        self.talker.set_use_sdpa(options.use_sdpa);
+
         let input_ids = self.text_tokenizer.encode(text)?;
         StreamingSession::new_voice_clone(self, &input_ids, prompt, language, options)
     }
@@ -1945,10 +1948,13 @@ impl<'a> StreamingSession<'a> {
         }
 
         // Generate frames until we have enough for a chunk
-        while self.frame_buffer.len() < self.chunk_frames
+        // Optimization: accumulate GPU tensors and do single transfer at the end
+        let mut gpu_frame_tensors: Vec<Tensor> = Vec::with_capacity(self.chunk_frames);
+
+        while gpu_frame_tensors.len() < self.chunk_frames
             && self.frames_generated < self.config.max_new_tokens
         {
-            let (token_id, token_tensor) =
+            let (_token_id, token_tensor) =
                 match (self.current_token, self.current_token_tensor.take()) {
                     (Some(id), Some(t)) => (id, t),
                     _ => {
@@ -1970,11 +1976,15 @@ impl<'a> StreamingSession<'a> {
                 &mut self.cp_kv_caches,
             )?;
 
-            // Build frame on GPU, then transfer for frame_buffer
-            let semantic_t = Tensor::new(&[token_id], self.model.device())?;
-            let frame_tensor = Tensor::cat(&[&semantic_t, &acoustic_codes_tensor], 0)?;
-            let frame_codes: Vec<u32> = frame_tensor.to_vec1()?;
-            self.frame_buffer.push(frame_codes);
+            // Build [16] frame tensor on GPU: [semantic_token, acoustic_0..14]
+            // Optimization: use reshape instead of creating new tensor
+            let frame_tensor = Tensor::cat(
+                &[&token_tensor.reshape(1)?, &acoustic_codes_tensor],
+                0,
+            )?;
+
+            // Accumulate GPU tensor (defer CPU transfer)
+            gpu_frame_tensors.push(frame_tensor);
 
             let frame_idx = self.frames_generated;
             self.frames_generated += 1;
@@ -2014,6 +2024,8 @@ impl<'a> StreamingSession<'a> {
             )?;
             let next_token_tensor =
                 generation::sample(&logits_2d, &self.config, &mut self.sampling_ctx)?;
+
+            // Keep token on GPU for next iteration
             let next_token_id: u32 = next_token_tensor.flatten_all()?.to_vec1::<u32>()?[0];
             Qwen3TTS::update_penalty_mask(
                 &mut self.penalty_mask,
@@ -2030,6 +2042,21 @@ impl<'a> StreamingSession<'a> {
                 self.current_token = Some(next_token_id);
                 self.current_token_tensor = Some(next_token_tensor);
             }
+        }
+
+        // Single GPU→CPU transfer for all frames in this chunk
+        if gpu_frame_tensors.is_empty() {
+            return Ok(None);
+        }
+
+        // Stack and transfer all frames at once
+        let stacked = Tensor::stack(&gpu_frame_tensors, 0)?; // [n_frames, 16]
+        let flat: Vec<u32> = stacked.flatten_all()?.to_vec1()?;
+        let n_frames = gpu_frame_tensors.len();
+
+        for f in 0..n_frames {
+            let start = f * 16;
+            self.frame_buffer.push(flat[start..start + 16].to_vec());
         }
 
         // Decode the buffered frames
@@ -2087,6 +2114,9 @@ pub struct SynthesisOptions {
     pub min_new_tokens: usize,
     /// Random seed for deterministic generation. `None` = non-deterministic.
     pub seed: Option<u64>,
+    /// Use SDPA (Scaled Dot-Product Attention) for faster inference on Metal/CUDA.
+    /// Default is true for Metal/CUDA devices, false for CPU.
+    pub use_sdpa: bool,
 }
 
 impl SynthesisOptions {
@@ -2116,6 +2146,7 @@ impl Default for SynthesisOptions {
             chunk_frames: 10, // ~800ms per chunk at 12.5 Hz
             min_new_tokens: 2,
             seed: None,
+            use_sdpa: true,
         }
     }
 }

@@ -6,6 +6,7 @@
 use anyhow::Result;
 use candle_core::{Device, IndexOp, Module, Tensor, D};
 use candle_nn::{linear_no_bias, rms_norm, Linear, RmsNorm, VarBuilder};
+use std::cell::RefCell;
 
 use super::fused_ops::FusedRmsNorm;
 
@@ -39,28 +40,22 @@ pub fn create_causal_mask(seq_len: usize, offset: usize, device: &Device) -> Res
 ///
 /// `x` has shape `[batch, heads, seq_len, head_dim]`.
 /// `cos` and `sin` have shape `[seq_len, head_dim/2]`.
+///
+/// Optimization: avoid unnecessary dtype conversions and broadcasts
 fn apply_rope_rotation(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor> {
-    let (_b, _h, _seq, d) = x.dims4()?;
+    let (b, h, _seq, d) = x.dims4()?;
     let x1 = x.narrow(D::Minus1, 0, d / 2)?;
     let x2 = x.narrow(D::Minus1, d / 2, d / 2)?;
 
-    // Broadcast cos/sin from [seq_len, half_dim] to [1, 1, seq_len, half_dim]
-    let cos = cos
-        .unsqueeze(0)?
-        .unsqueeze(0)?
-        .to_dtype(x.dtype())?
-        .broadcast_as(x1.shape())?;
-    let sin = sin
-        .unsqueeze(0)?
-        .unsqueeze(0)?
-        .to_dtype(x.dtype())?
-        .broadcast_as(x1.shape())?;
+    // cos/sin are [seq_len, half_dim], need to broadcast to [batch, heads, seq_len, half_dim]
+    let cos_b = cos.unsqueeze(0)?.unsqueeze(0)?.broadcast_as((b, h, cos.dim(0)?, cos.dim(1)?))?.to_dtype(x.dtype())?;
+    let sin_b = sin.unsqueeze(0)?.unsqueeze(0)?.broadcast_as((b, h, sin.dim(0)?, sin.dim(1)?))?.to_dtype(x.dtype())?;
 
     // Standard RoPE: [x1*cos - x2*sin, x2*cos + x1*sin]
     let rotated = Tensor::cat(
         &[
-            &(x1.mul(&cos)? - x2.mul(&sin)?)?,
-            &(x2.mul(&cos)? + x1.mul(&sin)?)?,
+            &(x1.mul(&cos_b)? - x2.mul(&sin_b)?)?,
+            &(x2.mul(&cos_b)? + x1.mul(&sin_b)?)?,
         ],
         D::Minus1,
     )?;
@@ -69,9 +64,11 @@ fn apply_rope_rotation(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor>
 }
 
 /// Rotary position embedding (standard RoPE)
+///
+/// Optimization: pre-compute and cache cos/sin with correct shape
 pub struct RotaryEmbedding {
-    cos: Tensor,
-    sin: Tensor,
+    cos_flat: Tensor, // [max_seq, half_dim] - for slicing
+    sin_flat: Tensor, // [max_seq, half_dim] - for slicing
 }
 
 impl RotaryEmbedding {
@@ -86,16 +83,18 @@ impl RotaryEmbedding {
         let positions = Tensor::new(positions.as_slice(), device)?.unsqueeze(1)?;
 
         let freqs = positions.matmul(&inv_freq.unsqueeze(0)?)?;
-        let cos = freqs.cos()?;
-        let sin = freqs.sin()?;
+        let cos_flat = freqs.cos()?;
+        let sin_flat = freqs.sin()?;
 
-        Ok(Self { cos, sin })
+        Ok(Self { cos_flat, sin_flat })
     }
 
     pub fn apply(&self, q: &Tensor, k: &Tensor, offset: usize) -> Result<(Tensor, Tensor)> {
         let seq_len = q.dim(2)?;
-        let cos = self.cos.i(offset..offset + seq_len)?;
-        let sin = self.sin.i(offset..offset + seq_len)?;
+
+        // Slice pre-computed cos/sin [seq_len, half_dim]
+        let cos = self.cos_flat.i(offset..offset + seq_len)?;
+        let sin = self.sin_flat.i(offset..offset + seq_len)?;
 
         let q_rot = apply_rope_rotation(q, &cos, &sin)?;
         let k_rot = apply_rope_rotation(k, &cos, &sin)?;
@@ -109,9 +108,11 @@ impl RotaryEmbedding {
 /// Uses interleaved layout matching Qwen3-TTS's rope_scaling configuration.
 /// For TTS, all 3 position dimensions use the same value, but the interleaving
 /// still affects how frequencies are distributed across the head dimension.
+///
+/// Optimization: pre-compute cos/sin for max positions
 pub struct MRoPE {
-    inv_freq: Tensor,
-    device: Device,
+    cos_cache: Tensor,  // [max_pos, head_dim/2]
+    sin_cache: Tensor,  // [max_pos, head_dim/2]
 }
 
 impl MRoPE {
@@ -136,9 +137,19 @@ impl MRoPE {
             .collect();
         let inv_freq = Tensor::new(inv_freq.as_slice(), device)?;
 
+        // Pre-compute cos/sin for max positions (2048 should be enough)
+        let max_pos = 2048;
+        let positions: Vec<f32> = (0..max_pos).map(|i| i as f32).collect();
+        let pos = Tensor::new(positions.as_slice(), device)?.unsqueeze(1)?; // [max_pos, 1]
+        let inv_freq_row = inv_freq.unsqueeze(0)?; // [1, dim/2]
+        let freqs = pos.matmul(&inv_freq_row)?; // [max_pos, dim/2]
+
+        let cos_cache = freqs.cos()?;
+        let sin_cache = freqs.sin()?;
+
         Ok(Self {
-            inv_freq,
-            device: device.clone(),
+            cos_cache,
+            sin_cache,
         })
     }
 
@@ -158,21 +169,9 @@ impl MRoPE {
         offset: usize,
         seq_len: usize,
     ) -> Result<(Tensor, Tensor)> {
-        // Generate position IDs for all 3 dimensions (same values for TTS)
-        let positions: Vec<f32> = (offset..offset + seq_len).map(|i| i as f32).collect();
-        let pos = Tensor::new(positions.as_slice(), &self.device)?; // [seq_len]
-
-        // Compute frequencies for each dimension
-        // freqs = pos[:, None] * inv_freq[None, :] -> [seq_len, head_dim/2]
-        let pos_col = pos.unsqueeze(1)?; // [seq_len, 1]
-        let inv_freq_row = self.inv_freq.unsqueeze(0)?; // [1, head_dim/2]
-        let freqs = pos_col.matmul(&inv_freq_row)?; // [seq_len, head_dim/2]
-
-        // For TTS, all 3 dimensions have the same position, so freqs_t = freqs_h = freqs_w.
-        // The interleaving is a no-op when all positions are identical.
-        // freqs is already [seq_len, head_dim/2] — compute cos/sin directly.
-        let cos = freqs.cos()?;
-        let sin = freqs.sin()?;
+        // Slice pre-computed cos/sin from cache [seq_len, head_dim/2]
+        let cos = self.cos_cache.i(offset..offset + seq_len)?;
+        let sin = self.sin_cache.i(offset..offset + seq_len)?;
 
         let q_rot = apply_rope_rotation(q, &cos, &sin)?;
         let k_rot = apply_rope_rotation(k, &cos, &sin)?;
@@ -212,6 +211,8 @@ pub struct Attention {
     num_kv_heads: usize,
     head_dim: usize,
     scale: f64,
+    /// Whether to use SDPA (Scaled Dot-Product Attention) when available
+    use_sdpa: RefCell<bool>,
 }
 
 impl Attention {
@@ -241,7 +242,20 @@ impl Attention {
             num_kv_heads,
             head_dim,
             scale: 1.0 / (head_dim as f64).sqrt(),
+            use_sdpa: RefCell::new(true),
         })
+    }
+
+    /// Create new attention with custom SDPA setting
+    pub fn new_with_sdpa(config: &Qwen3TTSConfig, vb: VarBuilder, use_sdpa: bool) -> Result<Self> {
+        let attn = Self::new(config, vb)?;
+        *attn.use_sdpa.borrow_mut() = use_sdpa;
+        Ok(attn)
+    }
+
+    /// Set whether to use SDPA for attention computation
+    pub fn set_use_sdpa(&self, use_sdpa: bool) {
+        *self.use_sdpa.borrow_mut() = use_sdpa;
     }
 
     pub fn forward(
@@ -323,7 +337,7 @@ impl Attention {
             }
             #[cfg(not(feature = "flash-attn"))]
             unreachable!()
-        } else if q.device().is_metal() && attention_mask.is_none() {
+        } else if *self.use_sdpa.borrow() && q.device().is_metal() && attention_mask.is_none() {
             // Metal SDPA for decode steps (seq_len=1, no mask needed).
             // Fused tiled kernel with native GQA; 2-pass for k_seq >= 1024.
             // Layout: [B, H, S, D] — already in this form after transpose.
@@ -464,6 +478,11 @@ impl DecoderLayer {
         let hidden_states = (hidden_states + mlp_out)?;
 
         Ok(hidden_states)
+    }
+
+    /// Set whether to use SDPA for attention computation
+    pub fn set_use_sdpa(&self, use_sdpa: bool) {
+        self.self_attn.set_use_sdpa(use_sdpa);
     }
 }
 

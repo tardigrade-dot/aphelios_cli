@@ -57,75 +57,33 @@ impl AudioPlayer {
         sink.set_volume(1.0);
 
         let mut total_samples = 0;
-        let mut buffered_samples = 0;
+        let mut first = true;
 
-        // 预缓冲：先收集至少 1 秒的音频再开始播放
-        let target_buffer_secs = 1.0;
-        let target_buffer_samples = (sample_rate as f64 * target_buffer_secs) as usize;
-
-        tracing::info!(
-            "开始预缓冲... 目标：{} 样本 ({:.1}秒)",
-            target_buffer_samples,
-            target_buffer_secs
-        );
-
-        // 收集初始缓冲
+        // 持续接收并播放数据
         while let Ok(maybe_samples) = receiver.recv() {
             match maybe_samples {
                 Some(samples) => {
                     if samples.is_empty() {
                         continue;
                     }
-                    buffered_samples += samples.len();
 
-                    // 追加到播放队列（不等待播放）
+                    total_samples += samples.len();
+
+                    // 追加到播放队列
                     let source = SamplesBuffer::new(1, sample_rate, samples);
                     sink.append(source);
 
-                    if buffered_samples >= target_buffer_samples {
+                    if first {
                         tracing::info!(
-                            "预缓冲完成：{} 样本 ({:.2}秒)，开始连续播放",
-                            buffered_samples,
-                            buffered_samples as f64 / sample_rate as f64
+                            "▶️ 开始播放：{} 样本 ({:.2}秒)",
+                            total_samples,
+                            total_samples as f64 / sample_rate as f64
                         );
-                        break;
+                        first = false;
                     }
                 }
                 None => {
                     // 没有更多数据了
-                    if buffered_samples == 0 {
-                        return Ok(());
-                    }
-                    break;
-                }
-            }
-        }
-
-        total_samples = buffered_samples;
-
-        // 继续接收并追加剩余数据
-        while let Ok(maybe_samples) = receiver.recv() {
-            match maybe_samples {
-                Some(samples) => {
-                    if samples.is_empty() {
-                        continue;
-                    }
-
-                    let chunk_samples = samples.len();
-                    total_samples += chunk_samples;
-
-                    // 立即追加到播放队列（不等待播放）
-                    let source = SamplesBuffer::new(1, sample_rate, samples);
-                    sink.append(source);
-
-                    tracing::debug!(
-                        "➕ 追加：{} 样本，累计：{} 样本，待播放：{} 样本",
-                        chunk_samples,
-                        total_samples,
-                        total_samples as i64 - (total_samples as i64 - sink.len() as i64)
-                    );
-                }
-                None => {
                     tracing::info!(
                         "⏹ 收到结束信号，累计：{} 样本 ({:.2}s)",
                         total_samples,

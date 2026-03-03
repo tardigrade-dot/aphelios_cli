@@ -4,23 +4,66 @@
 
 use aphelios_core::utils::core_utils;
 use aphelios_tts::{AudioBuffer, AudioPlayer, Language, Qwen3TTS, SynthesisOptions};
+use std::env;
 use std::time::Instant;
 
 fn main() -> anyhow::Result<()> {
     core_utils::init_tracing();
     let device = core_utils::get_default_device(false)?;
 
-    let model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base";
-    let ref_audio_path = "/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav";
+    // Parse command-line arguments
+    let args: Vec<String> = env::args().collect();
+    let mut use_sdpa = true;
+    let mut model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base";
+    let mut ref_audio_path = "/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav";
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--no-sdpa" | "-n" => use_sdpa = false,
+            "--sdpa" | "-s" => use_sdpa = true,
+            "--model" | "-m" => {
+                if i + 1 < args.len() {
+                    model_path = &args[i + 1];
+                    i += 1;
+                }
+            }
+            "--ref-audio" | "-r" => {
+                if i + 1 < args.len() {
+                    ref_audio_path = &args[i + 1];
+                    i += 1;
+                }
+            }
+            "--help" | "-h" => {
+                println!("Qwen3-TTS 流式语音合成示例");
+                println!();
+                println!("用法：cargo run --example qwen3_tts_streaming [选项]");
+                println!();
+                println!("选项:");
+                println!("  --sdpa, -s       启用 SDPA (默认)");
+                println!("  --no-sdpa, -n    禁用 SDPA");
+                println!("  --model, -m      模型路径");
+                println!("  --ref-audio, -r  参考音频路径");
+                println!("  --help, -h       显示帮助");
+                return Ok(());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
     let ref_text = "写这本书的目的在于通过我的走访和观察";
-    let text_to_speech = r"近来研究表明，那种庞大、复杂、联合式的宗族在中国并不普遍，可能只存在于华南及江南的某些地区。研究者发现，北方那样的多族共居村庄在新界殖民地仍很普遍。对旧的宗族研究范式的批评甚至比这些论点还要深入。斯蒂芬·桑格伦对莫利斯·弗雷德曼以及休·贝克提出的男系宗族占主要地位的观点提出激烈的批评，
+    let text_to_speech = r"
     
-    他认为以前对中国宗族的研究只是从各种规定及法理思想出发的，而未分析宗族的实际结构、职能及运作效果。对宗族集团实际作为的探究不仅可以揭示社会分析学家从中国男系意识形态中借用来的观念具体化和理论化，而且可以揭示宗族是如何融合于中国社会的组织体系之中的。
-
-上述观点为我们研究华北地区宗族组织提供了新的理论基础和方法。摆脱一族统治村庄的旧思想，我们便会发现，北方宗族并不是苍白无力的，虽然它并不庞大、复杂，并未拥有巨额族产、强大的同族意识，但在乡村社会中，它仍起着具体而重要的作用。我这里使用的宗族是一个广义的概念:它是由同一祖先繁衍下来的人群，通常由共同财产和婚丧庆吊联系在一起，并且居住于同一村庄。
-
-同时，我还将证明过去对中国的宗族的认识，特别是其从历史上考察中国的宗族观点，仍有其合理的一面，值得借鉴，过分强调宗族的现实职能往往会诱使我们忽视宗族在历史上的重要作用。考察中国的男系意识，我觉得它与帕翠莎·艾伯瑞所称的“宗”更为接近。从布劳代尔的观点来看，男系嫡传并不是构成北方农村血缘团体的唯一因素。但是，如同离开具体变种就无法理解血缘团体和宗族组织的职能一样，不弄清楚宗族的官方定义或模式也无法掌握其具体作用。
-";
+    近来研究表明，那种庞大、复杂、联合式的宗族在中国并不普遍，可能只存在于华南及江南的某些地区。
+    研究者发现，北方那样的多族共居村庄在新界殖民地仍很普遍。对旧的宗族研究范式的批评甚至比这些论点还要深入。
+    斯蒂芬·桑格伦对莫利斯·弗雷德曼以及休·贝克提出的男系宗族占主要地位的观点提出激烈的批评，
+    
+    他认为以前对中国宗族的研究只是从各种规定及法理思想出发的，而未分析宗族的实际结构、职能及运作效果。
+    对宗族集团实际作为的探究不仅可以揭示社会分析学家从中国男系意识形态中借用来的观念具体化和理论化，
+    而且可以揭示宗族是如何融合于中国社会的组织体系之中的。
+    
+    ";
 
     tracing::info!("📥 加载 Qwen3-TTS 模型...");
     let model = Qwen3TTS::from_pretrained(model_path, device)?;
@@ -43,15 +86,17 @@ fn main() -> anyhow::Result<()> {
         chunk_frames: 20, // 5 帧 = 400ms，更小的 chunk 让播放更及时
         max_length: 20480,
         temperature: 0.9,
-        top_k: 50,
+        top_k: 20,
         top_p: 0.9,
         repetition_penalty: 1.05,
         min_new_tokens: 2,
         seed: Some(42),
+        use_sdpa,
         ..Default::default()
     };
 
     tracing::info!("🚀 开始流式语音合成...");
+    tracing::info!("📊 SDPA: {}", if use_sdpa { "启用" } else { "禁用" });
     let total_start = Instant::now();
 
     // 创建音频播放器 - 预缓冲 1 秒后立即开始播放

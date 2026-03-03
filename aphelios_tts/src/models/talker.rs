@@ -965,6 +965,13 @@ impl TalkerModel {
         let embed = self.codec_embedding.forward(token_ids)?; // [T, hidden_size]
         Ok(embed.unsqueeze(0)?) // [1, T, hidden_size]
     }
+
+    /// Set whether to use SDPA for attention computation in all layers
+    pub fn set_use_sdpa(&self, use_sdpa: bool) {
+        for layer in self.layers.iter() {
+            layer.set_use_sdpa(use_sdpa);
+        }
+    }
 }
 
 #[cfg(test)]
