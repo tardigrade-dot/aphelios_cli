@@ -67,6 +67,7 @@ symphonia = { workspace = true }
 byteorder = { workspace = true }
 rubato = { workspace = true }
 tempfile = "3.26.0"
+strum_macros = "0.28.0"
 
 [features]
 metal = [

@@ -4,8 +4,8 @@
 //! and `DecoderLayer` — used by both `TalkerModel` and `CodePredictor`.
 
 use anyhow::Result;
-use candle_core::{Device, IndexOp, Module, Tensor, D};
-use candle_nn::{linear_no_bias, rms_norm, Linear, RmsNorm, VarBuilder};
+use candle_core::{D, Device, IndexOp, Module, Tensor};
+use candle_nn::{Linear, RmsNorm, VarBuilder, linear_no_bias, rms_norm};
 use std::cell::RefCell;
 
 use super::fused_ops::FusedRmsNorm;
@@ -48,8 +48,16 @@ fn apply_rope_rotation(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor>
     let x2 = x.narrow(D::Minus1, d / 2, d / 2)?;
 
     // cos/sin are [seq_len, half_dim], need to broadcast to [batch, heads, seq_len, half_dim]
-    let cos_b = cos.unsqueeze(0)?.unsqueeze(0)?.broadcast_as((b, h, cos.dim(0)?, cos.dim(1)?))?.to_dtype(x.dtype())?;
-    let sin_b = sin.unsqueeze(0)?.unsqueeze(0)?.broadcast_as((b, h, sin.dim(0)?, sin.dim(1)?))?.to_dtype(x.dtype())?;
+    let cos_b = cos
+        .unsqueeze(0)?
+        .unsqueeze(0)?
+        .broadcast_as((b, h, cos.dim(0)?, cos.dim(1)?))?
+        .to_dtype(x.dtype())?;
+    let sin_b = sin
+        .unsqueeze(0)?
+        .unsqueeze(0)?
+        .broadcast_as((b, h, sin.dim(0)?, sin.dim(1)?))?
+        .to_dtype(x.dtype())?;
 
     // Standard RoPE: [x1*cos - x2*sin, x2*cos + x1*sin]
     let rotated = Tensor::cat(
@@ -111,8 +119,8 @@ impl RotaryEmbedding {
 ///
 /// Optimization: pre-compute cos/sin for max positions
 pub struct MRoPE {
-    cos_cache: Tensor,  // [max_pos, head_dim/2]
-    sin_cache: Tensor,  // [max_pos, head_dim/2]
+    cos_cache: Tensor, // [max_pos, head_dim/2]
+    sin_cache: Tensor, // [max_pos, head_dim/2]
 }
 
 impl MRoPE {
@@ -520,7 +528,7 @@ mod tests {
         let device = Device::Cpu;
         let rope = RotaryEmbedding::new(64, 512, 10000.0, &device).unwrap();
         // Verify cos/sin shapes match expected dim
-        assert_eq!(rope.cos.dims()[1], 32); // dim / 2
+        assert_eq!(rope.cos_flat.dims()[1], 32); // dim / 2
     }
 
     #[test]
@@ -529,10 +537,10 @@ mod tests {
         let rope = RotaryEmbedding::new(64, 512, 10000.0, &device).unwrap();
 
         // cos and sin should be [max_seq_len, dim/2]
-        assert_eq!(rope.cos.dims()[0], 512);
-        assert_eq!(rope.cos.dims()[1], 32); // dim / 2
-        assert_eq!(rope.sin.dims()[0], 512);
-        assert_eq!(rope.sin.dims()[1], 32);
+        assert_eq!(rope.cos_flat.dims()[0], 512);
+        assert_eq!(rope.cos_flat.dims()[1], 32); // dim / 2
+        assert_eq!(rope.sin_flat.dims()[0], 512);
+        assert_eq!(rope.sin_flat.dims()[1], 32);
     }
 
     #[test]

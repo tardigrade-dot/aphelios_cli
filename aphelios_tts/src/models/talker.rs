@@ -18,8 +18,9 @@
 
 use anyhow::Result;
 use candle_core::{DType, Device, IndexOp, Module, Tensor};
-use candle_nn::{embedding, linear_no_bias, rms_norm, Embedding, Linear, RmsNorm, VarBuilder};
+use candle_nn::{Embedding, Linear, RmsNorm, VarBuilder, embedding, linear_no_bias, rms_norm};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::str::FromStr;
 
 use super::config::Qwen3TTSConfig;
@@ -106,9 +107,9 @@ impl Language {
         }
     }
 }
-
+use strum_macros::Display;
 /// Speaker IDs for CustomVoice model
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum Speaker {
     Serena,
     Vivian,

@@ -110,13 +110,13 @@ pub use audio::AudioBuffer;
 pub use hub::ModelPaths;
 pub use models::config::Qwen3TTSConfig;
 // StreamingSession is defined in this module, exported as top-level type
+pub use audio::{AudioPlayer, play_streaming};
 pub use generation::SamplingContext;
 pub use models::talker::{Language, Speaker, codec_tokens, special_tokens, tts_tokens};
 pub use models::{
     CodePredictor, CodePredictorConfig, ModelType, ParsedModelConfig, SpeakerEncoderConfig,
     TalkerConfig, TalkerModel,
 };
-pub use audio::{AudioPlayer, play_streaming};
 
 /// 便捷函数：流式合成并播放语音
 ///
@@ -1726,16 +1726,17 @@ impl<'a> StreamingSession<'a> {
 
         // ICL extension (if reference codes + text are provided)
         let (trailing_text_hidden, tts_pad_embed, last_hidden, offset, logits) = if is_icl {
-            if let (Some(ref_codes), Some(ref_text_ids)) =
-                (&prompt.ref_codes, &prompt.ref_text_ids)
+            if let (Some(ref_codes), Some(ref_text_ids)) = (&prompt.ref_codes, &prompt.ref_text_ids)
             {
                 let ref_codec_embeds = model.sum_ref_codec_embeddings(ref_codes)?;
 
                 // Build ICL prompt with all text tokens
-                let (icl_embed, icl_trailing) =
-                    model
-                        .talker
-                        .build_icl_prompt(input_ids, ref_text_ids, &ref_codec_embeds, false)?;
+                let (icl_embed, icl_trailing) = model.talker.build_icl_prompt(
+                    input_ids,
+                    ref_text_ids,
+                    &ref_codec_embeds,
+                    false,
+                )?;
 
                 let icl_len = icl_embed.dim(1)?;
 
@@ -1763,19 +1764,43 @@ impl<'a> StreamingSession<'a> {
                     // the ICL context
                     last_hidden = last_icl_hidden;
 
-                    (icl_trailing, model.talker.get_tts_pad_embed()?, last_hidden, offset, new_logits)
+                    (
+                        icl_trailing,
+                        model.talker.get_tts_pad_embed()?,
+                        last_hidden,
+                        offset,
+                        new_logits,
+                    )
                 } else {
                     let trailing = model.build_default_trailing_text(input_ids)?;
-                    (trailing, model.talker.get_tts_pad_embed()?, last_hidden, offset, logits)
+                    (
+                        trailing,
+                        model.talker.get_tts_pad_embed()?,
+                        last_hidden,
+                        offset,
+                        logits,
+                    )
                 }
             } else {
                 let trailing = model.build_default_trailing_text(input_ids)?;
-                (trailing, model.talker.get_tts_pad_embed()?, last_hidden, offset, logits)
+                (
+                    trailing,
+                    model.talker.get_tts_pad_embed()?,
+                    last_hidden,
+                    offset,
+                    logits,
+                )
             }
         } else {
             // Non-ICL mode: build trailing text from remaining tokens
             let trailing = model.build_default_trailing_text(input_ids)?;
-            (trailing, model.talker.get_tts_pad_embed()?, last_hidden, offset, logits)
+            (
+                trailing,
+                model.talker.get_tts_pad_embed()?,
+                last_hidden,
+                offset,
+                logits,
+            )
         };
 
         let trailing_text_len = trailing_text_hidden.dim(1)?;
@@ -1978,10 +2003,8 @@ impl<'a> StreamingSession<'a> {
 
             // Build [16] frame tensor on GPU: [semantic_token, acoustic_0..14]
             // Optimization: use reshape instead of creating new tensor
-            let frame_tensor = Tensor::cat(
-                &[&token_tensor.reshape(1)?, &acoustic_codes_tensor],
-                0,
-            )?;
+            let frame_tensor =
+                Tensor::cat(&[&token_tensor.reshape(1)?, &acoustic_codes_tensor], 0)?;
 
             // Accumulate GPU tensor (defer CPU transfer)
             gpu_frame_tensors.push(frame_tensor);
@@ -2245,6 +2268,7 @@ mod tests {
             chunk_frames: 5,
             min_new_tokens: 0,
             seed: Some(42),
+            use_sdpa: true,
         };
         assert_eq!(options.max_length, 512);
         assert!((options.temperature - 0.5).abs() < 1e-6);
