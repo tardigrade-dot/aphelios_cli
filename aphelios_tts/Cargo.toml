@@ -79,7 +79,7 @@ metal = [
     "candle-nn/accelerate",
     "candle-transformers/metal",
     "candle-transformers/accelerate",
-    #"vibevoice/metal",
+    "vibevoice/metal",
     #"mistralrs/metal",
     "ort/coreml",
     "qwen_tts/metal",
