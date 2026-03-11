@@ -1,0 +1,308 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component SettingsWindow inherits Window {
+    width: 700px;
+    height: 700px;
+    title: "设置";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 13px;
+
+    // OCR 设置
+    in-out property <string> ocr_model_path;
+    in-out property <string> ocr_output_dir;
+
+    // ASR 设置
+    in-out property <string> asr_output_path;
+
+    // TTS 设置
+    in-out property <string> tts_model_path;
+    in-out property <string> tts_output_path;
+    in-out property <string> tts_ref_audio_path;
+    in-out property <string> tts_ref_text;
+
+    // 通用设置
+    in-out property <string> window_width;
+    in-out property <string> window_height;
+
+    callback go_back();
+    callback save_settings();
+
+    callback select_ocr_model_path();
+    callback select_ocr_output_dir();
+    callback select_asr_output_path();
+    callback select_tts_model_path();
+    callback select_tts_output_path();
+    callback select_tts_ref_audio();
+
+    background: #f5f5f5;
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 10px;
+
+        // 标题栏
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+
+            Button {
+                text: "← 返回";
+                min-width: 70px;
+                min-height: 28px;
+                clicked => { root.go_back(); }
+            }
+
+            Text {
+                text: "设置";
+                font-size: 16px;
+                font-weight: 700;
+                color: #1a1a1a;
+            }
+
+            Rectangle {
+                min-width: 100px;
+                background: transparent;
+            }
+
+            Button {
+                text: "💾 保存";
+                min-width: 80px;
+                min-height: 28px;
+                clicked => { root.save_settings(); }
+            }
+        }
+
+        // OCR 设置
+        GroupBox {
+            title: "📝 OCR 设置";
+            min-width: 600px;
+            min-height: 150px;
+
+            VerticalBox {
+                spacing: 8px;
+                padding: 10px;
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "模型路径:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.ocr_model_path;
+                        placeholder-text: "Dolphin OCR 模型路径";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_ocr_model_path(); }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "输出目录:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.ocr_output_dir;
+                        placeholder-text: "OCR 输出目录";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_ocr_output_dir(); }
+                    }
+                }
+            }
+        }
+
+        // ASR 设置
+        GroupBox {
+            title: "🎤 ASR 设置";
+            min-width: 600px;
+            min-height: 100px;
+
+            VerticalBox {
+                spacing: 8px;
+                padding: 10px;
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "输出路径:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.asr_output_path;
+                        placeholder-text: "ASR 输出文件路径";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_asr_output_path(); }
+                    }
+                }
+            }
+        }
+
+        // TTS 设置
+        GroupBox {
+            title: "🔊 TTS 设置";
+            min-width: 600px;
+            min-height: 200px;
+
+            VerticalBox {
+                spacing: 8px;
+                padding: 10px;
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "模型路径:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.tts_model_path;
+                        placeholder-text: "TTS 模型路径";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_tts_model_path(); }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "输出路径:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.tts_output_path;
+                        placeholder-text: "TTS 输出文件路径";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_tts_output_path(); }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "参考音频:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.tts_ref_audio_path;
+                        placeholder-text: "参考音频文件路径";
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_tts_ref_audio(); }
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "参考文本:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.tts_ref_text;
+                        placeholder-text: "参考音频对应的文本";
+                        min-height: 28px;
+                    }
+                }
+            }
+        }
+
+        // 通用设置
+        GroupBox {
+            title: "⚙️ 通用设置";
+            min-width: 600px;
+            min-height: 120px;
+
+            VerticalBox {
+                spacing: 8px;
+                padding: 10px;
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "窗口宽度:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.window_width;
+                        placeholder-text: "例如：800";
+                        min-height: 28px;
+                    }
+                    Text {
+                        text: "像素";
+                        vertical-alignment: center;
+                        color: #666666;
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 8px;
+                    Text {
+                        text: "窗口高度:";
+                        min-width: 80px;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        text <=> root.window_height;
+                        placeholder-text: "例如：600";
+                        min-height: 28px;
+                    }
+                    Text {
+                        text: "像素";
+                        vertical-alignment: center;
+                        color: #666666;
+                    }
+                }
+            }
+        }
+
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+
+            Text {
+                text: "💡 修改设置后请点击右上角保存";
+                font-size: 12px;
+                color: #666666;
+            }
+        }
+    }
+}

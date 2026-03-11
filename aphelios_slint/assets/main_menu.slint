@@ -1,0 +1,99 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component MainMenu inherits Window {
+    width: 450px;
+    height: 520px;
+    title: "Aphelios AI Toolkit";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 14px;
+
+    callback open_ocr();
+    callback open_asr();
+    callback open_tts();
+    callback open_settings();
+    callback quit_app();
+
+    background: #f0f2f5;
+
+    VerticalBox {
+        alignment: center;
+        spacing: 20px;
+        padding: 20px;
+
+        // 标题
+        Text {
+            text: "Aphelios AI Toolkit";
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a1a1a;
+        }
+
+        Text {
+            text: "请选择功能模块";
+            font-size: 14px;
+            color: #666666;
+        }
+
+        // 功能按钮
+        GroupBox {
+            title: "功能选择";
+            min-width: 380px;
+            min-height: 200px;
+
+            VerticalBox {
+                alignment: center;
+                spacing: 12px;
+                padding: 15px;
+
+                Button {
+                    text: "📝 OCR 文字识别";
+                    min-width: 300px;
+                    min-height: 45px;
+                    clicked => { root.open_ocr(); }
+                }
+
+                Button {
+                    text: "🎤 ASR 语音识别";
+                    min-width: 300px;
+                    min-height: 45px;
+                    clicked => { root.open_asr(); }
+                }
+
+                Button {
+                    text: "🔊 TTS 语音合成";
+                    min-width: 300px;
+                    min-height: 45px;
+                    clicked => { root.open_tts(); }
+                }
+
+                Button {
+                    text: "⚙️ 设置";
+                    min-width: 300px;
+                    min-height: 45px;
+                    clicked => { root.open_settings(); }
+                }
+            }
+        }
+
+        // 退出按钮
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+
+            Button {
+                text: "退出应用";
+                min-width: 100px;
+                min-height: 32px;
+                clicked => { root.quit_app(); }
+            }
+
+            Text {
+                text: "© 2024 Aphelios CLI";
+                font-size: 11px;
+                color: #999999;
+            }
+        }
+    }
+}

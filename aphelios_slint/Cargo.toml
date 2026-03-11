@@ -1,0 +1,42 @@
+[package]
+name = "aphelios_slint"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+aphelios_ocr = { path = "../aphelios_ocr" }
+aphelios_asr = { path = "../aphelios_asr" }
+aphelios_tts = { path = "../aphelios_tts" }
+aphelios_core = { path = "../aphelios_core" }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+rand = { workspace = true }
+slint = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rfd = "0.15"
+rodio = "0.20"
+candle-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = "5.0"
+
+[build-dependencies]
+slint-build = "1.15.0"
+
+[package.metadata.slint]
+assets = ["assets/**"]
+
+[[bin]]
+name = "aphelios_slint"
+path = "src/main.rs"
+
+[features]
+metal = [
+    "aphelios_ocr/metal",
+    "aphelios_asr/metal",
+    "aphelios_tts/metal",
+    "aphelios_core/metal",
+]

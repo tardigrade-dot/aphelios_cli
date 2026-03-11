@@ -1,0 +1,49 @@
+[package]
+name = "aphelios_asr"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aphelios_core = { path = "../aphelios_core" }
+
+ort = { workspace = true }
+ndarray = { workspace = true }
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+qwen_tts = { workspace = true, features = ["audio-loading"] }
+tokenizers = { workspace = true }
+hound = "3.5"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rand = { workspace = true }
+rustfft = { workspace = true }
+num-complex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
+candle-transformers = { workspace = true }
+base64 = { workspace = true }
+byteorder = { workspace = true }
+symphonia = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+log = { workspace = true }
+#whisper-rs = { workspace = true }
+parakeet-rs = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+test-log = "0.2.19"
+
+[features]
+default = []
+metal = [
+    "aphelios_core/metal",
+    #"whisper-rs/metal",
+    "ort/coreml"
+]

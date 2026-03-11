@@ -1,0 +1,142 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit, StandardListView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component AsrWindow inherits Window {
+    width: 800px;
+    height: 750px;
+    title: "Parakeet ASR";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 13px;
+
+    in-out property <string> audio_file_path;
+    in-out property <string> output_path;
+    in-out property <string> status_message;
+    in-out property <bool> is_running;
+    in-out property <[string]> log_messages;
+    in-out property <string> transcription_result;
+
+    callback select_audio_file();
+    callback select_output_path();
+    callback start_asr();
+    callback go_back();
+
+    background: #f5f5f5;
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 10px;
+
+        // 标题栏
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+            
+            Button {
+                text: "← 返回";
+                min-width: 70px;
+                min-height: 28px;
+                clicked => { root.go_back(); }
+            }
+            
+            Text {
+                text: "Parakeet ASR 语音识别";
+                font-size: 16px;
+                font-weight: 700;
+                color: #1a1a1a;
+            }
+        }
+
+        // 输入和输出 - 单行
+        HorizontalBox {
+            spacing: 8px;
+            
+            GroupBox {
+                title: "输入音频";
+                HorizontalBox {
+                    LineEdit {
+                        text <=> audio_file_path;
+                        placeholder-text: "选择音频文件";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_audio_file(); }
+                        enabled: !is_running;
+                    }
+                }
+            }
+            
+            GroupBox {
+                title: "输出文件";
+                HorizontalBox {
+                    LineEdit {
+                        text <=> output_path;
+                        placeholder-text: "输出路径";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_output_path(); }
+                        enabled: !is_running;
+                    }
+                }
+            }
+        }
+
+        // 操作按钮
+        HorizontalBox {
+            alignment: center;
+            spacing: 15px;
+            
+            Button {
+                text: "▶ 开始识别";
+                min-width: 100px;
+                min-height: 32px;
+                clicked => { root.start_asr(); }
+                enabled: audio_file_path != "" && !is_running;
+            }
+            
+            Text {
+                text: status_message;
+                font-weight: 600;
+                color: is_running ? #0066cc : #666666;
+            }
+        }
+
+        // 识别结果
+        GroupBox {
+            title: "识别结果";
+            min-height: 60px;
+            VerticalBox {
+                LineEdit {
+                    text <=> transcription_result;
+                    placeholder-text: "识别结果将显示在这里...";
+                    enabled: false;
+                    min-height: 40px;
+                }
+            }
+        }
+
+        // 日志
+        GroupBox {
+            title: "日志";
+            VerticalBox {
+                StandardListView {
+                    width: 100%;
+                    height: 100%;
+                    for msg in log_messages: Text {
+                        text: msg;
+                        color: #4bdf1aff;
+                    }
+                }
+            }
+        }
+    }
+}

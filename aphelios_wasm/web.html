@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Candle WASM Test</title>
+  </head>
+  <body>
+    <script type="module">
+      // 注意：路径指向你刚刚生成的 js 文件
+      import init, { add_method, run_vector_add } from './build/aphelios_wasm.js';
+
+      async function run() {
+        // 1. 初始化 WASM 模块
+        await init();
+
+        // 2. 调用你在 Rust 里写的 #[wasm_bindgen] 函数
+        // 假设你有一个函数叫 add_method
+        console.log(add_method(10, 20));
+        console.log(run_vector_add());
+      }
+
+      run();
+    </script>
+  </body>
+</html>

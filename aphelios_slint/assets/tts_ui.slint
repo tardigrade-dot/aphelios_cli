@@ -1,0 +1,187 @@
+import { Button, VerticalBox, HorizontalBox, GroupBox, LineEdit, StandardListView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component TtsWindow inherits Window {
+    width: 800px;
+    height: 700px;
+    title: "Qwen3 TTS";
+
+    default-font-family: "PingFang SC";
+    default-font-size: 13px;
+
+    in-out property <string> input_text;
+    in-out property <string> model_path;
+    in-out property <string> output_path;
+    in-out property <string> ref_audio_path;
+    in-out property <string> ref_text;
+    in-out property <string> status_message;
+    in-out property <bool> is_running;
+    in-out property <bool> has_audio;
+    in-out property <[string]> log_messages;
+
+    callback select_model_path();
+    callback select_output_path();
+    callback select_ref_audio();
+    callback start_tts();
+    callback play_audio();
+    callback go_back();
+
+    background: #f5f5f5;
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 10px;
+
+        // 标题栏
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+            
+            Button {
+                text: "← 返回";
+                min-width: 70px;
+                min-height: 28px;
+                clicked => { root.go_back(); }
+            }
+            
+            Text {
+                text: "Qwen3 TTS 语音合成";
+                font-size: 16px;
+                font-weight: 700;
+                color: #1a1a1a;
+            }
+        }
+
+        // 模型和输出路径 - 单行
+        HorizontalBox {
+            spacing: 8px;
+            
+            GroupBox {
+                title: "模型路径";
+                min-width: 380px;
+                HorizontalBox {
+                    LineEdit {
+                        text <=> model_path;
+                        placeholder-text: "模型路径";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_model_path(); }
+                        enabled: !is_running;
+                    }
+                }
+            }
+            
+            GroupBox {
+                title: "输出文件";
+                HorizontalBox {
+                    LineEdit {
+                        text <=> output_path;
+                        placeholder-text: "输出路径";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择";
+                        min-width: 50px;
+                        min-height: 28px;
+                        clicked => { root.select_output_path(); }
+                        enabled: !is_running;
+                    }
+                }
+            }
+        }
+
+        // 输入文本
+        GroupBox {
+            title: "输入文本";
+            min-height: 80px;
+            VerticalBox {
+                LineEdit {
+                    text <=> input_text;
+                    placeholder-text: "请输入要合成的文本内容...";
+                    enabled: !is_running;
+                    min-height: 50px;
+                }
+            }
+        }
+
+        // 语音克隆设置
+        GroupBox {
+            title: "语音克隆 (可选)";
+            min-height: 70px;
+            VerticalBox {
+                HorizontalBox {
+                    LineEdit {
+                        text <=> ref_audio_path;
+                        placeholder-text: "参考音频路径";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                    Button {
+                        text: "选择音频";
+                        min-width: 70px;
+                        min-height: 28px;
+                        clicked => { root.select_ref_audio(); }
+                        enabled: !is_running;
+                    }
+                }
+                HorizontalBox {
+                    LineEdit {
+                        text <=> ref_text;
+                        placeholder-text: "参考音频文本";
+                        enabled: !is_running;
+                        min-height: 28px;
+                    }
+                }
+            }
+        }
+
+        // 操作按钮
+        HorizontalBox {
+            alignment: center;
+            spacing: 15px;
+            
+            Button {
+                text: "▶ 开始合成";
+                min-width: 100px;
+                min-height: 32px;
+                clicked => { root.start_tts(); }
+                enabled: input_text != "" && !is_running;
+            }
+            
+            Button {
+                text: "🔊 播放";
+                min-width: 80px;
+                min-height: 32px;
+                clicked => { root.play_audio(); }
+                enabled: has_audio && !is_running;
+            }
+            
+            Text {
+                text: status_message;
+                font-weight: 600;
+                color: is_running ? #0066cc : #666666;
+            }
+        }
+
+        // 日志
+        GroupBox {
+            title: "日志";
+            VerticalBox {
+                StandardListView {
+                    width: 100%;
+                    height: 100%;
+                    for msg in log_messages: Text {
+                        text: msg;
+                        color: #333333;
+                    }
+                }
+            }
+        }
+    }
+}
