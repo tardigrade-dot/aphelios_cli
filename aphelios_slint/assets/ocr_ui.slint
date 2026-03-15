@@ -1,0 +1,162 @@
+import { Button, LineEdit, StandardListView, ScrollView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component OcrWindow inherits Window {
+    width: 720px;
+    height: 500px;
+    title: "Dolphin OCR";
+    background: #f6f6f6; // 模仿 macOS 系统浅色背景
+
+    default-font-family: "PingFang SC";
+
+    in-out property <string> model_path: "/Volumes/sw/pretrained_models/Dolphin-v1.5";
+    in-out property <string> input_file_path;
+    in-out property <string> output_dir_path: "/Users/larry/Documents/resources";
+    in-out property <[string]> log_messages: ["Ready", "Waiting for input..."];
+    in-out property <bool> is_running: false;
+    in-out property <string> status_message: "";
+
+    callback go_back();
+    callback select_input_file();
+    callback select_output_dir();
+    callback select_model_path();
+    callback start_ocr();
+    callback stop_ocr();
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        alignment: start;
+
+        // --- 顶部状态与标题 ---
+        HorizontalLayout {
+            alignment: space-between;
+            Button {
+                text: " 返回";
+                width: 60px;
+                height: 24px;
+                clicked => {
+                    go_back();
+                }
+            }
+            Text {
+                text: "Dolphin OCR 文字识别";
+                font-size: 14px;
+                font-weight: 600;
+                color: #333;
+                vertical-alignment: center;
+            }
+            Rectangle { width: 60px; } // 占位保持居中
+        }
+
+        // --- 主配置面板 (用 Rectangle 代替 GroupBox，更紧凑) ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #e0e0e0;
+            
+            VerticalLayout {
+                padding: 12px;
+                spacing: 10px;
+
+                // 模型路径行
+                HorizontalLayout {
+                    spacing: 8px;
+                    height: 28px;
+                    Text { text: "模型路径"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
+                    LineEdit {
+                        text <=> model_path;
+                    }
+                    Button { 
+                        text: "选择"; 
+                        width: 50px;
+                        clicked => {
+                            select_model_path();
+                        }
+                    }
+                }
+
+                // 输入/输出并排
+                HorizontalLayout {
+                    spacing: 16px;
+                    height: 28px;
+                    // 输入
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "输入文件"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
+                        LineEdit { text <=> input_file_path; placeholder-text: "图片/PDF"; }
+                        Button { 
+                            text: "选择"; 
+                            width: 50px;
+                            clicked => {
+                                select_input_file();
+                            }
+                        }
+                    }
+                    // 输出
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "输出目录"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
+                        LineEdit { text <=> output_dir_path; }
+                        Button { 
+                            text: "选择"; 
+                            width: 50px;
+                            clicked => {
+                                select_output_dir();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 核心操作区 ---
+        HorizontalLayout {
+            alignment: center;
+            spacing: 12px;
+            padding: 8px;
+            Button {
+                text: "开始识别";
+                primary: true;
+                width: 100px;
+                height: 30px;
+                clicked => {
+                    start_ocr();
+                }
+            }
+            Button {
+                text: "停止";
+                width: 80px;
+                height: 30px;
+                clicked => {
+                    stop_ocr();
+                }
+            }
+        }
+
+        Text { text: " 运行日志"; font-size: 11px; color: #999; }
+        Rectangle {
+            background: #1e1e1e; // 深色日志区更有 Geek 感
+            border-radius: 6px;
+            vertical-stretch: 1; // 填充可用空间
+            min-height: 120px;   // 保证起码有 5-8 行高度
+            clip: true; // 裁剪超出边界的内容
+
+            ScrollView {
+                padding: 8px;
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    for msg in log_messages : Text {
+                        text: msg;
+                        color: #bff50e;
+                        font-family: "PingFang SC";
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

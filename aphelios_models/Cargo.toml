@@ -1,0 +1,81 @@
+[package]
+name = "aphelios_models"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+aphelios_core = { path = "../aphelios_core" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+slint = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+rand = { workspace = true }
+indicatif = { workspace = true }
+
+ort = { workspace = true }
+ndarray = { workspace = true }
+tokenizers = { workspace = true }
+image = { workspace = true }
+imageproc = { workspace = true }
+
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-indicatif = { workspace = true }
+
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
+candle-transformers = { workspace = true }
+
+regex = { workspace = true }
+#mistralrs = { workspace = true }
+
+reqwest = { workspace = true }
+once_cell = { workspace = true }
+epub = { workspace = true }
+
+qwen_tts = { workspace = true }
+usearch = { workspace = true }
+
+fastembed = { workspace = true }
+rusqlite = { workspace = true }
+glob = { workspace = true }
+hayro = { workspace = true }
+async-stream = { workspace = true }
+futures-util = { workspace = true }
+tracing-test = { workspace = true }
+imara-diff = { workspace = true }
+jieba-rs = { workspace = true }
+#hf-hub = { workspace = true }
+itertools = { workspace = true }
+measureme = { workspace = true }
+hf-hub = { workspace = true }
+tempfile = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+metal = [
+    "candle-core/metal", 
+    "candle-nn/metal", 
+    "candle-transformers/metal",
+    #"mistralrs/metal",
+    "ort/coreml",
+    "aphelios_core/metal",
+]
+cuda = [
+    "candle-core/cuda", 
+    "candle-nn/cuda", 
+    "candle-transformers/cuda",
+    #"mistralrs/cuda",
+    "ort/coreml",
+    "aphelios_core/cuda",
+]

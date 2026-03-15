@@ -1,0 +1,632 @@
+use crate::dolphin::dolphin_utils;
+use crate::dolphin::donut::CusDonutModel;
+use anyhow::Context;
+use anyhow::{Error as E, Result};
+use aphelios_core::utils::core_utils;
+use aphelios_core::{measure_time, utils};
+use candle_core::{safetensors, DType, Device, Tensor, D};
+use candle_nn::VarBuilder;
+use candle_transformers::models::donut::DonutConfig;
+use futures_util::{pin_mut, StreamExt};
+use glob::glob;
+use hf_hub::api::sync::ApiBuilder;
+use image::{DynamicImage, GenericImageView, RgbImage};
+use itertools::izip;
+use ndarray::Array;
+use rayon::prelude::*;
+use regex::Regex;
+use serde_json::Value;
+use std::path::Path;
+use std::path::PathBuf;
+use std::result::Result::Ok;
+use std::{env, fs};
+use tokenizers::AddedToken;
+use tokenizers::Tokenizer;
+use tracing::{error, info};
+
+pub struct DolphinModel {
+    model: CusDonutModel,
+    config: DonutConfig,
+    tokenizer: Tokenizer,
+    device: Device,
+}
+
+impl DolphinModel {
+    pub fn load_model(model_id: &str) -> Result<Self> {
+        let device = core_utils::get_default_device(false)?;
+
+        // 1. Determine model file paths
+        let (tokenizer_path, safetensors_path, config_path) = if model_id.starts_with('/') {
+            info!("Loading model from local path: {}", model_id);
+            let model_path = PathBuf::from(model_id);
+            (
+                model_path.join("tokenizer.json"),
+                model_path.join("model.safetensors"),
+                model_path.join("config.json"),
+            )
+        } else {
+            info!("Loading model from HuggingFace hub: {}", model_id);
+            let hf_api = ApiBuilder::new()
+                .with_progress(false)
+                .with_cache_dir(PathBuf::from("/Users/larry/coderesp/aphelios_cli/.cache"))
+                // .with_endpoint("https://hf-mirror.com".to_string())
+                .build()
+                .unwrap();
+            let api = hf_api; //Api::new().context("Failed to create HuggingFace API")?;
+            let dolphin_repo = api.repo(hf_hub::Repo::with_revision(
+                model_id.to_string(),
+                hf_hub::RepoType::Model,
+                "main".to_string(),
+            ));
+
+            let tokenizer_path = dolphin_repo
+                .get("tokenizer.json")
+                .context("Failed to load tokenizer.json")?;
+            let safetensors_path = dolphin_repo
+                .get("model.safetensors")
+                .context("Failed to load model.safetensors")?;
+            let config_path = dolphin_repo
+                .get("config.json")
+                .context("Failed to load config.json")?;
+
+            (tokenizer_path, safetensors_path, config_path)
+        };
+
+        // 2. Load config and tokenizer
+        let config_str = fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+        let config: DonutConfig =
+            serde_json::from_str(&config_str).context("Failed to parse config.json")?;
+
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| E::msg(format!("Failed to load tokenizer: {}", e)))?;
+
+        // 3. Load model weights
+        let mut tensors = safetensors::load(&safetensors_path, &device)
+            .with_context(|| format!("Failed to load model weights: {:?}", safetensors_path))?;
+
+        // 4. Fix missing lm_head.bias
+        let lm_head_weight_key = "decoder.lm_head.weight";
+        let lm_head_bias_key = "decoder.lm_head.bias";
+
+        if tensors.contains_key(lm_head_weight_key) && !tensors.contains_key(lm_head_bias_key) {
+            info!("Missing lm_head.bias detected, injecting zero-bias patch...");
+            let weight = &tensors[lm_head_weight_key];
+            let out_dim = weight.dim(0)?;
+            let fake_bias = Tensor::zeros(out_dim, DType::F32, &device)?;
+            tensors.insert(lm_head_bias_key.to_string(), fake_bias);
+        }
+
+        // 5. Initialize model
+        let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
+        let model = CusDonutModel::load(&config, vb)?;
+
+        Ok(Self {
+            model,
+            config,
+            tokenizer,
+            device,
+        })
+    }
+
+    pub async fn dolphin_ocr(&mut self, image_path: &str, output_dir: &str) -> Result<Vec<String>> {
+        utils::logger::init_logging();
+
+        let mut res_li = vec![];
+
+        let file_name = Path::new(image_path).file_name().unwrap().to_str().unwrap();
+        let output_path = Path::new(output_dir).join(file_name);
+        let _ = std::fs::create_dir_all(&output_path);
+        // let ext = Path::new(image_path).extension().unwrap().to_str().;
+        let ext = image_path.rsplit('.').next().unwrap_or("").to_lowercase();
+        if ext == "pdf" {
+            let img_iter =
+                dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
+            pin_mut!(img_iter);
+
+            while let Some((idx, img_result)) = img_iter.next().await {
+                match img_result {
+                    Ok(img) => {
+                        if let Err(e) =
+                            self.run_ocr_single_img(&img, &output_path, idx, &mut res_li)
+                        {
+                            error!("OCR failed for PDF page {}: {:?}", idx, e);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to load PDF page {}: {:?}", idx, e);
+                    }
+                }
+            }
+        } else {
+            let img = image::ImageReader::open(image_path)
+                .with_context(|| format!("Failed to open image file {}", image_path))?
+                .decode()
+                .with_context(|| format!("Failed to decode image {}", image_path))?;
+
+            if let Err(e) = self.run_ocr_single_img(&img, &output_path, 0, &mut res_li) {
+                error!("OCR failed for image {}: {:?}", image_path, e);
+            }
+        }
+        full_in_one(output_path.to_str().unwrap())?;
+        Ok(res_li)
+    }
+
+    fn run_ocr_single_img(
+        &mut self,
+        img: &DynamicImage,
+        output_path: &PathBuf,
+        idx: usize,
+        res_li: &mut Vec<String>,
+    ) -> Result<()> {
+        let copped_img_path = PathBuf::from(output_path).join("copped_img");
+        let _ = fs::create_dir_all(&copped_img_path);
+
+        let output_file: PathBuf = output_path.join(format!("{}_page.txt", idx));
+
+        if fs::exists(&output_file)? {
+            info!("{} exist, to process next ", &output_file.to_str().unwrap());
+            return Ok(());
+        }
+        info!("start process page [{}] ...", idx);
+        let layout_str = self.run_ocr_first_stage(img)?;
+
+        info!("end first stage layout_str {}", layout_str);
+        let res = self.run_ocr_second_stage(&img, &layout_str, idx, &copped_img_path);
+        match res {
+            Ok(mut ok_vec) => {
+                let _ = fs::write(&output_file, ok_vec.join("\n"));
+                res_li.append(&mut ok_vec);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn run_ocr_first_stage(&mut self, img: &DynamicImage) -> Result<String> {
+        let img_tensor = dolphin_utils::get_tensor_from_image(
+            &img,
+            self.config.image_height() as u32,
+            self.config.image_width() as u32,
+            &self.device,
+        );
+        let task_prompt = "<s>Parse the reading order of this document. <Answer/>";
+        let mut layout_str = self.generate_text(&img_tensor, &task_prompt)?;
+
+        layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
+        Ok(layout_str)
+    }
+
+    fn run_ocr_second_stage(
+        &mut self,
+        full_image: &DynamicImage,
+        layout_str: &str,
+        i_index: usize,
+        copped_img_path: &PathBuf,
+    ) -> Result<Vec<String>> {
+        let (img_w, img_h) = full_image.dimensions();
+        let target_width = self.config.image_width() as u32;
+        let target_height = self.config.image_height() as u32;
+        let re = Regex::new(r"\[(\d+,\d+,\d+,\d+)\]\[([^\]]+)\]")?;
+
+        let layout_draw_path = copped_img_path.join(format!("{}-layout.png", i_index));
+        let mut bbox_list: Vec<[u32; 4]> = Vec::new();
+
+        let mut pixel_values_li = Vec::new();
+        let mut prompt_li = Vec::new();
+
+        let mut labels = Vec::new();
+        let mut reading_order = 0;
+        let mut tasks = Vec::new();
+        for cap in re.captures_iter(layout_str) {
+            let label = cap[2].to_string();
+            if label == "fig" {
+                continue;
+            }
+            let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
+            tasks.push((reading_order, coords_raw, label));
+            reading_order += 1;
+        }
+
+        info!("Pre-processing {} image crops in parallel...", tasks.len());
+        let processed_tasks: Vec<_> = tasks
+            .into_par_iter()
+            .map(|(order, coords_raw, label)| {
+                let bbox = dolphin_utils::transform_to_pixel_dynamic(
+                    &[coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
+                    img_w,
+                    img_h,
+                    target_width,
+                    target_height,
+                );
+
+                let cropped_img = dolphin_utils::crop_image(full_image, bbox, 5);
+                // 这里我们需要在每个线程中进行预处理，但 Tensor 的创建需要 Device。
+                // 注意：candle Tensor::from_vec 在 CPU 上是并行的，但如果是 Metal Device，则需要小心。
+                // 这里的 preprocess_like_donut 内部调用了 Tensor::from_vec。
+                let pixel_values = self.preprocess_like_donut_sync(&cropped_img).unwrap();
+
+                let prompt = match label.as_str() {
+                    "tab" => "<s>Parse the table in the image. <Answer/>",
+                    "equ" => "<s>Read formula in the image. <Answer/>",
+                    _ => "<s>Read text in the image. <Answer/>",
+                };
+
+                (order, bbox, pixel_values, prompt, label)
+            })
+            .collect();
+
+        let mut reading_orders = Vec::new();
+        for (order, bbox, pixel_values, prompt, label) in processed_tasks {
+            bbox_list.push(bbox);
+            reading_orders.push(order);
+            labels.push(format!("[{}] - [{}]", order, label));
+            // 将 Tensor 从 CPU 移动到模型设备 (如 Metal)
+            pixel_values_li.push(pixel_values.to_device(&self.device)?);
+            prompt_li.push(prompt);
+        }
+
+        dolphin_utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
+
+        info!("start seconde stage with batch inference...");
+        let res = self.generate_text_batch(&pixel_values_li, &prompt_li, 4)?;
+
+        let mut full_res = Vec::new();
+        for (_, la, ocr_content) in izip!(&reading_orders, labels, res) {
+            full_res.push(format!("{} : {}", la, ocr_content));
+        }
+        Ok(full_res)
+    }
+
+    fn generate_text_batch(
+        &mut self,
+        pixel_values_list: &[Tensor], // 每个 [1,C,H,W] 或 [C,H,W]
+        prompts: &[&str],
+        batch_size: usize,
+    ) -> Result<Vec<String>> {
+        if pixel_values_list.len() != prompts.len() {
+            return Err(E::msg("pixel_values_list and prompts length mismatch"));
+        }
+
+        let mut outputs = Vec::with_capacity(prompts.len());
+
+        for (batch_start, batch_end) in (0..prompts.len())
+            .step_by(batch_size)
+            .map(|s| (s, usize::min(s + batch_size, prompts.len())))
+        {
+            self.model.clean_kv();
+
+            let batch_prompts = &prompts[batch_start..batch_end];
+            let batch_pixels = &pixel_values_list[batch_start..batch_end];
+            let bsz = batch_prompts.len();
+
+            // ------------------------------------------------------------
+            // 1️⃣ 拼接图片 -> [B,C,H,W]
+            // ------------------------------------------------------------
+            let pixel_batch = Tensor::cat(batch_pixels, 0)?;
+            let encoder_output = self.model.encode(&pixel_batch)?;
+
+            // ------------------------------------------------------------
+            // 2️⃣ tokenize + padding
+            // ------------------------------------------------------------
+            let mut token_ids_batch: Vec<Vec<u32>> = Vec::with_capacity(bsz);
+
+            for prompt in batch_prompts {
+                let tokens = self.tokenizer.encode(*prompt, false).map_err(E::msg)?;
+                token_ids_batch.push(tokens.get_ids().to_vec());
+            }
+
+            let max_prompt_len = token_ids_batch.iter().map(|v| v.len()).max().unwrap();
+
+            // padding
+            for ids in &mut token_ids_batch {
+                while ids.len() < max_prompt_len {
+                    ids.push(self.config.decoder.pad_token_id);
+                }
+            }
+
+            // flatten 成连续数组
+            let mut flat: Vec<u32> = Vec::with_capacity(bsz * max_prompt_len);
+            for ids in &token_ids_batch {
+                flat.extend(ids);
+            }
+
+            let input_tensor = Tensor::new(flat, &self.device)?.reshape((bsz, max_prompt_len))?;
+
+            // ------------------------------------------------------------
+            // 3️⃣ 一次性初始化 KV cache
+            // ------------------------------------------------------------
+            self.model.decode(&input_tensor, &encoder_output, 0)?;
+
+            let mut finished = vec![false; bsz];
+            // ------------------------------------------------------------
+            // 4️⃣ 自回归生成
+            // ------------------------------------------------------------
+            for step in 0..2048 {
+                // 取每个序列最后一个 token
+                let mut last_tokens = Vec::with_capacity(bsz);
+                for ids in &token_ids_batch {
+                    last_tokens.push(*ids.last().unwrap());
+                }
+
+                let input_tensor = Tensor::new(last_tokens, &self.device)?.unsqueeze(1)?; // [B,1]
+
+                let logits =
+                    self.model
+                        .decode(&input_tensor, &encoder_output, max_prompt_len + step - 1)?;
+
+                // logits: [B,1,V]
+                let logits = logits.squeeze(1)?; // [B,V]
+
+                let next_tokens = logits.argmax(D::Minus1)?.to_vec1::<u32>()?;
+
+                for i in 0..bsz {
+                    if finished[i] {
+                        continue;
+                    }
+
+                    let next = next_tokens[i];
+                    token_ids_batch[i].push(next);
+
+                    if next == self.config.decoder.eos_token_id {
+                        finished[i] = true;
+                    }
+                }
+
+                if finished.iter().all(|&f| f) {
+                    break;
+                }
+            }
+
+            // ------------------------------------------------------------
+            // 5️⃣ decode 输出
+            // ------------------------------------------------------------
+            for (i, ids) in token_ids_batch.iter().enumerate() {
+                let mut decoded = self.tokenizer.decode(ids, false).map_err(E::msg)?;
+
+                decoded = decoded
+                    .replace(batch_prompts[i], "")
+                    .replace("</s>", "")
+                    .replace("\n", "");
+
+                outputs.push(decoded);
+            }
+        }
+
+        Ok(outputs)
+    }
+
+    fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str) -> Result<String> {
+        self.model.clean_kv();
+
+        let decoded = measure_time!("模型推理中...", {
+            let tokens = self.tokenizer.encode(prompt, false).map_err(E::msg)?;
+            let mut token_ids = tokens.get_ids().to_vec(); // 编码图像
+            let encoder_output = self.model.encode(&pixel_values)?;
+
+            // 解码循环 (带 KV Cache 优化)
+            for i in 0..2048 {
+                let last_token_only = i > 0;
+                let decoder_input = if last_token_only {
+                    &token_ids[token_ids.len() - 1..]
+                } else {
+                    &token_ids[..]
+                };
+
+                let input_tensor = Tensor::new(decoder_input, &self.device)?.unsqueeze(0)?;
+                let logits = match self.model.decode(
+                    &input_tensor,
+                    &encoder_output,
+                    if last_token_only {
+                        token_ids.len() - 1
+                    } else {
+                        0
+                    },
+                ) {
+                    std::result::Result::Ok(l) => l,
+                    Err(e) => {
+                        println!("Candle Error detected: {:?}", e);
+                        return Err(e.into());
+                    }
+                };
+
+                // 取最后一个 token 的 logits 并贪婪采样
+                let logits = logits.squeeze(0)?.get(logits.dim(1)? - 1)?;
+                let next_token = logits.argmax(0)?.to_scalar::<u32>()?;
+
+                token_ids.push(next_token);
+                if next_token == self.config.decoder.eos_token_id {
+                    break;
+                }
+            }
+
+            // 8. 输出结果
+            let decoded = self
+                .tokenizer
+                .decode(&token_ids, false)
+                .map_err(E::msg)?
+                .replace(prompt, "")
+                .replace("</s>", "")
+                .replace("\n", "");
+            decoded
+        });
+
+        Ok(decoded)
+    }
+
+    fn preprocess_like_donut(&mut self, img: &DynamicImage) -> Result<Tensor> {
+        let tensor = self.preprocess_like_donut_sync(img)?;
+        Ok(tensor.to_device(&self.device)?)
+    }
+
+    fn preprocess_like_donut_sync(&self, img: &DynamicImage) -> Result<Tensor> {
+        let target_height = self.config.image_height() as u32;
+        let target_width = self.config.image_width() as u32;
+
+        // 1. Resize 保持比例
+        let resized = img.resize(
+            target_width,
+            target_height,
+            image::imageops::FilterType::Triangle,
+        );
+
+        // 2. 创建黑色画布并居中叠加
+        let mut canvas = RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
+        let x_offset = (target_width - resized.width()) / 2;
+        let y_offset = (target_height - resized.height()) / 2;
+        image::imageops::overlay(
+            &mut canvas,
+            &resized.to_rgb8(),
+            x_offset.into(),
+            y_offset.into(),
+        );
+
+        // 3. 将 RgbImage 转换为 ndarray (H, W, C)
+        let h = target_height as usize;
+        let w = target_width as usize;
+
+        let array = Array::from_shape_vec((h, w, 3), canvas.into_raw())
+            .map_err(|e| anyhow::anyhow!("Failed to create array: {}", e))?;
+
+        // 4. 规范化并转换维度 (H, W, C) -> (C, H, W)
+        let normalized = array
+            .mapv(|x| (x as f32 / 127.5) - 1.0)
+            .permuted_axes([2, 0, 1]); // 移动 Channel 到第一维
+
+        // 5. 转换为 Candle Tensor (始终先在 CPU 上创建，以便并行)
+        let tensor = Tensor::from_vec(
+            normalized.iter().cloned().collect(),
+            (3, h, w),
+            &Device::Cpu,
+        )?
+        .unsqueeze(0)?;
+
+        Ok(tensor)
+    }
+
+    pub fn load_hf_tokenizer<P: AsRef<Path>>(model_dir: P) -> anyhow::Result<Tokenizer> {
+        let model_dir = model_dir.as_ref();
+
+        let mut tokenizer =
+            Tokenizer::from_file(model_dir.join("tokenizer.json")).map_err(anyhow::Error::msg)?;
+
+        // 1. 加载 special_tokens_map.json
+        let special_path = model_dir.join("special_tokens_map.json");
+        if special_path.exists() {
+            let text = std::fs::read_to_string(&special_path)?;
+            let json: Value = serde_json::from_str(&text)?;
+
+            if let Some(map) = json.as_object() {
+                for (_k, v) in map {
+                    if let Some(tok) = v.get("content").and_then(|x| x.as_str()) {
+                        tokenizer.add_special_tokens(&[AddedToken::from(tok, true)]);
+                    }
+                }
+            }
+        }
+
+        // 2. 加载 tokenizer_config.json
+        let config_path = model_dir.join("tokenizer_config.json");
+        if config_path.exists() {
+            let text = std::fs::read_to_string(&config_path)?;
+            let json: Value = serde_json::from_str(&text)?;
+
+            if let Some(bos) = json.get("bos_token").and_then(|x| x.as_str()) {
+                tokenizer.add_special_tokens(&[AddedToken::from(bos, true)]);
+            }
+
+            if let Some(eos) = json.get("eos_token").and_then(|x| x.as_str()) {
+                tokenizer.add_special_tokens(&[AddedToken::from(eos, true)]);
+            }
+
+            if let Some(pad) = json.get("pad_token").and_then(|x| x.as_str()) {
+                tokenizer.add_special_tokens(&[AddedToken::from(pad, true)]);
+            }
+
+            if let Some(unk) = json.get("unk_token").and_then(|x| x.as_str()) {
+                tokenizer.add_special_tokens(&[AddedToken::from(unk, true)]);
+            }
+        }
+
+        Ok(tokenizer)
+    }
+}
+
+pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
+    info!("start run dolphin ocr task");
+
+    // Allow model path to be configurable via environment variable or use default
+    let model_id = env::var("DOLPHIN_MODEL_PATH")
+        .unwrap_or_else(|_| "/Volumes/sw/pretrained_models/Dolphin-v1.5".to_string());
+
+    let mut dm = DolphinModel::load_model(&model_id)?;
+
+    let _ = &dm
+        .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())
+        .await?;
+    info!("ocr finished. start merge all file to single one");
+
+    full_in_one(output_path)?;
+    Ok(())
+}
+
+fn full_in_one(output_path: &str) -> Result<(), E> {
+    let page_datas = get_page_datas(output_path)?;
+    let output = Path::new(output_path);
+    let output_file: PathBuf = output.join("total_in_one.txt");
+    fs::write(&output_file, format!("{}", &page_datas.join("\n")))?;
+    info!("all text saved in {}", &output_file.to_str().unwrap());
+    Ok(())
+}
+
+fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
+    let mut page_datas: Vec<String> = Vec::new();
+    let re =
+        Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
+
+    let mut last_label = String::new();
+
+    for entry in glob(&format!("{}/[0-9]*_page.txt", output_path))? {
+        let path = entry?;
+        // 读取文件内容
+        let content = fs::read_to_string(&path)?;
+        let mut i_index = 0;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            if let Some(caps) = re.captures(line) {
+                let mut item_tag = caps["tag"].to_string();
+                let item_content = caps["content"].trim().to_string();
+
+                // 过滤掉不需要的标签
+                if ["fig", "tab", "equ", "code", "header", "foot", "fnote"]
+                    .contains(&item_tag.as_str())
+                {
+                    continue;
+                }
+                // half_para 统一为 para
+                if item_tag == "half_para" {
+                    item_tag = "para".to_string();
+                }
+
+                // 如果同标签且是本文件第一条，追加到上一条
+                if item_tag == last_label && i_index == 0 {
+                    if let Some(last) = page_datas.last_mut() {
+                        last.push_str(&item_content);
+                    }
+                } else {
+                    page_datas.push(item_content.to_string());
+                }
+
+                last_label = item_tag;
+                i_index += 1;
+            }
+        }
+    }
+
+    Ok(page_datas)
+}

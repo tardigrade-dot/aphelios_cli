@@ -1,0 +1,170 @@
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+
+export component AsrWindow inherits Window {
+    width: 800px;
+    height: 750px;
+    title: "Parakeet ASR";
+    background: #f6f6f6;
+    default-font-family: "PingFang SC";
+
+    in-out property <string> audio_file_path;
+    in-out property <string> output_path;
+    in-out property <string> status_message: "就绪";
+    in-out property <bool> is_running: false;
+    in-out property <[string]> log_messages: ["Session started"];
+    in-out property <string> transcription_result;
+
+    callback select_audio_file();
+    callback select_output_path();
+    callback start_asr();
+    callback go_back();
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 15px;
+        alignment: start;
+
+        // --- 标题栏 ---
+        HorizontalLayout {
+            height: 32px;
+            alignment: space-between;
+            Button {
+                text: "← 返回";
+                width: 70px;
+                clicked => { root.go_back(); }
+            }
+            Text {
+                text: "Parakeet ASR 语音识别";
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            // 状态指示灯
+            HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    width: 10px; height: 10px;
+                    border-radius: 5px;
+                    background: is_running ? #00ff00 : #cccccc;
+                    y: (parent.height - self.height) / 2;
+                }
+                Text {
+                    text: status_message;
+                    font-size: 12px;
+                    color: #666;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // --- 核心配置卡片 (输入输出) ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #e0e0e0;
+            vertical-stretch: 0; // 严禁拉伸
+            
+            VerticalLayout {
+                padding: 15px;
+                spacing: 12px;
+                
+                // 输入音频行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text { text: "输入音频"; width: 60px; vertical-alignment: center; font-size: 12px; }
+                    LineEdit { 
+                        text <=> audio_file_path; 
+                        placeholder-text: "请选择待识别的音频文件...";
+                        enabled: !is_running;
+                    }
+                    Button { 
+                        text: "选择"; width: 60px; 
+                        clicked => { root.select_audio_file(); }
+                        enabled: !is_running;
+                    }
+                }
+
+                // 输出路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text { text: "保存路径"; width: 60px; vertical-alignment: center; font-size: 12px; }
+                    LineEdit { 
+                        text <=> output_path; 
+                        placeholder-text: "识别结果保存位置 (可选)";
+                        enabled: !is_running;
+                    }
+                    Button { 
+                        text: "选择"; width: 60px; 
+                        clicked => { root.select_output_path(); }
+                        enabled: !is_running;
+                    }
+                }
+            }
+        }
+
+        // --- 操作中心 ---
+        HorizontalLayout {
+            alignment: center;
+            height: 40px;
+            Button {
+                text: is_running ? "正在识别..." : "▶  开始语音识别";
+                primary: true;
+                width: 200px;
+                height: 36px;
+                enabled: audio_file_path != "" && !is_running;
+                clicked => { root.start_asr(); }
+            }
+        }
+
+        // --- 识别结果展示区 (重点优化) ---
+        VerticalLayout {
+            spacing: 5px;
+            vertical-stretch: 2; // 给结果区更多的权重
+            Text { text: "文本识别结果"; font-size: 12px; color: #888; }
+            Rectangle {
+                background: #ffffff;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                // 这里使用 TextInput 或 LineEdit
+                LineEdit {
+                    text <=> transcription_result;
+                    // 使其看起来像多行文本域（如果 Slint 版本支持多行）
+                    // 若不支持多行，可以放一个多行组件
+                    placeholder-text: "等待识别任务开始...";
+                    enabled: true; // 允许用户复制
+                }
+            }
+        }
+
+        // --- 日志终端 (Geek风格) ---
+        VerticalLayout {
+            spacing: 5px;
+            vertical-stretch: 2; // 增加权重以占据更多下方空间
+            Text { text: "系统日志"; font-size: 11px; color: #999; }
+            Rectangle {
+                background: #1e1e1e;
+                border-radius: 6px;
+                min-height: 120px; // 保证起码有 5-8 行高度
+                clip: true; // 关键：防止文字溢出
+
+                ScrollView {
+                    padding: 8px;
+                    VerticalLayout {
+                        alignment: start;
+                        for msg in log_messages : Text {
+                            text: "> " + msg;
+                            color: #a6e22e; // 经典的终端绿
+                            font-family: "PingFang SC";
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

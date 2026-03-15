@@ -1,0 +1,32 @@
+[package]
+name = "aphelios_web"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "aphelios_web"
+path = "src/lib.rs"
+
+[[bin]]
+name = "aphelios_web"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+rust-embed = { version = "8", features = ["include-exclude"] }
+open = "5"
+mime_guess = "2"
+anyhow = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = ["metal"]
+metal = [
+    
+]

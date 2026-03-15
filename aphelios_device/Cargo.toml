@@ -1,0 +1,27 @@
+[package]
+name = "aphelios_device"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+aphelios_core = { path = "../aphelios_core" }
+usls = { workspace = true }
+anyhow = { workspace = true }
+nokhwa = { version = "0.10", features = ["nokhwa-bindings-macos", "input-native", "output-wgpu"] }
+axum = "0.7"
+image = { workspace = true }
+tokio-stream = "0.1"
+futures-util = "0.3"
+async-stream = { workspace = true }
+hyper = "1.0"
+crossbeam-channel = "0.5.15"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+metal = [
+    "usls/coreml"
+]

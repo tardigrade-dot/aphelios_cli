@@ -1,0 +1,166 @@
+import { Button, LineEdit } from "std-widgets.slint";
+
+export component SettingsWindow inherits Window {
+    width: 680px;
+    height: 720px;
+    title: "设置";
+    background: #f6f6f6;
+    default-font-family: "PingFang SC";
+
+    // 属性定义保持不变
+    in-out property <string> ocr_model_path;
+    in-out property <string> ocr_output_dir;
+    in-out property <string> asr_output_path;
+    in-out property <string> tts_model_path;
+    in-out property <string> tts_output_path;
+    in-out property <string> tts_ref_audio_path;
+    in-out property <string> tts_ref_text;
+
+    callback go_back();
+    callback save_settings();
+    callback select_ocr_model_path();
+    callback select_ocr_output_dir();
+    callback select_asr_output_path();
+    callback select_tts_model_path();
+    callback select_tts_output_path();
+    callback select_tts_ref_audio();
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+        alignment: start; // 关键：顶部对齐
+
+        // --- 头部工具栏 ---
+        HorizontalLayout {
+            height: 32px;
+            alignment: space-between;
+            Button {
+                text: "← 返回";
+                width: 70px;
+                clicked => { root.go_back(); }
+            }
+            Text {
+                text: "应用偏好设置";
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            Button {
+                text: "💾 保存设置";
+                width: 90px;
+                primary: true;
+                clicked => { root.save_settings(); }
+            }
+        }
+
+        // --- 设置滚动区 (防止内容过多超出窗口) ---
+        // 注意：Slint原生ScrollView需要包装，这里先用VerticalLayout模拟紧凑排布
+        VerticalLayout {
+            spacing: 12px;
+
+            // 1. OCR 卡片
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text { text: "📝 OCR 识别设置"; font-weight: 700; color: #333; }
+                    
+                    // 设置行组件化模拟
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "模型路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.ocr_model_path; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_ocr_model_path(); } }
+                    }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "输出目录"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.ocr_output_dir; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_ocr_output_dir(); } }
+                    }
+                }
+            }
+
+            // 2. ASR 卡片
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text { text: "🎤 ASR 语音识别"; font-weight: 700; color: #333; }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "输出路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.asr_output_path; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_asr_output_path(); } }
+                    }
+                }
+            }
+
+            // 3. TTS 卡片
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text { text: "🔊 TTS 语音合成"; font-weight: 700; color: #333; }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "模型路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.tts_model_path; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_model_path(); } }
+                    }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "输出路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.tts_output_path; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_output_path(); } }
+                    }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "参考音频"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.tts_ref_audio_path; }
+                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_ref_audio(); } }
+                    }
+                    HorizontalLayout {
+                        height: 28px; spacing: 10px;
+                        Text { text: "参考文本"; width: 70px; vertical-alignment: center; font-size: 12px; }
+                        LineEdit { text <=> root.tts_ref_text; }
+                    }
+                }
+            }
+
+            // 4. 通用设置卡片
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text { text: "⚙️  通用设置"; font-weight: 700; color: #333; }
+                    Text { text: "更多设置即将推出..."; font-size: 12px; color: #999; }
+                }
+            }
+        }
+
+        // --- 底部提示 ---
+        Text {
+            text: "💡 修改即时生效，但需点击保存按钮以持久化配置";
+            font-size: 11px;
+            color: #999;
+            horizontal-alignment: center;
+        }
+    }
+}

@@ -1,0 +1,114 @@
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export component MainMenu inherits Window {
+    width: 400px;
+    height: 520px;
+    title: "Aphelios AI Toolkit";
+    background: #f6f7f9; // 略带灰蓝的背景，更有科技感
+    default-font-family: "PingFang SC";
+
+    callback open_ocr();
+    callback open_asr();
+    callback open_tts();
+    callback open_settings();
+    callback quit_app();
+
+    VerticalLayout {
+        padding: 30px;
+        spacing: 0;
+        alignment: start;
+
+        // --- 头部 Logo/标题区 ---
+        VerticalLayout {
+            spacing: 8px;
+            alignment: center;
+            padding-bottom: 30px;
+
+            Text {
+                text: "Aphelios AI";
+                font-size: 28px;
+                font-weight: 800;
+                color: #1a1a1a;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "智能工具箱";
+                font-size: 14px;
+                color: #888;
+                horizontal-alignment: center;
+            }
+        }
+
+        // --- 功能列表卡片 ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 12px;
+            // 模拟极细微的投影感（Slint原生不支持阴影，用细边框代替）
+            border-width: 1px;
+            border-color: #e0e4e8;
+            
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+
+                // 统一按钮样式，不再使用 GroupBox 标题
+                Button {
+                    text: "📝  OCR 文字识别";
+                    height: 48px;
+                    clicked => { root.open_ocr(); }
+                }
+                Button {
+                    text: "🎤  ASR 语音识别";
+                    height: 48px;
+                    clicked => { root.open_asr(); }
+                }
+                Button {
+                    text: "🔊  TTS 语音合成";
+                    height: 48px;
+                    clicked => { root.open_tts(); }
+                }
+                
+                // 分隔线效果
+                Rectangle {
+                    height: 1px;
+                    background: #f0f0f0;
+                }
+
+                Button {
+                    text: "⚙️  系统设置";
+                    height: 42px;
+                    clicked => { root.open_settings(); }
+                }
+            }
+        }
+
+        // --- 底部版权区 (撑开剩下的空间) ---
+        VerticalLayout {
+            vertical-stretch: 1;
+            alignment: end;
+            padding-top: 20px;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 15px;
+                
+                Button {
+                    text: "退出应用";
+                    width: 90px;
+                    height: 28px;
+                    clicked => { root.quit_app(); }
+                }
+            }
+
+            Rectangle { height: 10px; }
+
+            Text {
+                text: "© 2026 Aphelios CLI • Version 1.2";
+                font-size: 11px;
+                color: #abb2bf;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
