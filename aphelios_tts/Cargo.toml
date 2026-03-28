@@ -67,7 +67,6 @@ eyre = { workspace = true }
 symphonia = { workspace = true }
 byteorder = { workspace = true }
 rubato = { workspace = true }
-vibevoice = { workspace = true, optional = true }
 tempfile = { workspace = true }
 strum_macros = { workspace = true }
 
@@ -80,7 +79,6 @@ metal = [
     "candle-nn/accelerate",
     "candle-transformers/metal",
     "candle-transformers/accelerate",
-    "vibevoice/metal",
     #"mistralrs/metal",
     "ort/coreml",
     "qwen_tts/metal",
@@ -94,7 +92,7 @@ cuda = [
     #"mistralrs/cuda",
     "ort/cuda",
     "qwen_tts/cuda",
-    "qwen_tts/audio-loading"
+    "qwen_tts/audio-loading",
 ]
 hub = []
 profiling = []

@@ -58,22 +58,24 @@ itertools = { workspace = true }
 measureme = { workspace = true }
 hf-hub = { workspace = true }
 tempfile = "3"
+vibevoice = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"
 
 [features]
 metal = [
-    "candle-core/metal", 
-    "candle-nn/metal", 
+    "candle-core/metal",
+    "candle-nn/metal",
     "candle-transformers/metal",
     #"mistralrs/metal",
     "ort/coreml",
     "aphelios_core/metal",
+    "vibevoice/metal",
 ]
 cuda = [
-    "candle-core/cuda", 
-    "candle-nn/cuda", 
+    "candle-core/cuda",
+    "candle-nn/cuda",
     "candle-transformers/cuda",
     #"mistralrs/cuda",
     "ort/coreml",

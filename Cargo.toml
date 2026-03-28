@@ -6,11 +6,11 @@ members = [
     "aphelios_ocr",
     "aphelios_core",
     "aphelios_search",
-    "aphelios_models",
+    # "aphelios_models",
     #"aphelios_wasm", 
     "aphelios_asr",
     "aphelios_tts",
-    "aphelios_device",
+    # "aphelios_device",
     # "aphelios_web",
 ]
 resolver = "2"
