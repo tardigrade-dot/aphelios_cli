@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aphelios_tool::{cli::Cli, run};
+use aphelios_tool::{commands::cli::Cli, run};
 use clap::Parser;
 
 #[tokio::main]
@@ -32,7 +32,7 @@ pub fn print_banner() {
 }
 
 async fn run_cli() {
-    let cli = Cli::parse();
+    let cli = Cli::try_parse().unwrap();
 
     if let Err(err) = run(cli).await {
         eprintln!("{err}");

@@ -1,9 +1,9 @@
 use anyhow::Result;
-use aphelios_core::utils::core_utils;
+use aphelios_core::utils::logger;
 use aphelios_tts::qwen_tts::qwen3_tts;
 
 pub fn main() -> Result<()> {
-    core_utils::init_logging();
+    logger::init_logging();
     let text_to_speech2 = r"第一章
     
     从《乌托邦》到《国富论》

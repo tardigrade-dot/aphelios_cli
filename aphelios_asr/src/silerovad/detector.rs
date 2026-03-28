@@ -15,7 +15,8 @@ use ort::{
 };
 use tracing::{debug, info};
 
-use super::types::{VadResult, VadSegment};
+use super::types::VadResult;
+use crate::base::VadSegment;
 
 /// VAD 配置
 #[derive(Debug, Clone)]

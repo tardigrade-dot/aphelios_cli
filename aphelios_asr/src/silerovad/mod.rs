@@ -11,7 +11,7 @@ pub mod types;
 pub mod vadprocess;
 
 pub use detector::{VadConfig, VadDetector};
-pub use types::{VadResult, VadSegment};
+pub use types::VadResult;
 pub use vadprocess::{VadConfig as VadProcessorConfig, VadProcessor};
 
 pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
@@ -33,12 +33,11 @@ pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
 
     for (i, segment) in result.segments.iter().enumerate() {
         info!(
-            "  Segment {}: {:.2}s - {:.2}s (duration: {:.2}s, avg_prob: {:.2})",
+            "  Segment {}: {:.2}s - {:.2}s (avg_prob: {:.2})",
             i + 1,
             segment.start,
             segment.end,
-            segment.duration,
-            segment.avg_probability
+            segment.avg_prob
         );
     }
 

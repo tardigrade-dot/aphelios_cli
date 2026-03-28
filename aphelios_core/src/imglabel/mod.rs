@@ -8,9 +8,11 @@ use usls::{Annotator, Config, Image, Model, RTDETR};
 use std::process::Command;
 use tempfile::TempDir;
 
+use crate::utils::base::RTDETR_V4_M;
+
 pub fn label_video(video_path: &str) -> Result<String> {
     let config = Config::rtdetr_v4_m()
-        .with_model_file("/Users/larry/coderesp/aphelios_cli/aphelios_core/models/rtdetr_v4_m.onnx")
+        .with_model_file(RTDETR_V4_M)
         .with_class_confs(&[0.5]) // Confidence threshold
         .commit()?;
 
@@ -168,7 +170,7 @@ pub fn label_video(video_path: &str) -> Result<String> {
 
 pub fn label_images(image_path: &str) -> Result<Vec<DynamicImage>> {
     let config = Config::rtdetr_v4_m()
-        .with_model_file("/Users/larry/coderesp/aphelios_cli/aphelios_core/models/rtdetr_v4_m.onnx")
+        .with_model_file(RTDETR_V4_M)
         .with_class_confs(&[0.5]) // Confidence threshold
         .commit()?;
 

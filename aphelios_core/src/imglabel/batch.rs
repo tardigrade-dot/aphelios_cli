@@ -5,9 +5,11 @@ use usls::{Annotator, Config, Device, Image, Model, RTDETR};
 use std::process::Command;
 use tempfile::TempDir;
 
+use crate::utils::base::RTDETR_V4_M;
+
 pub fn label_video_batch(video_path: &str) -> Result<String> {
     let config = Config::rtdetr_v4_m()
-        .with_model_file("/Users/larry/coderesp/aphelios_cli/aphelios_core/models/rtdetr_v4_m.onnx")
+        .with_model_file(RTDETR_V4_M)
         .with_class_confs(&[0.5]) // Confidence threshold
         .with_model_device(Device::CoreMl)
         .with_coreml_compute_units_all(1) // 使用 GPU

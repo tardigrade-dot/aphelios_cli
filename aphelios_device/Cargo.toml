@@ -9,9 +9,16 @@ license.workspace = true
 tokio = { workspace = true }
 aphelios_core = { path = "../aphelios_core" }
 usls = { workspace = true }
+ort = { workspace = true }
+ndarray = { workspace = true }
 anyhow = { workspace = true }
+clap = { workspace = true }
+tempfile = { workspace = true }
 nokhwa = { version = "0.10", features = ["nokhwa-bindings-macos", "input-native", "output-wgpu"] }
 axum = "0.7"
+ffmpeg-next = "8.1"
+ab_glyph = "0.2"
+imageproc = "0.26"
 image = { workspace = true }
 tokio-stream = "0.1"
 futures-util = "0.3"
@@ -20,6 +27,17 @@ hyper = "1.0"
 crossbeam-channel = "0.5.15"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+webrtc = "0.17.1"
+#opencv = "0.98.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Web server
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+bytes = "1"
+mozjpeg = "0.10"
+
 
 [features]
 metal = [

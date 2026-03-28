@@ -1,9 +1,12 @@
-use aphelios_core::{measure_time, utils::core_utils};
-use aphelios_tts::{AudioBuffer, Language, Qwen3TTS};
+use aphelios_core::{
+    measure_time,
+    utils::{base, logger},
+};
+use aphelios_tts::{audio::AudioBuffer, models::talker::Language, qwen_tts::qwen_tts_v2::Qwen3TTS};
 
 fn main() -> anyhow::Result<()> {
-    core_utils::init_logging();
-    let device = core_utils::get_default_device(false)?;
+    logger::init_logging();
+    let device = base::get_default_device(false)?;
 
     let model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base";
     // let ref_audio = "/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav";
@@ -24,7 +27,7 @@ fn main() -> anyhow::Result<()> {
 
     let audio = measure_time!(
         "语音合成",
-        model.synthesize_voice_clone(text_to_speech, &prompt, Language::Chinese, None)?
+        model.synthesize_voice_clone(text_to_speech, &prompt, Language::Chinese, None, None)?
     );
     audio.save("output/test3-output2.wav")?;
     // 音频21s, 合成耗时65s

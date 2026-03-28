@@ -2,7 +2,7 @@ use crate::dolphin::dolphin_utils;
 use crate::dolphin::donut::CusDonutModel;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::core_utils;
+use aphelios_core::utils::base;
 use aphelios_core::{measure_time, utils};
 use candle_core::{safetensors, DType, Device, Tensor, D};
 use candle_nn::VarBuilder;
@@ -33,7 +33,7 @@ pub struct DolphinModel {
 
 impl DolphinModel {
     pub fn load_model(model_id: &str) -> Result<Self> {
-        let device = core_utils::get_default_device(false)?;
+        let device = base::get_default_device(false)?;
 
         // 1. Determine model file paths
         let (tokenizer_path, safetensors_path, config_path) = if model_id.starts_with('/') {

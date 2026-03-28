@@ -1,18 +1,18 @@
 use anyhow::Result;
 use aphelios_core::{
-    utils::core_utils::{self, PARAKEET_TDT_MODEL_PATH},
+    utils::{base::PARAKEET_TDT_MODEL_PATH, logger},
     AudioLoader,
 };
 use parakeet_rs::{ParakeetTDT, TimestampMode, Transcriber};
 
 const AUDIO_SHORT: &str = "/Volumes/sw/video/mQlxALUw3h4.wav";
 const AUDIO_LONG: &str = "/Volumes/sw/video/RYdrPg6xdYo.wav";
-const AUDIO_LONG_2: &str = "/Volumes/sw/video/Why Does Joseph Stalin Matter？.wav";
+const AUDIO_LONG_2: &str = "/Volumes/sw/video/How to Journal (Like a Philosopher).wav";
 
 // parakeet 不包含中文
 #[test]
 fn test_parakeet() -> Result<()> {
-    core_utils::init_logging();
+    logger::init_logging();
     // let execution_config =
     //     ExecutionConfig::default().with_execution_provider(ExecutionProvider::CoreML);
     let mut parakeet =

@@ -1,6 +1,6 @@
 use aphelios_core::{
     demucs::{processor::DemucsProcessor, MODEL_FILE},
-    utils::core_utils::{
+    utils::base::{
         combine_stereo_tracks, load_and_resample_audio, save_audio_track_with_spec,
     },
 };

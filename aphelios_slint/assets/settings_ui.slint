@@ -37,19 +37,25 @@ export component SettingsWindow inherits Window {
             Button {
                 text: "← 返回";
                 width: 70px;
-                clicked => { root.go_back(); }
+                clicked => {
+                    root.go_back();
+                }
             }
+
             Text {
                 text: "应用偏好设置";
                 font-size: 16px;
                 font-weight: 700;
                 vertical-alignment: center;
             }
+
             Button {
                 text: "💾 保存设置";
                 width: 90px;
                 primary: true;
-                clicked => { root.save_settings(); }
+                clicked => {
+                    root.save_settings();
+                }
             }
         }
 
@@ -67,20 +73,57 @@ export component SettingsWindow inherits Window {
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
-                    Text { text: "📝 OCR 识别设置"; font-weight: 700; color: #333; }
-                    
+                    Text {
+                        text: "📝 OCR 识别设置";
+                        font-weight: 700;
+                        color: #333;
+                    }
+
                     // 设置行组件化模拟
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "模型路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.ocr_model_path; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_ocr_model_path(); } }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "模型路径";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.ocr_model_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_ocr_model_path();
+                            }
+                        }
                     }
+
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "输出目录"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.ocr_output_dir; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_ocr_output_dir(); } }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "输出目录";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.ocr_output_dir;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_ocr_output_dir();
+                            }
+                        }
                     }
                 }
             }
@@ -94,12 +137,33 @@ export component SettingsWindow inherits Window {
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
-                    Text { text: "🎤 ASR 语音识别"; font-weight: 700; color: #333; }
+                    Text {
+                        text: "🎤 ASR 语音识别";
+                        font-weight: 700;
+                        color: #333;
+                    }
+
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "输出路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.asr_output_path; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_asr_output_path(); } }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "输出路径";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.asr_output_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_asr_output_path();
+                            }
+                        }
                     }
                 }
             }
@@ -113,29 +177,94 @@ export component SettingsWindow inherits Window {
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
-                    Text { text: "🔊 TTS 语音合成"; font-weight: 700; color: #333; }
-                    HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "模型路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.tts_model_path; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_model_path(); } }
+                    Text {
+                        text: "🔊 TTS 语音合成";
+                        font-weight: 700;
+                        color: #333;
                     }
+
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "输出路径"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.tts_output_path; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_output_path(); } }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "模型路径";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.tts_model_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_tts_model_path();
+                            }
+                        }
                     }
+
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "参考音频"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.tts_ref_audio_path; }
-                        Button { text: "选择"; width: 50px; clicked => { root.select_tts_ref_audio(); } }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "输出路径";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.tts_output_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_tts_output_path();
+                            }
+                        }
                     }
+
                     HorizontalLayout {
-                        height: 28px; spacing: 10px;
-                        Text { text: "参考文本"; width: 70px; vertical-alignment: center; font-size: 12px; }
-                        LineEdit { text <=> root.tts_ref_text; }
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "参考音频";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.tts_ref_audio_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_tts_ref_audio();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "参考文本";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+
+                        LineEdit {
+                            text <=> root.tts_ref_text;
+                        }
                     }
                 }
             }
@@ -149,8 +278,17 @@ export component SettingsWindow inherits Window {
                 VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
-                    Text { text: "⚙️  通用设置"; font-weight: 700; color: #333; }
-                    Text { text: "更多设置即将推出..."; font-size: 12px; color: #999; }
+                    Text {
+                        text: "⚙️  通用设置";
+                        font-weight: 700;
+                        color: #333;
+                    }
+
+                    Text {
+                        text: "更多设置即将推出...";
+                        font-size: 12px;
+                        color: #999;
+                    }
                 }
             }
         }

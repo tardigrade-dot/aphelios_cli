@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use aphelios_core::utils::base::RTDETR_V4_M;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::Camera;
@@ -14,7 +15,7 @@ fn main() -> Result<()> {
 pub fn label_video_fast(output_path: &str) -> Result<()> {
     // 1. 初始化模型
     let config = Config::rtdetr_v4_m()
-        .with_model_file("/Users/larry/coderesp/aphelios_cli/aphelios_core/models/rtdetr_v4_m.onnx")
+        .with_model_file(RTDETR_V4_M)
         .with_class_confs(&[0.5])
         .commit()?;
     let (mut model, mut engines) = RTDETR::build(config)?;

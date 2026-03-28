@@ -32,7 +32,6 @@ thiserror = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 log = { workspace = true }
-#whisper-rs = { workspace = true }
 parakeet-rs = { workspace = true }
 tokio = { workspace = true }
 
@@ -45,5 +44,5 @@ default = []
 metal = [
     "aphelios_core/metal",
     #"whisper-rs/metal",
-    "ort/coreml"
+    "ort/coreml",
 ]

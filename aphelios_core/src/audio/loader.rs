@@ -49,8 +49,41 @@ impl AudioLoader {
 
         match extension.as_str() {
             "wav" => self.load_wav(path),
+            "mp4" | "mkv" | "mov" | "avi" | "flv" | "mp3" | "m4a" | "flac" => self.load_from_ffmpeg(path),
             _ => bail!("Unsupported audio format: {}", extension),
         }
+    }
+
+    /// 使用 FFmpeg 加载视频或音频文件
+    fn load_from_ffmpeg(&self, path: &Path) -> Result<AudioBuffer> {
+        use std::process::Command;
+        use std::io::Read;
+
+        let output = Command::new("ffmpeg")
+            .args([
+                "-i", path.to_str().unwrap(),
+                "-f", "s16le",
+                "-ac", "1",
+                "-ar", "16000",
+                "-acodec", "pcm_s16le",
+                "-"
+            ])
+            .output()?;
+
+        if !output.status.success() {
+            bail!("FFmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+
+        let pcm_data = output.stdout;
+        let mut samples = Vec::with_capacity(pcm_data.len() / 2);
+        let mut cursor = std::io::Cursor::new(pcm_data);
+        let mut buf = [0u8; 2];
+        while cursor.read_exact(&mut buf).is_ok() {
+            let sample = i16::from_le_bytes(buf);
+            samples.push(sample as f32 / i16::MAX as f32);
+        }
+
+        Ok(AudioBuffer::Mono(MonoBuffer::new(samples, 16000)))
     }
 
     /// 加载 WAV 文件

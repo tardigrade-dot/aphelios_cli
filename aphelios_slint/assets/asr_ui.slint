@@ -13,6 +13,12 @@ export component AsrWindow inherits Window {
     in-out property <bool> is_running: false;
     in-out property <[string]> log_messages: ["Session started"];
     in-out property <string> transcription_result;
+    in-out property <length> log_viewport_y: 0;
+
+    callback scroll_to_bottom();
+    scroll_to_bottom => {
+        log_viewport_y = -100000px;
+    }
 
     callback select_audio_file();
     callback select_output_path();
@@ -31,8 +37,11 @@ export component AsrWindow inherits Window {
             Button {
                 text: "← 返回";
                 width: 70px;
-                clicked => { root.go_back(); }
+                clicked => {
+                    root.go_back();
+                }
             }
+
             Text {
                 text: "Parakeet ASR 语音识别";
                 font-size: 16px;
@@ -43,11 +52,13 @@ export component AsrWindow inherits Window {
             HorizontalLayout {
                 spacing: 8px;
                 Rectangle {
-                    width: 10px; height: 10px;
+                    width: 10px;
+                    height: 10px;
                     border-radius: 5px;
                     background: is_running ? #00ff00 : #cccccc;
                     y: (parent.height - self.height) / 2;
                 }
+
                 Text {
                     text: status_message;
                     font-size: 12px;
@@ -68,20 +79,30 @@ export component AsrWindow inherits Window {
             VerticalLayout {
                 padding: 15px;
                 spacing: 12px;
-                
+
                 // 输入音频行
                 HorizontalLayout {
                     height: 30px;
                     spacing: 10px;
-                    Text { text: "输入音频"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { 
-                        text <=> audio_file_path; 
+                    Text {
+                        text: "输入音频";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    LineEdit {
+                        text <=> audio_file_path;
                         placeholder-text: "请选择待识别的音频文件...";
                         enabled: !is_running;
                     }
-                    Button { 
-                        text: "选择"; width: 60px; 
-                        clicked => { root.select_audio_file(); }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_audio_file();
+                        }
                         enabled: !is_running;
                     }
                 }
@@ -90,15 +111,25 @@ export component AsrWindow inherits Window {
                 HorizontalLayout {
                     height: 30px;
                     spacing: 10px;
-                    Text { text: "保存路径"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { 
-                        text <=> output_path; 
+                    Text {
+                        text: "保存路径";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    LineEdit {
+                        text <=> output_path;
                         placeholder-text: "识别结果保存位置 (可选)";
                         enabled: !is_running;
                     }
-                    Button { 
-                        text: "选择"; width: 60px; 
-                        clicked => { root.select_output_path(); }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_output_path();
+                        }
                         enabled: !is_running;
                     }
                 }
@@ -115,7 +146,9 @@ export component AsrWindow inherits Window {
                 width: 200px;
                 height: 36px;
                 enabled: audio_file_path != "" && !is_running;
-                clicked => { root.start_asr(); }
+                clicked => {
+                    root.start_asr();
+                }
             }
         }
 
@@ -123,7 +156,12 @@ export component AsrWindow inherits Window {
         VerticalLayout {
             spacing: 5px;
             vertical-stretch: 2; // 给结果区更多的权重
-            Text { text: "文本识别结果"; font-size: 12px; color: #888; }
+            Text {
+                text: "文本识别结果";
+                font-size: 12px;
+                color: #888;
+            }
+
             Rectangle {
                 background: #ffffff;
                 border-radius: 6px;
@@ -144,7 +182,12 @@ export component AsrWindow inherits Window {
         VerticalLayout {
             spacing: 5px;
             vertical-stretch: 2; // 增加权重以占据更多下方空间
-            Text { text: "系统日志"; font-size: 11px; color: #999; }
+            Text {
+                text: "系统日志";
+                font-size: 11px;
+                color: #999;
+            }
+
             Rectangle {
                 background: #1e1e1e;
                 border-radius: 6px;
@@ -152,10 +195,10 @@ export component AsrWindow inherits Window {
                 clip: true; // 关键：防止文字溢出
 
                 ScrollView {
-                    padding: 8px;
+                    viewport-y <=> log_viewport_y;
                     VerticalLayout {
                         alignment: start;
-                        for msg in log_messages : Text {
+                        for msg in log_messages: Text {
                             text: "> " + msg;
                             color: #a6e22e; // 经典的终端绿
                             font-family: "PingFang SC";

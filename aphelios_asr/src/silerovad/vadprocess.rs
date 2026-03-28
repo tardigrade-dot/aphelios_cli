@@ -8,30 +8,16 @@ use ort::{
     value::Value,
 };
 
+use crate::base::{AudioBatch, VadSegment};
+
 pub struct VadConfig {
-    pub sample_rate: i64,    // 16000
-    pub chunk_size: usize,   // 512, 1024 或 1536
-    pub threshold: f32,      // 0.5 - 0.6
-    pub min_speech_ms: f64,  // 建议 200.0
-    pub min_silence_ms: f64, // 建议 500.0 - 1000.0
-    pub window_size: usize,  // 滑动窗口帧数，建议 5
-}
-
-#[derive(Debug)]
-pub struct VadSegment {
-    pub start: f64,
-    pub end: f64,
-    pub avg_prob: f32,
-}
-
-impl VadSegment {
-    pub fn new(start: f64, end: f64, avg_prob: f32) -> Self {
-        Self {
-            start,
-            end,
-            avg_prob,
-        }
-    }
+    pub sample_rate: i64,      // 16000
+    pub chunk_size: usize,     // 512, 1024 或 1536
+    pub threshold: f32,        // 0.5 - 0.6
+    pub min_speech_ms: f64,    // 建议 200.0
+    pub min_silence_ms: f64,   // 建议 500.0 - 1000.0
+    pub window_size: usize,    // 滑动窗口帧数，建议 5
+    pub window_threshold: f32, // 滑动窗口阈值，建议 0.4
 }
 
 pub struct VadProcessor {
@@ -39,13 +25,6 @@ pub struct VadProcessor {
     config: VadConfig,
 }
 
-#[derive(Debug)]
-pub struct AudioBatch {
-    pub start: f64,
-    pub end: f64,
-    pub duration: f64,
-    pub segments_count: usize,
-}
 impl VadProcessor {
     pub fn new_default() -> Result<Self> {
         let model_path = "/Volumes/sw/onnx_models/silero-vad/onnx/model.onnx";
@@ -63,7 +42,8 @@ impl VadProcessor {
             threshold: 0.5,
             min_speech_ms: 200.0,
             min_silence_ms: 500.0,
-            window_size: 5,
+            window_size: 10,
+            window_threshold: 0.5,
         };
         Ok(Self { session, config })
     }
@@ -72,9 +52,19 @@ impl VadProcessor {
     }
 
     pub fn process_from_file(&mut self, audio_path: &str) -> Result<Vec<VadSegment>> {
+        use aphelios_core::audio::{ResampleQuality, Resampler};
         let audio = AudioLoader::new().load(audio_path)?;
         let mono = audio.to_stereo().to_mono();
-        self.process(&mono.samples)
+        
+        let resampled = if mono.sample_rate != 16000 {
+            Resampler::new()
+                .with_quality(ResampleQuality::High)
+                .resample_mono(&mono, 16000)?
+        } else {
+            mono
+        };
+
+        self.process(&resampled.samples)
     }
     /// 核心处理入口：音频流 -> 概率流 -> 平滑处理 -> 时间戳切片
     pub fn process(&mut self, samples: &[f32]) -> Result<Vec<VadSegment>> {
@@ -204,8 +194,7 @@ impl VadProcessor {
                 .count();
             let ratio = active_count as f32 / window.len() as f32;
 
-            // 比例阈值设为 0.7，即 70% 的帧都认为是语音才保留
-            if ratio >= 0.7 {
+            if ratio >= self.config.window_threshold {
                 smoothed.push(raw_probs[i]);
             } else {
                 smoothed.push(0.0);

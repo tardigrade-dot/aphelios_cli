@@ -1,13 +1,19 @@
-import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import {
+    Button,
+    LineEdit,
+    ScrollView,
+    ProgressIndicator,
+} from "std-widgets.slint";
 
 export component TtsWindow inherits Window {
     width: 800px;
-    height: 720px;
+    height: 680px;
     title: "Qwen3 TTS";
-    background: #f6f6f6;
+    background: #eef1f6;
     default-font-family: "PingFang SC";
 
     in-out property <string> input_text;
+    in-out property <int> input_text_length: 0;
     in-out property <string> model_path;
     in-out property <string> output_path;
     in-out property <string> ref_audio_path;
@@ -15,8 +21,17 @@ export component TtsWindow inherits Window {
     in-out property <string> status_message: "就绪";
     in-out property <bool> is_running: false;
     in-out property <bool> has_audio: false;
+    in-out property <float> progress: 0.0;
     in-out property <[string]> log_messages: ["Session Initialized"];
+    in-out property <length> log_viewport_y: 0;
+    in-out property <length> input_textViewportY: 0;
 
+    callback scroll_to_bottom();
+    scroll_to_bottom => {
+        log_viewport_y = -100000px;
+    }
+
+    callback text_changed(string);
     callback select_model_path();
     callback select_output_path();
     callback select_ref_audio();
@@ -25,148 +40,333 @@ export component TtsWindow inherits Window {
     callback go_back();
 
     VerticalLayout {
-        padding: 24px;
-        spacing: 16px;
+        padding: 16px;
+        spacing: 14px;
         alignment: start;
 
-        // --- 头部状态栏 ---
+        // ── 头部
         HorizontalLayout {
-            height: 32px;
+            height: 28px;
             alignment: space-between;
+
             Button {
                 text: "← 返回";
-                width: 70px;
-                clicked => { root.go_back(); }
+                width: 64px;
+                clicked => {
+                    root.go_back();
+                }
             }
+
             Text {
-                text: "Qwen3 TTS 语音合成中心";
-                font-size: 16px;
+                text: "Qwen3 TTS  语音合成中心";
+                font-size: 14px;
                 font-weight: 700;
+                color: #1a2535;
                 vertical-alignment: center;
             }
+
             Rectangle {
-                background: is_running ? #e1f5fe : #f0f0f0;
-                border-radius: 4px;
-                padding-left: 8px; padding-right: 8px;
+                width: 86px;
+                height: 20px;
+                border-radius: 10px;
+                background: is_running ? #1565c0 : #d0d8e4;
+                animate background { duration: 250ms; }
                 Text {
                     text: status_message;
                     font-size: 11px;
-                    color: is_running ? #0288d1 : #666;
+                    font-weight: 600;
+                    color: is_running ? #ffffff : #4e5f75;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
                 }
             }
         }
 
-        // --- 1. 核心输入区 (大文本框) ---
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 待合成文本
         VerticalLayout {
             spacing: 6px;
-            Text { text: "待合成文本内容"; font-size: 12px; color: #888; }
+
+            HorizontalLayout {
+                alignment: space-between;
+                Text {
+                    text: "待合成文本";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #6b7a8d;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: input_text_length + " / 200 字";
+                    font-size: 11px;
+                    color: input_text_length > 200 ? #e53935 : #8a9bb0;
+                    vertical-alignment: center;
+                }
+            }
+
             Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                height: 120px;
-                // 这里建议后续使用多行文本组件，当前用LineEdit模拟
+                background: input_text_length > 200 ? #fff8e1 : #e4e9f0;
+                border-radius: 6px;
+                height: 68px;
+                clip: true;
+                animate background { duration: 200ms; }
+
+                input_sv := ScrollView {
+                    viewport-y <=> input_textViewportY;
+                    VerticalLayout {
+                        padding: 8px;
+                        alignment: start;
+                        TextInput {
+                            text <=> input_text;
+                            wrap: TextWrap.word-wrap;
+                            color: #1a2535;
+                            font-size: 13px;
+                            enabled: !is_running;
+                            edited => {
+                                root.text_changed(self.text);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if input_text_length > 200: Text {
+                text: "⚠  建议限制在 200 字以内以获得最佳合成效果";
+                color: #ffb300;
+                font-size: 10px;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 路径配置
+        VerticalLayout {
+            spacing: 8px;
+
+            Text {
+                text: "📂  路径配置";
+                font-size: 11px;
+                font-weight: 600;
+                color: #6b7a8d;
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "模型路径";
+                    width: 52px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
                 LineEdit {
-                    text <=> input_text;
-                    placeholder-text: "在此输入或粘贴需要转换为语音的文字...";
+                    text <=> model_path;
+                    font-size: 12px;
+                    enabled: !is_running;
+                }
+
+                Button {
+                    text: "选择";
+                    width: 46px;
+                    clicked => {
+                        root.select_model_path();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "输出路径";
+                    width: 52px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> output_path;
+                    font-size: 12px;
+                    enabled: !is_running;
+                }
+
+                Button {
+                    text: "选择";
+                    width: 46px;
+                    clicked => {
+                        root.select_output_path();
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 语音克隆
+        VerticalLayout {
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: "🧬  语音克隆";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #6b7a8d;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "Optional";
+                    font-size: 10px;
+                    color: #b0bec5;
+                    vertical-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "参考音频";
+                    width: 52px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> ref_audio_path;
+                    font-size: 12px;
+                    enabled: !is_running;
+                }
+
+                Button {
+                    text: "选择";
+                    width: 46px;
+                    clicked => {
+                        root.select_ref_audio();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "参考文本";
+                    width: 52px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> ref_text;
+                    font-size: 12px;
+                    placeholder-text: "音频对应的文字内容";
                     enabled: !is_running;
                 }
             }
         }
 
-        // --- 2. 基础配置卡片 ---
         Rectangle {
-            background: #ffffff;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #e0e0e0;
-            VerticalLayout {
-                padding: 12px;
-                spacing: 10px;
-                Text { text: "📂 路径配置"; font-weight: 700; font-size: 13px; }
-                
-                HorizontalLayout {
-                    height: 28px; spacing: 10px;
-                    Text { text: "模型路径"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { text <=> model_path; enabled: !is_running; }
-                    Button { text: "选择"; width: 50px; clicked => { root.select_model_path(); } }
-                }
-                HorizontalLayout {
-                    height: 28px; spacing: 10px;
-                    Text { text: "输出路径"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { text <=> output_path; enabled: !is_running; }
-                    Button { text: "选择"; width: 50px; clicked => { root.select_output_path(); } }
-                }
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 进度（运行时）
+        if is_running: HorizontalLayout {
+            height: 16px;
+            spacing: 10px;
+            ProgressIndicator {
+                progress: progress;
+                height: 4px;
+                horizontal-stretch: 1;
+            }
+
+            Text {
+                text: Math.round(progress * 100) + "%";
+                font-size: 11px;
+                font-weight: 600;
+                color: #1565c0;
+                width: 32px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
             }
         }
 
-        // --- 3. 语音克隆卡片 (可选) ---
-        Rectangle {
-            background: #ffffff;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #e0e0e0;
-            VerticalLayout {
-                padding: 12px;
-                spacing: 10px;
-                HorizontalLayout {
-                    Text { text: "🧬 语音克隆"; font-weight: 700; font-size: 13px; }
-                    Text { text: "(Optional)"; font-size: 11px; color: #bbb; vertical-alignment: center; }
-                }
-                
-                HorizontalLayout {
-                    height: 28px; spacing: 10px;
-                    Text { text: "参考音频"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { text <=> ref_audio_path; enabled: !is_running; }
-                    Button { text: "选择音频"; width: 70px; clicked => { root.select_ref_audio(); } }
-                }
-                HorizontalLayout {
-                    height: 28px; spacing: 10px;
-                    Text { text: "参考文本"; width: 60px; vertical-alignment: center; font-size: 12px; }
-                    LineEdit { text <=> ref_text; placeholder-text: "输入音频对应的文字内容"; enabled: !is_running; }
-                }
-            }
-        }
-
-        // --- 4. 操作按钮区 ---
+        // ── 操作按钮
         HorizontalLayout {
             alignment: center;
-            spacing: 20px;
-            height: 40px;
+            spacing: 12px;
+            height: 34px;
+
             Button {
-                text: is_running ? "合成中..." : "▶ 开始合成";
+                text: is_running ? "合成中…" : "▶  开始合成";
                 primary: true;
-                width: 150px; height: 36px;
+                width: 136px;
+                height: 32px;
                 enabled: input_text != "" && !is_running;
-                clicked => { root.start_tts(); }
+                clicked => {
+                    root.start_tts();
+                }
             }
+
             Button {
-                text: "🔊 播放音频";
-                width: 120px; height: 36px;
+                text: "🔊  播放音频";
+                width: 108px;
+                height: 32px;
                 enabled: has_audio && !is_running;
-                clicked => { root.play_audio(); }
+                clicked => {
+                    root.play_audio();
+                }
             }
         }
 
-        // --- 5. 日志区 ---
+        // ── 系统日志
         VerticalLayout {
-            vertical-stretch: 2; // 增加权重以占据更多下方空间
+            vertical-stretch: 1;
             spacing: 5px;
-            Text { text: "系统日志"; font-size: 11px; color: #999; }
+
+            Text {
+                text: "系统日志";
+                font-size: 10px;
+                font-weight: 600;
+                color: #8a9bb0;
+            }
+
             Rectangle {
-                background: #1e1e1e;
-                border-radius: 6px;
-                min-height: 120px; // 保证起码有 5-8 行高度
-                clip: true; // 裁剪超出边界的内容
-                ScrollView {
-                    padding: 8px;
+                background: #111827;
+                border-radius: 7px;
+                border-width: 1px;
+                border-color: #1f2d42;
+                min-height: 150px;
+                clip: true;
+
+                sv := ScrollView {
+                    viewport-y <=> log_viewport_y;
                     VerticalLayout {
+                        padding: 10px;
+                        spacing: 1px;
                         alignment: start;
-                        for msg in log_messages : Text {
+                        for msg in log_messages: Text {
                             text: "> " + msg;
-                            color: #61afef; // 蓝色系日志，区分于 ASR 的绿色
+                            color: #7ec8e3;
                             font-family: "PingFang SC";
                             font-size: 11px;
                             wrap: word-wrap;

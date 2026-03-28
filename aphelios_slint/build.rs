@@ -10,5 +10,6 @@ fn main() {
     slint_build::compile_with_config("assets/ocr_ui.slint", config.clone()).unwrap();
     slint_build::compile_with_config("assets/asr_ui.slint", config.clone()).unwrap();
     slint_build::compile_with_config("assets/tts_ui.slint", config.clone()).unwrap();
-    slint_build::compile_with_config("assets/settings_ui.slint", config).unwrap();
+    slint_build::compile_with_config("assets/settings_ui.slint", config.clone()).unwrap();
+    slint_build::compile_with_config("assets/book_search_ui.slint", config).unwrap();
 }

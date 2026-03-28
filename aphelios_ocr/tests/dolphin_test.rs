@@ -1,11 +1,11 @@
 use anyhow::Result;
-use aphelios_core::utils::{self, core_utils};
-use aphelios_ocr::dolphin::model::{DolphinModel, run_ocr};
+use aphelios_core::utils::{self, logger};
+use aphelios_ocr::dolphin::model::{run_ocr, DolphinModel};
 use tracing::{error, info};
 
 #[tokio::test]
 async fn dolphin_test() -> Result<()> {
-    core_utils::init_logging();
+    logger::init_logging();
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
     // let model_id = "ByteDance/Dolphin-1.5";
     let mut dm = DolphinModel::load_model(model_id)?;

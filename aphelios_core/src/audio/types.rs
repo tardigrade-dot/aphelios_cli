@@ -26,6 +26,10 @@ impl MonoBuffer {
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
+
+    pub fn samples(&self) -> Vec<f32> {
+        self.samples.clone()
+    }
 }
 
 /// 立体声音频缓冲区

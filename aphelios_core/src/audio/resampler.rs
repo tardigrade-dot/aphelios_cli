@@ -1,5 +1,5 @@
 //! 音频重采样器
-//! 
+//!
 //! 提供多种质量级别的重采样算法
 
 use anyhow::Result;
@@ -47,14 +47,26 @@ impl Resampler {
 
         info!(
             "Resampling mono audio: {}Hz -> {}Hz ({} samples)",
-            input.sample_rate, target_rate, input.samples.len()
+            input.sample_rate,
+            target_rate,
+            input.samples.len()
         );
 
         let samples = match self.quality {
-            ResampleQuality::Fast => self.linear_resample(&input.samples, input.sample_rate, target_rate),
-            ResampleQuality::High => self.sinc_resample(&input.samples, input.sample_rate, target_rate),
+            ResampleQuality::Fast => {
+                self.linear_resample(&input.samples, input.sample_rate, target_rate)
+            }
+            ResampleQuality::High => {
+                self.sinc_resample(&input.samples, input.sample_rate, target_rate)
+            }
         };
 
+        info!(
+            "Resampled mono audio: {}Hz -> {}Hz ({} samples)",
+            input.sample_rate,
+            target_rate,
+            samples.len()
+        );
         Ok(MonoBuffer::new(samples, target_rate))
     }
 
@@ -66,17 +78,27 @@ impl Resampler {
 
         info!(
             "Resampling stereo audio: {}Hz -> {}Hz ({} samples)",
-            input.sample_rate, target_rate, input.left.len()
+            input.sample_rate,
+            target_rate,
+            input.left.len()
         );
 
         let left = match self.quality {
-            ResampleQuality::Fast => self.linear_resample(&input.left, input.sample_rate, target_rate),
-            ResampleQuality::High => self.sinc_resample(&input.left, input.sample_rate, target_rate),
+            ResampleQuality::Fast => {
+                self.linear_resample(&input.left, input.sample_rate, target_rate)
+            }
+            ResampleQuality::High => {
+                self.sinc_resample(&input.left, input.sample_rate, target_rate)
+            }
         };
 
         let right = match self.quality {
-            ResampleQuality::Fast => self.linear_resample(&input.right, input.sample_rate, target_rate),
-            ResampleQuality::High => self.sinc_resample(&input.right, input.sample_rate, target_rate),
+            ResampleQuality::Fast => {
+                self.linear_resample(&input.right, input.sample_rate, target_rate)
+            }
+            ResampleQuality::High => {
+                self.sinc_resample(&input.right, input.sample_rate, target_rate)
+            }
         };
 
         Ok(StereoBuffer::new(left, right, target_rate))
@@ -110,12 +132,12 @@ impl Resampler {
     fn sinc_resample(&self, samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
         // 使用 rubato 库进行高质量重采样
         use rubato::{
-            Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
-            WindowFunction,
+            Resampler as RubatoResampler, SincFixedIn, SincInterpolationParameters,
+            SincInterpolationType, WindowFunction,
         };
 
         let ratio = dst_rate as f64 / src_rate as f64;
-        
+
         let params = SincInterpolationParameters {
             sinc_len: 256,
             f_cutoff: 0.95,
@@ -134,7 +156,7 @@ impl Resampler {
         while pos < samples.len() {
             let end = (pos + chunk_size).min(samples.len());
             let mut chunk = samples[pos..end].to_vec();
-            
+
             if chunk.len() < chunk_size {
                 chunk.resize(chunk_size, 0.0);
             }
@@ -181,7 +203,7 @@ mod tests {
     fn test_linear_resample() {
         let resampler = Resampler::new().with_quality(ResampleQuality::Fast);
         let input = MonoBuffer::new(vec![1.0, 0.5, 0.0, -0.5, -1.0], 16000);
-        
+
         let output = resampler.resample_mono(&input, 8000).unwrap();
         assert_eq!(output.sample_rate, 8000);
         assert!(output.len() > 0);
@@ -191,7 +213,7 @@ mod tests {
     fn test_resample_same_rate() {
         let resampler = Resampler::new();
         let input = MonoBuffer::new(vec![1.0, 0.5, 0.0], 16000);
-        
+
         let output = resampler.resample_mono(&input, 16000).unwrap();
         assert_eq!(output.sample_rate, 16000);
         assert_eq!(output.len(), input.len());

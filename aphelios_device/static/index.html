@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera Stream</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d0d0d;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+    gap: 16px;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: #888;
+    text-transform: uppercase;
+  }
+
+  .viewer {
+    position: relative;
+    width: 100%;
+    max-width: 960px;
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #222;
+  }
+
+  #stream {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* Hardware-accelerated compositing hint */
+    will-change: contents;
+    image-rendering: auto;
+  }
+
+  /* Overlay shown before stream loads */
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    background: #111;
+    transition: opacity 0.3s;
+  }
+  .placeholder.hidden { opacity: 0; pointer-events: none; }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid #333;
+    border-top-color: #5DCAA5;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .placeholder p { font-size: 13px; color: #555; }
+
+  /* Stats bar */
+  .stats {
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .stats strong { font-size: 18px; font-weight: 500; color: #ccc; }
+
+  /* Status dot */
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #555;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #333;
+    transition: background 0.3s;
+  }
+  .dot.live { background: #5DCAA5; animation: pulse 2s ease-in-out infinite; }
+  .dot.error { background: #E24B4A; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* AI badge — shown when detections arrive (future) */
+  .ai-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(83, 74, 183, 0.85);
+    color: #CECBF6;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: none;
+  }
+  .ai-badge.visible { display: block; }
+</style>
+</head>
+<body>
+
+<h1>Camera Stream</h1>
+
+<div class="viewer">
+  <img id="stream" alt="Camera stream">
+  <div class="placeholder" id="placeholder">
+    <div class="spinner"></div>
+    <p>Connecting to camera…</p>
+  </div>
+  <div class="ai-badge" id="ai-badge">AI active</div>
+</div>
+
+<div class="stats">
+  <span><strong id="fps-val">—</strong>fps</span>
+  <span><strong id="latency-val">—</strong>ms</span>
+  <span><strong id="frame-val">0</strong>frames</span>
+</div>
+
+<div class="status">
+  <div class="dot" id="dot"></div>
+  <span id="status-text">Connecting…</span>
+</div>
+
+<script>
+  const img        = document.getElementById('stream');
+  const placeholder = document.getElementById('placeholder');
+  const dot        = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const fpsVal     = document.getElementById('fps-val');
+  const latencyVal = document.getElementById('latency-val');
+  const frameVal   = document.getElementById('frame-val');
+
+  let frameCount = 0;
+  let lastFpsTime = performance.now();
+  let lastFrameTime = performance.now();
+  let totalFrames = 0;
+
+  function onLoad() {
+    placeholder.classList.add('hidden');
+    dot.classList.add('live');
+    dot.classList.remove('error');
+    statusText.textContent = 'Live';
+
+    const now = performance.now();
+    const elapsed = now - lastFpsTime;
+    if (elapsed >= 1000) {
+      const fps = (frameCount / elapsed * 1000).toFixed(0);
+      fpsVal.textContent = fps;
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+
+    // Rough one-way latency: time since last frame arrived
+    latencyVal.textContent = (now - lastFrameTime).toFixed(0);
+    lastFrameTime = now;
+
+    frameCount++;
+    totalFrames++;
+    frameVal.textContent = totalFrames;
+  }
+
+  function onError() {
+    dot.classList.remove('live');
+    dot.classList.add('error');
+    statusText.textContent = 'Reconnecting…';
+    placeholder.classList.remove('hidden');
+
+    // Auto-reconnect after 2 s
+    setTimeout(() => {
+      img.src = '/stream?' + Date.now();
+    }, 2000);
+  }
+
+  img.addEventListener('load', onLoad);
+  img.addEventListener('error', onError);
+
+  // Start stream
+  img.src = '/stream';
+</script>
+</body>
+</html>

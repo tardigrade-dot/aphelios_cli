@@ -6,11 +6,12 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-
+aphelios_core = { path = "../aphelios_core" }
 aphelios_ocr = { path = "../aphelios_ocr" }
 aphelios_asr = { path = "../aphelios_asr" }
 aphelios_tts = { path = "../aphelios_tts" }
-aphelios_core = { path = "../aphelios_core" }
+aphelios_search = { path = "../aphelios_search" }
+
 anyhow = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
@@ -18,12 +19,13 @@ rand = { workspace = true }
 slint = { workspace = true, features = ["backend-qt", "renderer-software"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rfd = "0.15"
-rodio = "0.20"
+rfd = { workspace = true }
+rodio = { workspace = true }
 candle-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-dirs = "5.0"
+dirs = { workspace = true }
+indicatif = { workspace = true }
 
 [build-dependencies]
 slint-build = "1.15.0"

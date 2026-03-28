@@ -2,15 +2,19 @@
 //!
 //! 合成和播放完全并行，播放几乎不等待合成
 
-use aphelios_core::utils::core_utils;
-use aphelios_tts::{AudioBuffer, AudioPlayer, Language, Qwen3TTS, SynthesisOptions};
+use aphelios_core::utils::{base, logger};
+use aphelios_tts::qwen_tts::qwen_tts_v2::SynthesisOptions;
+use aphelios_tts::{
+    audio::AudioBuffer, audio::AudioPlayer, models::talker::Language,
+    qwen_tts::qwen_tts_v2::Qwen3TTS,
+};
 use std::env;
 use std::time::Instant;
 use tracing::info;
 
 fn main() -> anyhow::Result<()> {
-    core_utils::init_logging();
-    let device = core_utils::get_default_device(false)?;
+    logger::init_logging();
+    let device = base::get_default_device(false)?;
 
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();

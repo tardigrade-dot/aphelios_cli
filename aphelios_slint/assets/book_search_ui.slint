@@ -1,0 +1,257 @@
+import {
+    Button,
+    LineEdit,
+    ListView,
+} from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export struct BookItem {
+    id: string,
+    title: string,
+    author: string,
+    file_path: string,
+    file_type: string,
+    file_size: string,
+}
+
+export component BookSearchWindow inherits Window {
+    width: 800px;
+    height: 600px;
+    title: "书籍搜索";
+    background: #eef1f6;
+    default-font-family: "PingFang SC";
+
+    in-out property <string> search_query: "";
+    in-out property <string> books_dir: "/Volumes/sw/books";
+    in-out property <string> status_message: "就绪";
+    in-out property <int> book_count: 0;
+    in-out property <bool> is_indexing: false;
+    in-out property <int> selected_index: -1;
+    in-out property <string> selected_file_path: "";
+    in-out property <[BookItem]> search_results: [];
+
+    callback go_back();
+    callback build_index();
+    callback search_books(string);
+    callback open_book(string);
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+        alignment: start;
+
+        // ── 头部
+        HorizontalLayout {
+            height: 28px;
+            alignment: space-between;
+
+            Button {
+                text: "← 返回";
+                width: 64px;
+                clicked => {
+                    go_back();
+                }
+            }
+
+            Text {
+                text: "书籍搜索";
+                font-size: 14px;
+                font-weight: 700;
+                color: #1a2535;
+                vertical-alignment: center;
+            }
+
+            // 状态胶囊
+            Rectangle {
+                width: 86px;
+                height: 20px;
+                border-radius: 10px;
+                background: is_indexing ? #1565c0 : #d0d8e4;
+                animate background { duration: 250ms; }
+                Text {
+                    text: is_indexing ? "索引构建中" : status_message;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: is_indexing ? #ffffff : #4e5f75;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 搜索与目录
+        VerticalLayout {
+            spacing: 8px;
+
+            Text {
+                text: "🔍  搜索";
+                font-size: 11px;
+                font-weight: 600;
+                color: #6b7a8d;
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "关键词";
+                    width: 44px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> search_query;
+                    font-size: 12px;
+                    placeholder-text: "输入书名或作者名…";
+                    accepted => {
+                        search_books(root.search_query);
+                    }
+                }
+
+                Button {
+                    text: "搜索";
+                    width: 56px;
+                    clicked => {
+                        search_books(root.search_query);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "书籍目录";
+                    width: 44px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> books_dir;
+                    font-size: 12px;
+                    placeholder-text: "书籍目录路径";
+                }
+
+                Button {
+                    text: "重建索引";
+                    width: 70px;
+                    enabled: !is_indexing;
+                    clicked => {
+                        build_index();
+                    }
+                }
+            }
+
+            // 状态行
+            HorizontalLayout {
+                spacing: 12px;
+                height: 18px;
+                Text {
+                    text: "共 " + book_count + " 本";
+                    font-size: 11px;
+                    color: #8a9bb0;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: status_message;
+                    font-size: 11px;
+                    color: #b0bec5;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 搜索结果
+        Text {
+            text: "📋  搜索结果";
+            font-size: 11px;
+            font-weight: 600;
+            color: #6b7a8d;
+        }
+
+        ListView {
+            vertical-stretch: 1;
+            for item in search_results: Rectangle {
+                height: 80px;
+                border-width: 0px;
+
+                VerticalLayout {
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    spacing: 3px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: item.title;
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: #1a2535;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: end;
+                            Text {
+                                text: item.file_type;
+                                font-size: 10px;
+                                color: #8a9bb0;
+                                vertical-alignment: center;
+                            }
+
+                            Button {
+                                text: "打开";
+                                height: 22px;
+                                width: 46px;
+                                clicked => {
+                                    open_book(item.file_path);
+                                }
+                            }
+                        }
+                    }
+
+                    if item.author != "": Text {
+                        text: item.author;
+                        font-size: 11px;
+                        color: #6b7a8d;
+                    }
+
+                    Text {
+                        text: item.file_path;
+                        font-size: 10px;
+                        color: #b0bec5;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: item.file_size;
+                        font-size: 10px;
+                        color: #c8d0db;
+                    }
+                }
+
+                // 每行底部细线
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: #d0d8e4;
+                }
+            }
+        }
+    }
+}

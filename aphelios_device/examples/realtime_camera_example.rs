@@ -1,4 +1,4 @@
-use aphelios_core::utils::core_utils;
+use aphelios_core::utils::{base::RTDETR_V4_M, logger};
 use async_stream;
 use axum::{
     body::Body,
@@ -23,10 +23,10 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    core_utils::init_logging();
+    logger::init_logging();
 
     // 1. 初始化模型
-    let model_path = "/Users/larry/coderesp/aphelios_cli/aphelios_core/models/rtdetr_v4_m.onnx";
+    let model_path = RTDETR_V4_M;
     let config = Config::rtdetr_v4_m()
         .with_model_file(model_path)
         .with_class_confs(&[0.5])

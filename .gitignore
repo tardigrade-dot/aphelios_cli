@@ -18,3 +18,4 @@ flamegraph*
 frame*
 .cargo-ok
 trace*.json
+.claude

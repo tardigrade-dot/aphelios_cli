@@ -1,6 +1,5 @@
-use crate::error::Result;
+use anyhow::Result;
 
-pub fn run(path: String) -> Result<()> {
-    println!("init at {path}");
+pub fn run() -> Result<()> {
     Ok(())
 }

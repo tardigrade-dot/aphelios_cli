@@ -1,4 +1,3 @@
-use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub fn init_chrome_logging() {
@@ -15,15 +14,9 @@ pub fn init_chrome_logging() {
             .with_line_number(true)
             .pretty();
 
-        let (chrome_layer, _guard) = ChromeLayerBuilder::new()
-            .include_args(true)
-            // .file("trace.json")
-            .build();
-
         let _ = tracing_subscriber::registry()
             .with(filter)
             .with(fmt_layer)
-            .with(chrome_layer)
             .try_init();
     })
 }
@@ -42,11 +35,9 @@ pub fn init_logging() {
             .with_line_number(true)
             .pretty();
 
-        let (chrome_layer, _guard) = ChromeLayerBuilder::new().build();
         let _ = tracing_subscriber::registry()
             .with(filter)
             .with(fmt_layer)
-            .with(chrome_layer)
             .try_init();
     });
 }

@@ -10,7 +10,7 @@ name = "aphelios_tool"
 [dependencies]
 aphelios_ocr = { path = "../aphelios_ocr" }
 aphelios_core = { path = "../aphelios_core" }
-aphelios_web = { path = "../aphelios_web" }
+# aphelios_web = { path = "../aphelios_web" }
 
 serde_json = { workspace = true }
 tokio = { workspace = true }

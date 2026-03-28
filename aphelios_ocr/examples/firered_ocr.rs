@@ -1,10 +1,8 @@
 use anyhow::Result;
-use aphelios_core::utils::core_utils;
-use candle_nn::VarBuilder;
-use candle_transformers::models::qwen3_vl::Qwen3VLModel;
+use aphelios_core::utils::logger;
 
 fn main() -> Result<()> {
-    core_utils::init_logging();
+    logger::init_logging();
     let model_path = "/Volumes/sw/pretrained_models/FireRed-OCR";
 
     // Qwen3VLModel::new(cfg, vb)

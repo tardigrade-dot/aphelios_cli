@@ -1,6 +1,8 @@
+pub mod qwen_tts_v2;
+
 use anyhow::Result;
 use aphelios_core::measure_time;
-use aphelios_core::utils::core_utils;
+use aphelios_core::utils::base;
 use candle_core::{DType, Device};
 use qwen_tts::io::{GenerationArgs, IoArgs};
 use qwen_tts::model::loader::{LoaderConfig, ModelLoader};
@@ -18,17 +20,17 @@ pub fn qwen3_tts_with_output(
     ref_text: Option<&str>,
 ) -> Result<()> {
     // 使用 Metal 设备（如果可用）
-    let device = core_utils::get_default_device(false)?;
-    
+    let device = base::get_default_device(false)?;
+
     // 根据设备选择合适的数据类型
     // Metal 上 BF16 可能不如 F32 稳定，CPU 上必须用 F32
     let dtype = match &device {
-        Device::Metal(_) => DType::F32,  // Metal 上用 F32 更稳定
+        Device::Metal(_) => DType::F32, // Metal 上用 F32 更稳定
         Device::Cpu => DType::F32,
         #[cfg(feature = "cuda")]
-        Device::Cuda(_) => DType::BF16,  // CUDA 上可以用 BF16 加速
+        Device::Cuda(_) => DType::BF16, // CUDA 上可以用 BF16 加速
         #[cfg(not(feature = "cuda"))]
-        Device::Cuda(_) => DType::F32,  // 如果没有 CUDA 特性，回退到 F32
+        Device::Cuda(_) => DType::F32, // 如果没有 CUDA 特性，回退到 F32
     };
 
     info!("TTS 推理设备：{:?}, 数据类型：{:?}", device, dtype);
@@ -69,7 +71,7 @@ pub fn qwen3_tts_with_output(
 
     let gen_args = GenerationArgs {
         max_tokens: 2048,
-        temperature: Some(0.8),  // 添加温度参数，增加随机性
+        temperature: Some(0.8), // 添加温度参数，增加随机性
         top_k: Some(50),
         top_p: Some(0.95),
         repetition_penalty: Some(1.1),
@@ -78,10 +80,10 @@ pub fn qwen3_tts_with_output(
         subtalker_temperature: Some(0.8),
         subtalker_top_k: Some(50),
         subtalker_top_p: Some(0.95),
-        no_subtalker_sample: false,  // 允许子说话人采样，增加自然度
+        no_subtalker_sample: false, // 允许子说话人采样，增加自然度
     };
     let io_args = IoArgs::default();
-    
+
     info!("开始 TTS 合成任务...");
     info!("  - 文本：{}", text);
     info!("  - 模型：{}", model_path);
@@ -92,7 +94,7 @@ pub fn qwen3_tts_with_output(
     if let Some(ref_txt) = ref_text {
         info!("  - 参考文本：{}", ref_txt);
     }
-    
+
     let _start = Instant::now();
     let _ = measure_time!(
         "TTS 任务",

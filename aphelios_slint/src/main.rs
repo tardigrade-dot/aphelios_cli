@@ -4,19 +4,21 @@ include!(concat!(env!("OUT_DIR"), "/ocr_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/asr_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/tts_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/settings_ui.rs"));
+include!(concat!(env!("OUT_DIR"), "/book_search_ui.rs"));
 
 mod config;
 mod logger;
 
 use anyhow::Result;
 use aphelios_ocr::dolphin::model::DolphinModel;
-use aphelios_tts::generate_voice;
+use aphelios_search as search;
+use aphelios_tts::qwen_tts::qwen_tts_v2::generate_voice;
 use config::AppSettings;
 use slint::{ComponentHandle, Model, ModelRc, PlatformError, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tracing::{error, info, Level};
+use tracing::{error, info};
 
 // 日志最大行数限制
 const MAX_LOG_LINES: usize = 200;
@@ -66,6 +68,14 @@ fn main() -> Result<()> {
         move || {
             let _ = w.upgrade();
             let _ = run_tts_ui();
+        }
+    });
+
+    main_menu.on_open_book_search({
+        let w = main_menu_weak.clone();
+        move || {
+            let _ = w.upgrade();
+            let _ = run_book_search_ui();
         }
     });
 
@@ -194,11 +204,14 @@ fn run_ocr_ui() -> Result<()> {
                 move || {
                     if let Some(win) = w.upgrade() {
                         let log_model = win.get_log_messages();
-                        if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                        if let Some(vm) =
+                            log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                        {
                             vm.push(msg_clone.into());
                             if vm.row_count() > MAX_LOG_LINES {
                                 vm.remove(0);
                             }
+                            win.invoke_scroll_to_bottom();
                         }
                     }
                 }
@@ -206,9 +219,10 @@ fn run_ocr_ui() -> Result<()> {
         }
     });
 
-    // 添加初始日志 - 启动时显示
+    // 添加初始日志
     log_model.push("=== Aphelios OCR 文字识别 ===".into());
-    log_model.push("就绪，请选择文件开始识别".into());
+    log_model.push("就绪，请选择输入文件开始识别".into());
+    window.invoke_scroll_to_bottom();
 
     window.on_start_ocr({
         let w = window_weak.clone();
@@ -268,16 +282,25 @@ fn run_ocr_ui() -> Result<()> {
                             let Some(win) = w2.upgrade() else { return };
                             // 通过窗口获取日志模型并添加日志
                             let log_model = win.get_log_messages();
-                            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
-                                vm.push(format!("✅ OCR 完成！识别出 {} 条结果", results_clone.len()).into());
+                            if let Some(vm) =
+                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            {
+                                vm.push(
+                                    format!("✅ OCR 完成！识别出 {} 条结果", results_clone.len())
+                                        .into(),
+                                );
 
                                 // 显示前 10 条结果
                                 for (i, result) in results_clone.iter().take(10).enumerate() {
                                     vm.push(format!("  [{}] {}", i + 1, result).into());
                                 }
                                 if results_clone.len() > 10 {
-                                    vm.push(format!("  ... 还有 {} 条结果", results_clone.len() - 10).into());
+                                    vm.push(
+                                        format!("  ... 还有 {} 条结果", results_clone.len() - 10)
+                                            .into(),
+                                    );
                                 }
+                                win.invoke_scroll_to_bottom();
                             }
 
                             win.set_status_message("OCR 完成!".into());
@@ -291,8 +314,11 @@ fn run_ocr_ui() -> Result<()> {
                             let Some(win) = w3.upgrade() else { return };
                             // 通过窗口获取日志模型并添加日志
                             let log_model = win.get_log_messages();
-                            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                            if let Some(vm) =
+                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            {
                                 vm.push(format!("❌ OCR 失败：{}", error_msg).into());
+                                win.invoke_scroll_to_bottom();
                             }
                             win.set_status_message("OCR 失败".into());
                             win.set_is_running(false);
@@ -312,6 +338,7 @@ fn run_ocr_ui() -> Result<()> {
                 win.set_is_running(false);
                 win.set_status_message("OCR 已停止".into());
                 lm.push("⏹️ OCR 已停止".into());
+                win.invoke_scroll_to_bottom();
             }
         }
     });
@@ -391,11 +418,14 @@ fn run_asr_ui() -> Result<()> {
                 move || {
                     if let Some(win) = w.upgrade() {
                         let log_model = win.get_log_messages();
-                        if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                        if let Some(vm) =
+                            log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                        {
                             vm.push(msg_clone.into());
                             if vm.row_count() > MAX_LOG_LINES {
                                 vm.remove(0);
                             }
+                            win.invoke_scroll_to_bottom();
                         }
                     }
                 }
@@ -406,6 +436,7 @@ fn run_asr_ui() -> Result<()> {
     // 添加初始日志
     log_model.push("=== Aphelios ASR 语音识别 ===".into());
     log_model.push("就绪，请选择音频文件开始识别".into());
+    window.invoke_scroll_to_bottom();
 
     window.on_start_asr({
         let w: slint::Weak<AsrWindow> = window_weak.clone();
@@ -425,9 +456,10 @@ fn run_asr_ui() -> Result<()> {
             win.set_is_running(true);
             win.set_status_message("ASR 识别中...".into());
             lm.push(format!("🎤 开始 ASR 识别：{}", audio_file).into());
+            win.invoke_scroll_to_bottom();
 
-            let w2 = w.clone();
-            let w3 = w.clone();
+            let _w2 = w.clone();
+            let _w3 = w.clone();
             std::thread::spawn(move || {
                 info!("Starting ASR: input={}", audio_file);
                 // use aphelios_core::utils::core_utils::PARAKEET_TDT_MODEL_PATH;
@@ -658,6 +690,15 @@ fn run_tts_ui() -> Result<()> {
 
     let window_weak = window.as_weak();
 
+    window.on_text_changed({
+        let w = window.as_weak();
+        move |text: slint::SharedString| {
+            if let Some(win) = w.upgrade() {
+                win.set_input_text_length(text.chars().count() as i32);
+            }
+        }
+    });
+
     window.on_go_back({
         let w = window_weak.clone();
         move || {
@@ -734,11 +775,14 @@ fn run_tts_ui() -> Result<()> {
                 move || {
                     if let Some(win) = w.upgrade() {
                         let log_model = win.get_log_messages();
-                        if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                        if let Some(vm) =
+                            log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                        {
                             vm.push(msg_clone.into());
                             if vm.row_count() > MAX_LOG_LINES {
                                 vm.remove(0);
                             }
+                            win.invoke_scroll_to_bottom();
                         }
                     }
                 }
@@ -749,6 +793,7 @@ fn run_tts_ui() -> Result<()> {
     // 添加初始日志
     log_model.push("=== Aphelios TTS 语音合成 ===".into());
     log_model.push("就绪，请输入文本开始合成".into());
+    window.invoke_scroll_to_bottom();
 
     window.on_start_tts({
         let w = window_weak.clone();
@@ -774,21 +819,40 @@ fn run_tts_ui() -> Result<()> {
             win.set_is_running(true);
             win.set_status_message("TTS 合成中...".into());
             win.set_has_audio(false);
+            win.set_progress(0.0);
             lm.push(format!("🔊 开始 TTS 合成：{}", input_text).into());
             lm.push(format!("🤖 模型路径：{}", model_path).into());
             lm.push(format!("📂 输出路径：{}", output_path).into());
+            win.invoke_scroll_to_bottom();
 
             let w_inner = w.clone();
             let w2 = w_inner.clone();
             let w3 = w_inner.clone();
             std::thread::spawn(move || {
                 info!("Starting TTS: text={}, output={}", input_text, output_path);
+
+                // 使用 AppProgressBar 将 indicatif 的进度桥接到 Slint UI
+                let progress_bar = aphelios_core::utils::progress::AppProgressBar::with_ui(
+                    indicatif::ProgressBar::hidden(),
+                    move |p| {
+                        let _ = slint::invoke_from_event_loop({
+                            let w = w_inner.clone();
+                            move || {
+                                if let Some(win) = w.upgrade() {
+                                    win.set_progress(p);
+                                }
+                            }
+                        });
+                    },
+                );
+
                 let result = generate_voice(
                     &model_path,
                     &ref_audio_path,
                     &ref_text,
                     &input_text,
                     &output_path,
+                    Some(progress_bar),
                 );
 
                 match result {
@@ -800,8 +864,11 @@ fn run_tts_ui() -> Result<()> {
                             win.set_is_running(false);
                             win.set_has_audio(true);
                             let log_model = win.get_log_messages();
-                            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                            if let Some(vm) =
+                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            {
                                 vm.push("✅ TTS 合成完成!".into());
+                                win.invoke_scroll_to_bottom();
                             }
                             if let Ok(mut path) = AUDIO_OUTPUT_PATH.lock() {
                                 *path = Some(output_path.clone());
@@ -816,8 +883,11 @@ fn run_tts_ui() -> Result<()> {
                             win.set_status_message("TTS 失败".into());
                             win.set_is_running(false);
                             let log_model = win.get_log_messages();
-                            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                            if let Some(vm) =
+                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            {
                                 vm.push(format!("❌ TTS 失败：{}", error_msg).into());
+                                win.invoke_scroll_to_bottom();
                             }
                         });
                     }
@@ -830,10 +900,11 @@ fn run_tts_ui() -> Result<()> {
         let w = window_weak.clone();
         let lm = log_model.clone();
         move || {
-            let Some(_win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else { return };
             if let Ok(path_guard) = AUDIO_OUTPUT_PATH.lock() {
                 if let Some(ref path) = *path_guard {
                     lm.push(format!("🔊 播放音频：{}", path).into());
+                    win.invoke_scroll_to_bottom();
                     let path_clone = path.clone();
                     std::thread::spawn(move || {
                         play_audio_file(&path_clone);
@@ -847,17 +918,150 @@ fn run_tts_ui() -> Result<()> {
     Ok(())
 }
 
-fn play_audio_file(path: &str) {
-    use rodio::{OutputStream, Source};
-    match (|| -> Result<()> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let file = std::fs::File::open(path)?;
-        let sink = rodio::Sink::try_new(&stream_handle)?;
-        sink.append(rodio::Decoder::new(file)?);
-        sink.sleep_until_end();
-        Ok(())
-    })() {
-        Ok(_) => info!("Audio playback completed: {}", path),
-        Err(e) => error!("Audio playback failed: {}", e),
+fn format_file_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if size >= GB {
+        format!("{:.2} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else if size >= KB {
+        format!("{:.2} KB", size as f64 / KB as f64)
+    } else {
+        format!("{} B", size)
     }
+}
+
+fn run_book_search_ui() -> Result<()> {
+    let window = BookSearchWindow::new()?;
+
+    // 获取书籍数量
+    let book_count = search::get_book_count().unwrap_or(0);
+    window.set_book_count(book_count as i32);
+
+    let window_weak = window.as_weak();
+
+    window.on_go_back({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let _: Result<(), PlatformError> = win.hide();
+            }
+        }
+    });
+
+    window.on_build_index({
+        let w = window_weak.clone();
+        move || {
+            let w_for_callback = w.clone();
+            let Some(win) = w_for_callback.upgrade() else {
+                return;
+            };
+
+            win.set_is_indexing(true);
+            win.set_status_message("正在构建索引...".into());
+
+            let w2 = w.clone();
+            std::thread::spawn(move || {
+                let result = search::build_index(None);
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(win) = w2.upgrade() else { return };
+
+                    win.set_is_indexing(false);
+
+                    match result {
+                        Ok(count) => {
+                            win.set_book_count(count as i32);
+                            win.set_status_message(
+                                format!("索引构建完成，共 {} 本书", count).into(),
+                            );
+                        }
+                        Err(e) => {
+                            win.set_status_message(format!("索引构建失败: {}", e).into());
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    window.on_search_books({
+        let w = window_weak.clone();
+        move |query: slint::SharedString| {
+            let w_for_callback = w.clone();
+            let Some(win) = w_for_callback.upgrade() else {
+                return;
+            };
+
+            win.set_status_message("搜索中...".into());
+
+            let query_clone: String = query.into();
+            let w2 = w.clone();
+            std::thread::spawn(move || {
+                let result = search::search_books(&query_clone, 50);
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(win) = w2.upgrade() else { return };
+
+                    match result {
+                        Ok(search_result) => {
+                            let items: Vec<search::BookInfo> = search_result.books;
+                            let book_items: Vec<slint_generatedBookSearchWindow::BookItem> = items
+                                .iter()
+                                .map(|b| slint_generatedBookSearchWindow::BookItem {
+                                    id: b.id.to_string().into(),
+                                    title: b.title.clone().into(),
+                                    author: b.author.clone().unwrap_or_default().into(),
+                                    file_path: b.file_path.clone().into(),
+                                    file_type: b.file_type.clone().into(),
+                                    file_size: format_file_size(b.file_size).into(),
+                                })
+                                .collect();
+
+                            let model: Rc<VecModel<slint_generatedBookSearchWindow::BookItem>> =
+                                Rc::new(VecModel::from(book_items));
+                            win.set_search_results(ModelRc::from(model));
+                            win.set_status_message(
+                                format!("找到 {} 个结果", search_result.total).into(),
+                            );
+                        }
+                        Err(e) => {
+                            win.set_status_message(format!("搜索失败: {}", e).into());
+                        }
+                    }
+                });
+            });
+        }
+    });
+
+    window.on_open_book({
+        move |file_path: slint::SharedString| {
+            let path: String = file_path.into();
+            if !path.is_empty() {
+                // 使用 open 命令打开文件
+                std::process::Command::new("open").arg(&path).spawn().ok();
+            }
+        }
+    });
+
+    window.run()?;
+    Ok(())
+}
+
+fn play_audio_file(path: &str) {
+    // use rodio::Source;
+    // match (|| -> Result<()> {
+    //     let (_stream, stream_handle) = OutputStream::try_default()?;
+    //     let file = std::fs::File::open(path)?;
+    //     let sink = rodio::Sink::try_new(&stream_handle)?;
+    //     sink.append(rodio::Decoder::new(file)?);
+    //     sink.sleep_until_end();
+    //     Ok(())
+    // })() {
+    //     Ok(_) => info!("Audio playback completed: {}", path),
+    //     Err(e) => error!("Audio playback failed: {}", e),
+    // }
 }

@@ -1,213 +1,264 @@
-pub mod db;
-
 use anyhow::Result;
-use fastembed::{
-    EmbeddingModel, InitOptions, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank,
-};
-use jieba_rs::Jieba;
-use once_cell::sync::Lazy;
+use glob::glob;
 use rusqlite::{params, Connection};
-use std::collections::{HashMap, HashSet};
-use tracing::info;
-use usearch::{Index, IndexOptions, MetricKind, ScalarKind};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use tracing::{error, info};
 
-pub struct SearchEngine {
-    index: Index,
-    db: Connection,
-    embedding_model: TextEmbedding,
-    rerank_model: TextRerank,
+const BOOKS_DIR: &str = "/Volumes/sw/books";
+const DB_PATH: &str = "/Volumes/sw/books/books.db";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BookInfo {
+    pub id: i64,
+    pub title: String,
+    pub author: Option<String>,
+    pub file_path: String,
+    pub file_type: String,
+    pub file_size: u64,
 }
 
-// Jieba 只初始化一次
-static JIEBA: Lazy<Jieba> = Lazy::new(Jieba::new);
-
-fn tokenize_chinese(text: &str) -> String {
-    let words = JIEBA.cut(text, false);
-    words.join(" ")
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub books: Vec<BookInfo>,
+    pub total: usize,
 }
 
-impl SearchEngine {
-    pub fn new() -> Result<Self> {
-        // 初始化 embedding 模型
-        let mut model_opts = InitOptions::default();
-        model_opts.model_name = EmbeddingModel::BGESmallZHV15;
-        let embedding_model = TextEmbedding::try_new(model_opts)?;
+/// 初始化 SQLite 数据库
+pub fn init_database() -> Result<Connection> {
+    let conn = Connection::open(DB_PATH)?;
 
-        // 初始化 reranker
-        let mut rerank_opts = RerankInitOptions::default();
-        rerank_opts.model_name = RerankerModel::BGERerankerV2M3;
-        let rerank_model = TextRerank::try_new(rerank_opts)?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS books (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            author TEXT,
+            file_path TEXT NOT NULL UNIQUE,
+            file_type TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
 
-        // 初始化 USearch
-        let options = IndexOptions {
-            dimensions: 512,
-            metric: MetricKind::Cos,
-            quantization: ScalarKind::F32,
-            ..Default::default()
-        };
-        let index = Index::new(&options)?;
-        index.reserve(1000)?;
+    // 创建全文搜索虚拟表
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
+            title,
+            author,
+            content='books',
+            content_rowid='id'
+        )",
+        [],
+    )?;
 
-        // 初始化 SQLite + FTS5
-        let db = Connection::open_in_memory()?;
+    // 创建触发器保持 FTS 同步
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
+            INSERT INTO books_fts(rowid, title, author) VALUES (new.id, new.title, new.author);
+        END",
+        [],
+    )?;
 
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY,
-                path TEXT
-            )",
-            [],
-        )?;
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
+            INSERT INTO books_fts(books_fts, rowid, title, author) VALUES('delete', old.id, old.title, old.author);
+        END",
+        [],
+    )?;
 
-        db.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-                path,
-                tokenize='unicode61 remove_diacritics 0'
-            )",
-            [],
-        )?;
+    conn.execute(
+        "CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
+            INSERT INTO books_fts(books_fts, rowid, title, author) VALUES('delete', old.id, old.title, old.author);
+            INSERT INTO books_fts(rowid, title, author) VALUES (new.id, new.title, new.author);
+        END",
+        [],
+    )?;
 
-        Ok(Self {
-            index,
-            db,
-            embedding_model,
-            rerank_model,
-        })
-    }
+    Ok(conn)
+}
 
-    pub fn build_index(&mut self, file_names: Vec<String>) -> Result<()> {
-        info!("building index...");
+/// 从文件路径提取书名和作者
+fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
+    let filename = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("未知书名")
+        .to_string();
 
-        let embeddings = self.embedding_model.embed(file_names.clone(), None)?;
-
-        for (i, (name, vector)) in file_names.iter().zip(embeddings).enumerate() {
-            let id_i64 = i as i64;
-
-            self.index.add(i as u64, &vector)?;
-
-            self.db.execute(
-                "INSERT OR REPLACE INTO files (id, path) VALUES (?1, ?2)",
-                params![id_i64, name],
-            )?;
-
-            let tokenized_name = tokenize_chinese(name);
-            self.db.execute(
-                "INSERT OR REPLACE INTO files_fts (rowid, path) VALUES (?1, ?2)",
-                params![id_i64, tokenized_name],
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn hybrid_search(
-        &mut self,
-        query: &str,
-        top_k: usize,
-    ) -> Result<Vec<(String, f32, String)>> {
-        let bm25_limit = 20;
-        let vector_limit = 20;
-
-        // =========================
-        // 1️⃣ BM25 top 20
-        // =========================
-        let tokenized_query = tokenize_chinese(query);
-
-        let mut stmt = self.db.prepare(
-            "SELECT rowid, bm25(files_fts) as score
-             FROM files_fts
-             WHERE path MATCH ?1
-             ORDER BY score
-             LIMIT ?2",
-        )?;
-
-        let bm25_rows = stmt.query_map(params![tokenized_query, bm25_limit as i64], |row| {
-            Ok(row.get::<_, i64>(0)?)
-        })?;
-
-        let mut candidate_ids = Vec::new();
-        let mut label_map: HashMap<i64, String> = HashMap::new();
-        let mut seen = HashSet::new();
-
-        for row in bm25_rows {
-            let id = row?;
-            if seen.insert(id) {
-                candidate_ids.push(id);
-                label_map.insert(id, "BM25".to_string());
+    // 尝试解析常见格式: "书名 (作者)" 或 "书名 - 作者"
+    let (title, author) = if let Some(paren_pos) = filename.find('(') {
+        let title = filename[..paren_pos].trim().to_string();
+        let author = filename[paren_pos + 1..].find(')').map(|end| {
+            filename[paren_pos + 1..paren_pos + 1 + end]
+                .trim()
+                .to_string()
+        });
+        (title, author)
+    } else if let Some(dash_pos) = filename.find(" - ") {
+        let title = filename[..dash_pos].trim().to_string();
+        let author = Some(filename[dash_pos + 3..].trim().to_string());
+        (title, author)
+    } else {
+        // 尝试解析 [作者] 书名 格式
+        if let (Some(start), Some(end)) = (filename.find('['), filename.find(']')) {
+            let author = Some(filename[start + 1..end].trim().to_string());
+            let title = filename[end + 1..].trim().to_string();
+            if !title.is_empty() {
+                return (title, author);
             }
         }
+        (filename, None)
+    };
 
-        info!("bm25 candidates: {}", candidate_ids.len());
+    (title, author)
+}
 
-        // =========================
-        // 2️⃣ Vector top 20
-        // =========================
-        let query_embedding = self.embedding_model.embed(vec![query], None)?;
-        let query_vec = &query_embedding[0];
+/// 扫描书籍目录并建立索引
+pub fn build_index(progress_callback: Option<&dyn Fn(usize)>) -> Result<usize> {
+    let conn = init_database()?;
 
-        let vec_matches = self.index.search(query_vec, vector_limit)?;
+    // 清空旧数据
+    conn.execute("DELETE FROM books", [])?;
+    conn.execute("DELETE FROM books_fts", [])?;
 
-        for &key_u64 in vec_matches.keys.iter() {
-            let id = key_u64 as i64;
-
-            if seen.insert(id) {
-                candidate_ids.push(id);
-                label_map.insert(id, "Vector".to_string());
+    let pattern = format!("{}/**/*", BOOKS_DIR);
+    let paths: Vec<PathBuf> = glob(&pattern)?
+        .filter_map(|e| e.ok())
+        .filter(|p| {
+            if let Some(ext) = p.extension() {
+                let ext = ext.to_str().unwrap_or("");
+                matches!(
+                    ext.to_lowercase().as_str(),
+                    "pdf" | "epub" | "txt" | "mobi" | "azw3"
+                )
             } else {
-                // 已存在，说明来自 BM25
-                label_map.insert(id, "BM25+Vector".to_string());
+                false
             }
+        })
+        .collect();
+
+    let total = paths.len();
+    info!("Found {} books to index", total);
+
+    for (idx, path) in paths.iter().enumerate() {
+        if let Some(callback) = progress_callback {
+            callback(idx * 100 / total);
         }
 
-        info!("merged candidates: {}", candidate_ids.len());
+        let file_path = path.to_string_lossy().to_string();
+        let file_type = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
 
-        if candidate_ids.is_empty() {
-            return Ok(vec![]);
+        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) as i64;
+        let (title, author) = extract_metadata(path);
+
+        if let Err(e) = conn.execute(
+            "INSERT INTO books (title, author, file_path, file_type, file_size) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![title, author, file_path, file_type, file_size],
+        ) {
+            error!("Failed to insert book {}: {}", file_path, e);
         }
-
-        // =========================
-        // 3️⃣ 构造 rerank 文档
-        // =========================
-        let mut documents = Vec::new();
-
-        for id in &candidate_ids {
-            let path: String =
-                self.db
-                    .query_row("SELECT path FROM files WHERE id = ?1", params![id], |row| {
-                        row.get(0)
-                    })?;
-            documents.push(path);
-        }
-
-        // =========================
-        // 4️⃣ Rerank
-        // =========================
-        let rerank_results =
-            self.rerank_model
-                .rerank(query.to_string(), &documents, false, None)?;
-
-        // =========================
-        // 5️⃣ 仅按 rerank_score 排序 + 保留 label
-        // =========================
-        let mut final_results = Vec::new();
-
-        for r in rerank_results {
-            let idx = r.index;
-            if idx < documents.len() {
-                let id = candidate_ids[idx];
-                let path = documents[idx].clone();
-                let label = label_map
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| "Unknown".to_string());
-
-                final_results.push((path, r.score, label));
-            }
-        }
-
-        final_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        final_results.truncate(top_k);
-
-        Ok(final_results)
     }
+
+    if let Some(callback) = progress_callback {
+        callback(100);
+    }
+
+    info!("Indexed {} books successfully", total);
+    Ok(total)
+}
+
+/// 搜索书籍
+pub fn search_books(query: &str, limit: usize) -> Result<SearchResult> {
+    let conn = init_database()?;
+
+    let sql = if query.is_empty() {
+        "SELECT id, title, author, file_path, file_type, file_size FROM books ORDER BY title LIMIT ?1"
+    } else {
+        "SELECT b.id, b.title, b.author, b.file_path, b.file_type, b.file_size
+         FROM books b
+         INNER JOIN books_fts f ON b.id = f.rowid
+         WHERE books_fts MATCH ?1
+         ORDER BY rank
+         LIMIT ?2"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
+    let limit_i32 = limit as i32;
+
+    let books: Vec<BookInfo> = if query.is_empty() {
+        stmt.query_map(params![limit_i32], |row| {
+            Ok(BookInfo {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                author: row.get(2)?,
+                file_path: row.get(3)?,
+                file_type: row.get(4)?,
+                file_size: row.get::<_, i64>(5)? as u64,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    } else {
+        // 处理搜索查询
+        let fts_query = format!("{}*", query.replace('"', "\"\""));
+        stmt.query_map(params![fts_query.as_str(), limit_i32], |row| {
+            Ok(BookInfo {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                author: row.get(2)?,
+                file_path: row.get(3)?,
+                file_type: row.get(4)?,
+                file_size: row.get::<_, i64>(5)? as u64,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
+    };
+
+    let total = books.len();
+    Ok(SearchResult { books, total })
+}
+
+/// 获取书籍数量
+pub fn get_book_count() -> Result<usize> {
+    let conn = init_database()?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM books", [], |row| row.get(0))?;
+    Ok(count as usize)
+}
+
+/// 获取书籍详情
+pub fn get_book(id: i64) -> Result<Option<BookInfo>> {
+    let conn = init_database()?;
+    let result = conn.query_row(
+        "SELECT id, title, author, file_path, file_type, file_size FROM books WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(BookInfo {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                author: row.get(2)?,
+                file_path: row.get(3)?,
+                file_type: row.get(4)?,
+                file_size: row.get::<_, i64>(5)? as u64,
+            })
+        },
+    );
+
+    match result {
+        Ok(book) => Ok(Some(book)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// 删除书籍记录
+pub fn delete_book(id: i64) -> Result<()> {
+    let conn = init_database()?;
+    conn.execute("DELETE FROM books WHERE id = ?1", [id])?;
+    Ok(())
 }

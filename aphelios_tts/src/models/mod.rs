@@ -22,3 +22,6 @@ pub use config::{ModelType, ParsedModelConfig, Qwen3TTSConfig, SpeakerEncoderCon
 pub use kv_cache::{AnyKVCache, KVCache, PreAllocKVCache};
 pub use talker::{TalkerConfig, TalkerModel};
 pub use transformer::{MRoPE, RoPEType, RotaryEmbedding};
+
+#[cfg(feature = "hub")]
+pub mod hub;

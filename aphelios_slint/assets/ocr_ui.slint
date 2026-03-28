@@ -15,6 +15,12 @@ export component OcrWindow inherits Window {
     in-out property <[string]> log_messages: ["Ready", "Waiting for input..."];
     in-out property <bool> is_running: false;
     in-out property <string> status_message: "";
+    in-out property <length> log_viewport_y: 0;
+
+    callback scroll_to_bottom();
+    scroll_to_bottom => {
+        log_viewport_y = -100000px;
+    }
 
     callback go_back();
     callback select_input_file();
@@ -144,8 +150,9 @@ export component OcrWindow inherits Window {
             clip: true; // 裁剪超出边界的内容
 
             ScrollView {
-                padding: 8px;
+                viewport-y <=> log_viewport_y;
                 VerticalLayout {
+                    padding: 8px;
                     spacing: 4px;
                     alignment: start;
                     for msg in log_messages : Text {

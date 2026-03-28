@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use aphelios_core::utils::core_utils::{
+use aphelios_core::utils::base::{
     TEXIFY2_MODEL_DECODER_PATH, TEXIFY2_MODEL_ENCODER_PATH, TEXIFY2_TOKENIZER_PATH,
 };
 use ndarray::Array4;

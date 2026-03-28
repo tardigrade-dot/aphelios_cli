@@ -1,23 +1,19 @@
-use crate::cli::{Cli, Commands};
-
-pub mod cli;
+use crate::commands::cli::{Cli, Commands};
+use anyhow::Result;
 pub mod commands;
-pub mod engine;
-pub mod error;
 
-use crate::error::Result;
 use aphelios_ocr::dolphin::model::run_ocr;
 
 pub async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { path } => {
-            commands::init::run(path)?;
+            commands::init::run()?;
         }
         Commands::Base { path, name } => {
-            commands::base::run(path, name)?;
+            // commands::base::run(path, name)?;
         }
         Commands::Run { verbose } => {
-            commands::run::run(verbose).await?;
+            // commands::run::run().await?;
         }
         Commands::QwenLLM { model_id } => {
             // commands::qwenvl::run_llm(&model_id).await?;
@@ -26,7 +22,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             // commands::qwenvl::run_vlm(&model_id).await?;
         }
         Commands::Mistral3 { model_id } => {
-            commands::mistral3::run_vl(&model_id).await?;
+            // commands::mistral3::run_vl(&model_id).await?;
         }
         Commands::Dolphin {
             pdf_path,
@@ -38,7 +34,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             // let _ = qwen_tts_infer::qwen3_test();
         }
         Commands::WebServer => {
-            aphelios_web::run_web_server("0.0.0.0:3000").await?;
+            // aphelios_web::run_web_server("0.0.0.0:3000").await?;
         }
     }
     Ok(())

@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::core_utils::{self, write_to_file};
+use aphelios_core::utils::base::{self, write_to_file};
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::{
     ops::{log_softmax, softmax},
@@ -13,12 +13,12 @@ use std::path::Path;
 use tokenizers::Tokenizer;
 use tracing::{debug, error, info};
 
-use crate::silerovad::vadprocess::AudioBatch;
+use crate::base::{AsrSegment, AudioBatch, DecodingResult, SubSegment, VadSegment};
 
 const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/distil-large-v3.5";
 // const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/whisper-large-v3-turbo";
 
-pub fn get_mei(config: &Config) -> Result<Vec<u8>> {
+pub fn get_mel_filters(config: &Config) -> Result<Vec<u8>> {
     let mel_bytes = match config.num_mel_bins {
         80 => include_bytes!("melfilters.bytes").as_slice(),
         128 => include_bytes!("melfilters128.bytes").as_slice(),
@@ -170,31 +170,6 @@ impl Model {
             Self::Quantized(m) => m.decoder.final_linear(x),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct DecodingResult {
-    tokens: Vec<u32>,
-    pub text: String,
-    avg_logprob: f64,
-    no_speech_prob: f64,
-    temperature: f64,
-    compression_ratio: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Segment {
-    pub start: f64,
-    pub duration: f64,
-    pub dr: DecodingResult,
-    pub sub_segments: Vec<SubSegment>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubSegment {
-    pub start: f64,
-    pub end: f64,
-    pub text: String,
 }
 
 pub struct Decoder {
@@ -520,7 +495,7 @@ impl Decoder {
         Ok(logits)
     }
 
-    pub fn run(&mut self, mel: &Tensor) -> Result<Vec<Segment>> {
+    pub fn run(&mut self, mel: &Tensor) -> Result<Vec<AsrSegment>> {
         let (_, _, content_frames) = mel.dims3()?;
         let mut seek = 0;
         let mut segments = vec![];
@@ -599,7 +574,7 @@ impl Decoder {
                 }
             }
             // 构建 Segment
-            let segment = Segment {
+            let segment = AsrSegment {
                 start: time_offset,
                 duration: segment_duration,
                 dr,
@@ -616,7 +591,7 @@ pub fn run_whisper_with_segments(
     input: &str,
     segments: Vec<AudioBatch>,
     lang: Option<&str>,
-) -> Result<Vec<Segment>> {
+) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -624,7 +599,7 @@ pub fn run_whisper_with_segments(
     let config: Config = serde_json::from_str(&std::fs::read_to_string(config_filename)?)?;
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
-    let mel_bytes = &get_mei(&config)?;
+    let mel_bytes = &get_mel_filters(&config)?;
     let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
@@ -654,7 +629,7 @@ pub fn run_whisper_with_segments(
     println!("pcm data loaded {}", pcm_data.len());
     let num_mel_bins = config.num_mel_bins;
 
-    let device = core_utils::device();
+    let device = base::device();
     let vb =
         unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
@@ -663,7 +638,7 @@ pub fn run_whisper_with_segments(
     // Detect language or default to English. <|en|>
     let language_token =
         lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
-    let mut dc = Decoder::new(
+    let mut model_decoder = Decoder::new(
         model,
         tokenizer,
         299792458,
@@ -696,11 +671,11 @@ pub fn run_whisper_with_segments(
             continue;
         }
 
-        let mel = audio::pcm_to_mel(dc.model.config(), pcm_segment, &mel_filters);
+        let mel = audio::pcm_to_mel(model_decoder.model.config(), pcm_segment, &mel_filters);
         let mel_len = mel.len();
         let mel = Tensor::from_vec(mel, (1, num_mel_bins, mel_len / num_mel_bins), &device)?;
 
-        let mut res = dc.run(&mel)?;
+        let mut res = model_decoder.run(&mel)?;
 
         // Adjust timestamps based on the batch's start time
         for seg in &mut res {
@@ -729,7 +704,7 @@ pub fn run_whisper(
     input: &str,
     device: &Device,
     lang: Option<&str>,
-) -> Result<Vec<Segment>> {
+) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -737,7 +712,7 @@ pub fn run_whisper(
     let config: Config = serde_json::from_str(&std::fs::read_to_string(config_filename)?)?;
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
-    let mel_bytes = &get_mei(&config)?;
+    let mel_bytes = &get_mel_filters(&config)?;
     let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
@@ -812,7 +787,7 @@ pub fn run_whisper_with_pcm(
     pcm_data: &[f32],
     sample_rate: u32,
     device: &Device,
-) -> Result<Vec<Segment>> {
+) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -820,7 +795,7 @@ pub fn run_whisper_with_pcm(
     let config: Config = serde_json::from_str(&std::fs::read_to_string(config_filename)?)?;
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
-    let mel_bytes = &get_mei(&config)?;
+    let mel_bytes = &get_mel_filters(&config)?;
     let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
@@ -867,7 +842,22 @@ fn format_srt_time(seconds: f64) -> String {
     format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
 }
 
-pub async fn generate_srt(segments: &Vec<Segment>, save_file: &str) -> anyhow::Result<()> {
+pub async fn generate_vad(segments: &Vec<VadSegment>, save_file: &str) -> anyhow::Result<()> {
+    let mut text_to_str = Vec::new();
+    for (i, segment) in segments.iter().enumerate() {
+        text_to_str.push(format!("{}", i + 1));
+
+        // 2. 写入时间轴 (00:00:00,000 --> 00:00:00,000)
+        let start_time = format_srt_time(segment.start);
+        let end_time = format_srt_time(segment.end);
+        text_to_str.push(format!("{} --> {}", start_time, end_time));
+    }
+    write_to_file(&text_to_str, save_file).await.unwrap();
+    println!("SRT file saved to: {}", save_file);
+    Ok(())
+}
+
+pub async fn generate_srt(segments: &Vec<AsrSegment>, save_file: &str) -> Result<()> {
     let mut counter = 1;
 
     let mut text_to_str = Vec::new();

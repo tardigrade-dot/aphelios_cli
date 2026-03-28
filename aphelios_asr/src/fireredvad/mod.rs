@@ -8,7 +8,7 @@ mod vad_postprocessor;
 pub use vad_postprocessor::*;
 
 use anyhow::{Context, Result};
-use aphelios_core::{utils::core_utils, ScopedTimer};
+use aphelios_core::{utils::base, ScopedTimer};
 use ndarray::{s, Array, Array1, Array2};
 use ort::{
     ep::{CoreML, CPU},
@@ -426,7 +426,7 @@ impl FireRedVadOnnx {
 
         // Prepare audio (load, resample, convert to mono)
         let start_prepare = std::time::Instant::now();
-        let (mono, samples_i16) = core_utils::prepare_audio_16khz(&audio_path)?;
+        let (mono, samples_i16) = base::prepare_audio_16khz(&audio_path)?;
         let dur = mono.duration_secs();
         info!("Audio preparation took: {:.2?}", start_prepare.elapsed());
 
