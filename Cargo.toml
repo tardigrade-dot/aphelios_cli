@@ -121,7 +121,7 @@ tokenizers = { git = "https://github.com/huggingface/tokenizers", tag = "v0.21.4
 
 qwen_tts = { git = "https://github.com/tardigrade-dot/qwen3-tts-rs", rev = "fad7cf6" }
 
-vibevoice = { path = "/Users/larry/coderesp/vibevoice-rs/vibevoice" }
+vibevoice = { git = "https://github.com/danielclough/vibevoice-rs", rev = "e623af5" }
 candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }

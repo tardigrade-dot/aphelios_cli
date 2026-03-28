@@ -11,6 +11,13 @@ fn qwen_tts_test() -> Result<()> {
     let text_to_speech = "你可以重新运行构建脚本查看效果";
     let output_path = "/Users/larry/coderesp/aphelios_cli/output/aaa.wav";
 
-    let _ = generate_voice(model_path, ref_audio, ref_text, text_to_speech, output_path);
+    let _ = generate_voice(
+        model_path,
+        ref_audio,
+        ref_text,
+        text_to_speech,
+        output_path,
+        None,
+    );
     Ok(())
 }
