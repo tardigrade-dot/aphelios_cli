@@ -39,10 +39,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev # Slint 编译常用依赖
 
-      - name: Install UPX
-        uses: svenstaro/upx-action@v2
-        with:
-          install-only: true
+      - name: Install UPX via Brew
+        run: brew install upx
+
+      - name: Use UPX
+        run: upx --version
 
       - name: Run Build Script
         # macOS/Linux 使用 sh, Windows 使用 bash (GitHub Actions 自带)
