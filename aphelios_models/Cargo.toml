@@ -41,7 +41,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 fastembed = { workspace = true }
@@ -58,7 +57,7 @@ itertools = { workspace = true }
 measureme = { workspace = true }
 hf-hub = { workspace = true }
 tempfile = "3"
-vibevoice = { workspace = true, optional = true }
+# vibevoice = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -71,7 +70,7 @@ metal = [
     #"mistralrs/metal",
     "ort/coreml",
     "aphelios_core/metal",
-    "vibevoice/metal",
+    # "vibevoice/metal",
 ]
 cuda = [
     "candle-core/cuda",
@@ -81,3 +80,6 @@ cuda = [
     "ort/coreml",
     "aphelios_core/cuda",
 ]
+
+[patch.crates-io]
+# vibevoice = { git = "https://github.com/danielclough/vibevoice-rs", rev = "e623af5" }

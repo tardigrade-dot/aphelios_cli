@@ -4,7 +4,7 @@
 // - More token filters (SuppressBlanks, ApplyTimestampRules).
 
 use anyhow::Result;
-use aphelios_asr::whisper::run_asr;
+use aphelios_asr::whisper::run_whisper_asr;
 use aphelios_core::utils::logger;
 use tracing::info;
 
@@ -21,7 +21,7 @@ async fn asr_test_short() -> Result<()> {
 
     info!("=== ASR Test | audio: {} | lang: {:?} ===", audio, lang);
 
-    let _ = run_asr(&audio, lang).await;
+    let _ = run_whisper_asr(&audio, lang).await;
     Ok(())
 }
 /// 305s / 256s
@@ -34,7 +34,7 @@ async fn asr_test_long() -> Result<()> {
 
     info!("=== ASR Test | audio: {} | lang: {:?} ===", audio, lang);
 
-    let _ = run_asr(&audio, lang).await;
+    let _ = run_whisper_asr(&audio, lang).await;
     Ok(())
 }
 
@@ -49,6 +49,6 @@ async fn asr_test() -> Result<()> {
 
     info!("=== ASR Test | audio: {} | lang: {:?} ===", audio, lang);
 
-    let _ = run_asr(&audio, lang).await.unwrap();
+    let _ = run_whisper_asr(&audio, lang).await.unwrap();
     Ok(())
 }

@@ -33,6 +33,21 @@ slint-build = "1.15.0"
 [package.metadata.slint]
 assets = ["assets/**"]
 
+[package.metadata.bundle]
+name = "Aphelios"
+identifier = "com.aphelios.slint"
+icon = ["assets/icon.png"]
+version = "0.1.0"
+resources = ["assets/**/*"]
+category = "Utility"
+short_description = "Aphelios AI Assistant"
+long_description = """
+Aphelios is an AI-powered assistant application built with Rust and Slint.
+"""
+
+[package.metadata.bundle.build]
+macos = { frameworks = ["AppKit", "Foundation", "CoreGraphics"] }
+
 [[bin]]
 name = "aphelios_slint"
 path = "src/main.rs"

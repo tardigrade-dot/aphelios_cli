@@ -1,6 +1,6 @@
 use crate::demucs::constants::Constants;
 use crate::demucs::fft::{istft, reflect_pad, stft};
-use ort::ep::{CPU, CoreML};
+use ort::ep::CPU;
 use ort::session::Session;
 use ort::value::Value;
 use std::collections::HashMap;
@@ -201,10 +201,7 @@ impl DemucsProcessor {
 
     /// coreml会卡住
     pub fn load_model(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let coreml_options = CoreML::default().with_subgraphs(true);
         let cpu_provider = CPU::default().build();
-        let coreml_provider = coreml_options.build();
-        // let session = Session::builder()?.with_execution_providers([execution_providers])?.commit_from_file(&self.model_path)?;
         let session = Session::builder()?
             .with_execution_providers([cpu_provider])?
             .commit_from_file(&self.model_path)?;

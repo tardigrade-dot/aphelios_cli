@@ -46,7 +46,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 fastembed = { workspace = true }
@@ -70,9 +69,9 @@ path = "src/main.rs"
 
 [features]
 metal = [
-    "candle-core/metal", 
-    "candle-nn/metal", 
+    "candle-core/metal",
+    "candle-nn/metal",
     "candle-transformers/metal",
     #"mistralrs/metal",
-    "ort/coreml"
+    "ort/coreml",
 ]

@@ -31,16 +31,8 @@ fn filename_search_init_test() -> Result<(), Error> {
 }
 
 #[test]
-fn filename_search_test() -> Result<()> {
-    let text_to_search = "东欧";
-    let text_to_search2 = "斯大林";
-
-    Ok(())
-}
-
-#[test]
 fn embed_test() -> Result<()> {
-    let device = base::device();
+    let device = base::get_device();
     let model = Qwen3TextEmbedding::from_hf("Qwen/Qwen3-Embedding-0.6B", &device, DType::F32, 512)?;
 
     // Text-only usage with the Qwen3-VL embedding checkpoint is also supported:

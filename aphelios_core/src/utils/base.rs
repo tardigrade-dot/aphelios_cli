@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Error as E, Result};
+use anyhow::{anyhow, bail, Context, Error as E, Result};
 use candle_core::{Device, Tensor};
 use hound;
 use image::{DynamicImage, GenericImageView};
@@ -6,7 +6,6 @@ use ort::ep::{ExecutionProviderDispatch, CPU};
 use std::path::Path;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tracing::{debug, info};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::{
     audio::{MonoBuffer, ResampleQuality},
@@ -14,29 +13,7 @@ use crate::{
     AudioLoader, Resampler, ScopedTimer,
 };
 
-static INIT: std::sync::Once = std::sync::Once::new();
 pub const SAMPLE_RATE: usize = 16000;
-
-pub fn init_logging() {
-    INIT.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
-
-        let fmt_layer = fmt::layer()
-            .with_target(true)
-            .with_thread_ids(false)
-            .with_file(true)
-            .with_line_number(true)
-            .pretty();
-
-        // let (chrome_layer, _guard) = ChromeLayerBuilder::new().build();
-        let _ = tracing_subscriber::registry()
-            .with(filter)
-            .with(fmt_layer)
-            // .with(chrome_layer)
-            .try_init();
-    });
-}
 
 pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage {
     let (img_width, img_height) = img.dimensions();
@@ -362,11 +339,9 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
     }
     #[cfg(feature = "metal")]
     {
-        use candle_core::utils::metal_is_available;
-        if metal_is_available() {
-            return Ok(Device::new_metal(0)?);
-        }
+        return try_metal_device();
     }
+    #[cfg(not(feature = "metal"))]
     #[cfg(feature = "cuda")]
     {
         use candle_core::utils::cuda_is_available;
@@ -374,17 +349,31 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
             return Ok(Device::Cuda(0)?);
         }
     }
+    #[cfg(not(feature = "metal"))]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        println!(
-            "Running on CPU, to run on GPU(metal), build this example with `--features metal`"
-        );
+        info!("Running on CPU, to run on GPU(metal), build this example with `--features metal`");
     }
+    #[cfg(not(feature = "metal"))]
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     {
-        println!("Running on CPU, to run on GPU, build this example with `--features cuda`");
+        info!("Running on CPU, to run on GPU, build this example with `--features cuda`");
     }
-    Ok(Device::Cpu)
+    #[cfg(not(feature = "metal"))]
+    {
+        Ok(Device::Cpu)
+    }
+}
+
+#[cfg(feature = "metal")]
+fn try_metal_device() -> Result<Device> {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    match catch_unwind(AssertUnwindSafe(|| Device::new_metal(0))) {
+        Ok(Ok(device)) => Ok(device),
+        Ok(Err(err)) => Err(anyhow!("Metal device init failed: {err}")),
+        Err(_) => Err(anyhow!("Metal device init panicked")),
+    }
 }
 
 pub fn normalize_audio<P: AsRef<Path>>(
@@ -480,6 +469,6 @@ pub const RTDETR_V4_M: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/rtdet
 
 pub const PARAKEET_TDT_MODEL_PATH: &str = "/Volumes/sw/onnx_models/parakeet-tdt-0.6b-v3-onnx";
 
-pub fn device() -> Device {
+pub fn get_device() -> Device {
     get_default_device(false).unwrap()
 }

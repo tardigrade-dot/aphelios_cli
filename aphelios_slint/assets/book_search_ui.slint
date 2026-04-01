@@ -38,7 +38,7 @@ export component BookSearchWindow inherits Window {
     VerticalLayout {
         padding: 16px;
         spacing: 14px;
-        alignment: start;
+        alignment: stretch;
 
         // ── 头部
         HorizontalLayout {
@@ -184,72 +184,78 @@ export component BookSearchWindow inherits Window {
             color: #6b7a8d;
         }
 
-        ListView {
+        Rectangle {
             vertical-stretch: 1;
-            for item in search_results: Rectangle {
-                height: 80px;
-                border-width: 0px;
+            min-height: 200px;
 
-                VerticalLayout {
-                    padding-top: 8px;
-                    padding-bottom: 8px;
-                    spacing: 3px;
+            ListView {
+                width: parent.width;
+                height: parent.height;
+                for item in search_results: Rectangle {
+                    height: 80px;
+                    border-width: 0px;
 
-                    HorizontalLayout {
-                        alignment: space-between;
-                        Text {
-                            text: item.title;
-                            font-size: 13px;
-                            font-weight: 600;
-                            color: #1a2535;
-                        }
+                    VerticalLayout {
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 3px;
 
                         HorizontalLayout {
-                            spacing: 10px;
-                            alignment: end;
+                            alignment: space-between;
                             Text {
-                                text: item.file_type;
-                                font-size: 10px;
-                                color: #8a9bb0;
-                                vertical-alignment: center;
+                                text: item.title;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: #1a2535;
                             }
 
-                            Button {
-                                text: "打开";
-                                height: 22px;
-                                width: 46px;
-                                clicked => {
-                                    open_book(item.file_path);
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: end;
+                                Text {
+                                    text: item.file_type;
+                                    font-size: 10px;
+                                    color: #8a9bb0;
+                                    vertical-alignment: center;
+                                }
+
+                                Button {
+                                    text: "打开";
+                                    height: 22px;
+                                    width: 46px;
+                                    clicked => {
+                                        open_book(item.file_path);
+                                    }
                                 }
                             }
                         }
+
+                        if item.author != "": Text {
+                            text: item.author;
+                            font-size: 11px;
+                            color: #6b7a8d;
+                        }
+
+                        Text {
+                            text: item.file_path;
+                            font-size: 10px;
+                            color: #b0bec5;
+                            wrap: word-wrap;
+                        }
+
+                        Text {
+                            text: item.file_size;
+                            font-size: 10px;
+                            color: #c8d0db;
+                        }
                     }
 
-                    if item.author != "": Text {
-                        text: item.author;
-                        font-size: 11px;
-                        color: #6b7a8d;
+                    // 每行底部细线
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: #d0d8e4;
                     }
-
-                    Text {
-                        text: item.file_path;
-                        font-size: 10px;
-                        color: #b0bec5;
-                        wrap: word-wrap;
-                    }
-
-                    Text {
-                        text: item.file_size;
-                        font-size: 10px;
-                        color: #c8d0db;
-                    }
-                }
-
-                // 每行底部细线
-                Rectangle {
-                    y: parent.height - 1px;
-                    height: 1px;
-                    background: #d0d8e4;
                 }
             }
         }

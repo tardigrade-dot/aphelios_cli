@@ -10,8 +10,13 @@ pub struct AppSettings {
     pub ocr_model_path: Option<String>,
     pub ocr_output_dir: Option<String>,
 
-    // ASR 设置
+    // ASR 设置 (语音识别)
     pub asr_output_path: Option<String>,
+
+    // SRT 设置 (文本对齐)
+    pub srt_model_path: Option<String>,
+    pub srt_min_segment_length: Option<i32>,
+    pub srt_max_segment_length: Option<i32>,
 
     // TTS 设置
     pub tts_model_path: Option<String>,
@@ -101,12 +106,30 @@ impl AppSettings {
         let _ = self.save();
     }
 
+    /// 更新并保存 SRT 设置
+    pub fn update_srt_settings(
+        &mut self,
+        model_path: Option<&str>,
+        min_segment_length: Option<i32>,
+        max_segment_length: Option<i32>,
+    ) {
+        if let Some(path) = model_path {
+            self.srt_model_path = Some(path.to_string());
+        }
+        self.srt_min_segment_length = min_segment_length;
+        self.srt_max_segment_length = max_segment_length;
+        let _ = self.save();
+    }
+
     /// 更新所有设置
     pub fn update_all_settings(
         &mut self,
         ocr_model_path: Option<&str>,
         ocr_output_dir: Option<&str>,
         asr_output_path: Option<&str>,
+        srt_model_path: Option<&str>,
+        srt_min_segment_length: Option<i32>,
+        srt_max_segment_length: Option<i32>,
         tts_model_path: Option<&str>,
         tts_output_path: Option<&str>,
         tts_ref_audio_path: Option<&str>,
@@ -123,6 +146,11 @@ impl AppSettings {
         if let Some(path) = asr_output_path {
             self.asr_output_path = Some(path.to_string());
         }
+        if let Some(path) = srt_model_path {
+            self.srt_model_path = Some(path.to_string());
+        }
+        self.srt_min_segment_length = srt_min_segment_length;
+        self.srt_max_segment_length = srt_max_segment_length;
         if let Some(path) = tts_model_path {
             self.tts_model_path = Some(path.to_string());
         }

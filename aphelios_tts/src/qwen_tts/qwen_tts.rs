@@ -82,7 +82,7 @@
 //! Output audio is always 24kHz mono. Use [`audio::resample()`] if you need
 //! a different sample rate.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use aphelios_core::utils::base;
 use candle_core::{DType, Device, IndexOp, Tensor};
 use serde::Serialize;
@@ -485,10 +485,17 @@ impl Qwen3TTS {
         sync_device(&self.device)?;
         let t_prefill = Instant::now();
 
-        let mut kv_caches = self.talker.new_kv_caches(gen_config.max_new_tokens + 256);
-        let (hidden, logits) =
-            self.talker
-                .prefill_custom_voice(&input_ids, speaker, language, &mut kv_caches)?;
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, 1);
+        let (hidden, logits) = self.talker.prefill_custom_voice(
+            &input_ids,
+            speaker,
+            language,
+            &mut kv_caches,
+            1,
+            None,
+        )?;
         let prefill_len = hidden.dim(1)?;
         let offset = prefill_len;
         let last_hidden = hidden.i((.., prefill_len - 1..prefill_len, ..))?;
@@ -502,7 +509,7 @@ impl Qwen3TTS {
         // -- Generation --
         let t_gen = Instant::now();
 
-        let all_codes = self.generate_codes(
+        let all_codes_batch = self.generate_codes(
             &gen_config,
             &mut sampling_ctx,
             &mut kv_caches,
@@ -514,6 +521,7 @@ impl Qwen3TTS {
             &tts_pad_embed,
             progress_bar,
         )?;
+        let all_codes = all_codes_batch.into_iter().next().unwrap();
 
         sync_device(&self.device)?;
         let generation_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
@@ -574,28 +582,30 @@ impl Qwen3TTS {
         mut offset: usize,
         mut last_hidden: Tensor,
         initial_logits: &Tensor,
-        trailing_text_hidden: &Tensor,
+        trailing_text_hidden: &Tensor, // [batch, seq_len, hidden]
         trailing_text_len: usize,
         tts_pad_embed: &Tensor,
         progress_bar: Option<AppProgressBar>,
-    ) -> Result<FrameCodes> {
-        // Pre-build the token suppression mask once (reused every frame)
-        let suppression_mask = generation::build_suppression_mask(
-            codec_tokens::CODEC_VOCAB_SIZE,
-            CODEC_EOS_TOKEN_ID,
-            &self.device,
-        )?;
-
-        // GPU-side repetition penalty mask: [1, vocab] — updated incrementally
-        // instead of transferring all generated tokens to CPU each frame.
+    ) -> Result<Vec<FrameCodes>> {
+        let batch_size = initial_logits.dim(0)?;
         let vocab_size = codec_tokens::CODEC_VOCAB_SIZE;
-        let mut penalty_mask = Tensor::zeros((1, vocab_size), DType::F32, &self.device)?;
+
+        // Pre-build the token suppression mask once (reused every frame)
+        let suppression_mask =
+            generation::build_suppression_mask(vocab_size, CODEC_EOS_TOKEN_ID, &self.device)?;
+
+        // GPU-side repetition penalty mask: [batch, vocab]
+        let mut penalty_mask = Tensor::zeros((batch_size, vocab_size), DType::F32, &self.device)?;
 
         // Pre-allocate code predictor KV caches (reused + reset each frame)
-        let mut cp_kv_caches = self.code_predictor.new_kv_caches();
+        let mut cp_kv_caches = self.code_predictor.new_kv_caches(batch_size);
 
-        // Sample first semantic token
-        let logits_2d = initial_logits.squeeze(1)?;
+        // Sample first semantic tokens from the LAST position of the prefill logits
+        let prefill_len = initial_logits.dim(1)?;
+        let logits_2d = initial_logits
+            .i((.., prefill_len - 1, ..))?
+            .broadcast_as((batch_size, vocab_size))?; // Ensure [batch, vocab]
+
         let logits_2d = self.apply_generation_penalties_gpu(
             &logits_2d,
             &penalty_mask,
@@ -603,147 +613,142 @@ impl Qwen3TTS {
             0,
             Some(&suppression_mask),
         )?;
-        let mut semantic_token_tensor = generation::sample(&logits_2d, gen_config, sampling_ctx)?;
-        tracing::trace!(target: "gpu_sync", "to_vec1 in generate_codes first token");
-        let mut semantic_token: u32 = semantic_token_tensor.flatten_all()?.to_vec1::<u32>()?[0];
-        // Update penalty mask with this token (O(1) CPU work)
-        Self::update_penalty_mask(&mut penalty_mask, semantic_token, vocab_size)?;
-        let mut token_count: usize = 1;
 
-        // Accumulate frames as GPU tensors: Vec of [16] U32 tensors
-        // Deferred to_vec1 at the end eliminates per-frame acoustic code sync.
-        let mut gpu_frames: Vec<Tensor> = Vec::new();
+        let mut semantic_token_tensor = generation::sample(&logits_2d, gen_config, sampling_ctx)?
+            .broadcast_as((batch_size,))?; // Ensure [batch]
+        let mut semantic_tokens: Vec<u32> = semantic_token_tensor.flatten_all()?.to_vec1()?;
+
+        // Update penalty masks
+        for (i, &token) in semantic_tokens.iter().enumerate() {
+            Self::update_penalty_mask_row(&mut penalty_mask, i, token, vocab_size)?;
+        }
+
+        // Track finished sequences
+        let mut finished = vec![false; batch_size];
+        let mut results: Vec<FrameCodes> = vec![Vec::new(); batch_size];
+        let mut active_count = batch_size;
 
         if let Some(pb) = &progress_bar {
             pb.set_length(gen_config.max_new_tokens as u64);
         }
 
-        #[cfg(feature = "profiling")]
-        let _gen_span = tracing::info_span!("generate_frames").entered();
-
         let mut last_logged_percent = -1;
         for frame_idx in 0..gen_config.max_new_tokens {
+            if active_count == 0 {
+                break;
+            }
+
             if let Some(pb) = &progress_bar {
                 pb.set_position(frame_idx as u64);
             }
-            let progress = frame_idx as f32 / gen_config.max_new_tokens as f32;
 
-            // 进度日志记录（每 10% 记录一次，避免日志过碎）
+            let progress = frame_idx as f32 / gen_config.max_new_tokens as f32;
             let percent = (progress * 100.0) as i32;
             if percent % 10 == 0 && percent != last_logged_percent {
-                info!("TTS 合成进度: {}%", percent);
+                info!("TTS 合成进度: {}% (活动序列: {})", percent, active_count);
                 last_logged_percent = percent;
             }
 
-            if let Some(eos_id) = gen_config.eos_token_id {
-                if semantic_token == eos_id {
-                    break;
-                }
-            }
-
-            // Embedding lookup using GPU-resident token tensor (no CPU→GPU roundtrip)
+            // Embedding lookup using GPU-resident token tensor
             let semantic_embed = self
                 .talker
                 .get_codec_embedding_from_tensor(&semantic_token_tensor)?;
 
-            #[cfg(feature = "profiling")]
-            let _cp_span = tracing::info_span!("code_predictor", frame = frame_idx).entered();
-
+            // Acoustic code generation
             let acoustic_codes_tensor = self.code_predictor.generate_acoustic_codes(
                 &last_hidden,
                 &semantic_embed,
                 &mut cp_kv_caches,
             )?;
 
-            #[cfg(feature = "profiling")]
-            drop(_cp_span);
+            // Convert to CPU for recording (only for active ones)
+            // Note: to_vec2() is [batch, 15]
+            let acoustic_cpu: Vec<Vec<u32>> = acoustic_codes_tensor.to_vec2()?;
 
-            // Build [16] frame tensor on GPU: [semantic_token, acoustic_0..14]
-            let frame_tensor = Tensor::cat(
-                &[&semantic_token_tensor.reshape(1)?, &acoustic_codes_tensor],
-                0,
-            )?;
-            gpu_frames.push(frame_tensor);
+            for i in 0..batch_size {
+                if !finished[i] {
+                    // Check EOS for the CURRENT token before recording codes
+                    if let Some(eos_id) = gen_config.eos_token_id {
+                        if semantic_tokens[i] == eos_id {
+                            finished[i] = true;
+                            active_count -= 1;
+                            continue;
+                        }
+                    }
 
-            // Use GPU tensor directly for embedding lookup (avoids 15 CPU→GPU transfers)
-            let acoustic_embed_sum = self
+                    // Record: [semantic, acoustic_0..14]
+                    let mut frame = Vec::with_capacity(16);
+                    frame.push(semantic_tokens[i]);
+                    frame.extend_from_slice(&acoustic_cpu[i]);
+                    results[i].push(frame);
+                }
+            }
+
+            if active_count == 0 {
+                break;
+            }
+
+            // Residual VQ sum
+            let acoustic_sum = self
                 .code_predictor
                 .get_acoustic_embeddings_sum_from_tensor(&acoustic_codes_tensor)?;
-            let summed = semantic_embed.add(&acoustic_embed_sum)?;
+            let vq_sum = semantic_embed.add(&acoustic_sum)?;
 
+            // Trailing text fusion
             let text_addition = if frame_idx < trailing_text_len {
                 trailing_text_hidden.i((.., frame_idx..frame_idx + 1, ..))?
             } else {
-                tts_pad_embed.clone()
+                tts_pad_embed.broadcast_as((batch_size, 1, self.talker.config().hidden_size))?
             };
-            let step_input = summed.add(&text_addition)?;
+            let step_input = vq_sum.add(&text_addition)?;
 
-            #[cfg(feature = "profiling")]
-            let _talker_span = tracing::info_span!("talker_step", frame = frame_idx).entered();
-
+            // Talker step
             let (h, new_logits) =
                 self.talker
                     .generate_step_with_embed(&step_input, kv_caches, offset)?;
-            offset += 1;
             last_hidden = h;
+            offset += 1;
 
-            #[cfg(feature = "profiling")]
-            drop(_talker_span);
-
-            #[cfg(feature = "profiling")]
-            let _sample_span = tracing::info_span!("sampling", frame = frame_idx).entered();
-
-            let logits_2d = new_logits.squeeze(1)?;
-            let logits_2d = self.apply_generation_penalties_gpu(
-                &logits_2d,
+            // Sample next semantic tokens
+            let next_logits_2d = new_logits.squeeze(1)?;
+            let next_logits_2d = self.apply_generation_penalties_gpu(
+                &next_logits_2d,
                 &penalty_mask,
                 gen_config,
-                token_count,
+                frame_idx + 1,
                 Some(&suppression_mask),
             )?;
-            semantic_token_tensor = generation::sample(&logits_2d, gen_config, sampling_ctx)?;
-            tracing::trace!(target: "gpu_sync", "to_vec1 in generate_codes sampling");
-            semantic_token = semantic_token_tensor.flatten_all()?.to_vec1::<u32>()?[0];
-            Self::update_penalty_mask(&mut penalty_mask, semantic_token, vocab_size)?;
-            token_count += 1;
+            semantic_token_tensor = generation::sample(&next_logits_2d, gen_config, sampling_ctx)?;
+            semantic_tokens = semantic_token_tensor.flatten_all()?.to_vec1()?;
+
+            // Update penalty masks
+            for (i, &token) in semantic_tokens.iter().enumerate() {
+                if !finished[i] {
+                    Self::update_penalty_mask_row(&mut penalty_mask, i, token, vocab_size)?;
+                }
+            }
         }
 
-        // Single GPU→CPU transfer: convert all accumulated GPU frames to FrameCodes
-        self.gpu_frames_to_frame_codes(&gpu_frames)
+        Ok(results)
     }
 
     /// Update the GPU-side penalty mask for a single token ID.
     ///
     /// Sets `penalty_mask[0, token_id] = 1.0` using slice_assign with a
     /// pre-built scalar. This is O(1) CPU work (no GPU→CPU transfer).
-    fn update_penalty_mask(
+    fn update_penalty_mask_row(
         penalty_mask: &mut Tensor,
+        batch_idx: usize,
         token_id: u32,
         vocab_size: usize,
     ) -> Result<()> {
         let idx = token_id as usize;
         if idx < vocab_size {
             let one = Tensor::ones((1, 1), DType::F32, penalty_mask.device())?;
-            *penalty_mask = penalty_mask.slice_assign(&[0..1, idx..idx + 1], &one)?;
+            *penalty_mask =
+                penalty_mask.slice_assign(&[batch_idx..batch_idx + 1, idx..idx + 1], &one)?;
         }
         Ok(())
-    }
-
-    /// Convert accumulated GPU frame tensors to FrameCodes via a single bulk transfer.
-    fn gpu_frames_to_frame_codes(&self, gpu_frames: &[Tensor]) -> Result<FrameCodes> {
-        if gpu_frames.is_empty() {
-            return Ok(Vec::new());
-        }
-        // Stack all frames into [n_frames, 16], then single to_vec1
-        let stacked = Tensor::stack(gpu_frames, 0)?; // [n_frames, 16]
-        let n_frames = stacked.dim(0)?;
-        let flat: Vec<u32> = stacked.flatten_all()?.to_vec1()?;
-        let mut result = Vec::with_capacity(n_frames);
-        for f in 0..n_frames {
-            let start = f * 16;
-            result.push(flat[start..start + 16].to_vec());
-        }
-        Ok(result)
     }
 
     /// Synthesize speech with a specific voice and language.
@@ -811,10 +816,17 @@ impl Qwen3TTS {
         #[cfg(feature = "profiling")]
         let _prefill_span = tracing::info_span!("prefill").entered();
 
-        let mut kv_caches = self.talker.new_kv_caches(gen_config.max_new_tokens + 256);
-        let (hidden, logits) =
-            self.talker
-                .prefill_custom_voice(&input_ids, speaker, language, &mut kv_caches)?;
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, 1);
+        let (hidden, logits) = self.talker.prefill_custom_voice(
+            &input_ids,
+            speaker,
+            language,
+            &mut kv_caches,
+            1,
+            None,
+        )?;
         let prefill_len = hidden.dim(1)?;
         let offset = prefill_len;
         let last_hidden = hidden.i((.., prefill_len - 1..prefill_len, ..))?;
@@ -822,7 +834,7 @@ impl Qwen3TTS {
         #[cfg(feature = "profiling")]
         drop(_prefill_span);
 
-        let all_codes = self.generate_codes(
+        let all_codes_batch = self.generate_codes(
             &gen_config,
             &mut sampling_ctx,
             &mut kv_caches,
@@ -834,6 +846,7 @@ impl Qwen3TTS {
             &tts_pad_embed,
             progress_bar,
         )?;
+        let all_codes = all_codes_batch.into_iter().next().unwrap();
 
         // Decode to audio
         #[cfg(feature = "profiling")]
@@ -896,12 +909,16 @@ impl Qwen3TTS {
         #[cfg(feature = "profiling")]
         let _prefill_span = tracing::info_span!("prefill").entered();
 
-        let mut kv_caches = self.talker.new_kv_caches(gen_config.max_new_tokens + 256);
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, 1);
         let (hidden, logits) = self.talker.prefill_voice_design(
             &input_ids,
             &instruct_ids,
             language,
             &mut kv_caches,
+            1,
+            None,
         )?;
         let prefill_len = hidden.dim(1)?;
         let offset = prefill_len;
@@ -910,7 +927,7 @@ impl Qwen3TTS {
         #[cfg(feature = "profiling")]
         drop(_prefill_span);
 
-        let all_codes = self.generate_codes(
+        let all_codes_batch = self.generate_codes(
             &gen_config,
             &mut sampling_ctx,
             &mut kv_caches,
@@ -922,6 +939,7 @@ impl Qwen3TTS {
             &tts_pad_embed,
             progress_bar,
         )?;
+        let all_codes = all_codes_batch.into_iter().next().unwrap();
 
         // Decode to audio
         #[cfg(feature = "profiling")]
@@ -997,13 +1015,17 @@ impl Qwen3TTS {
         #[cfg(feature = "profiling")]
         let _prefill_span = tracing::info_span!("prefill").entered();
 
-        let mut kv_caches = self.talker.new_kv_caches(gen_config.max_new_tokens + 256);
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, 1);
         let (hidden, logits) = self.talker.prefill_voice_clone(
             &input_ids,
             &speaker_embed,
             language,
             is_icl,
             &mut kv_caches,
+            1,
+            None,
         )?;
         let prefill_len = hidden.dim(1)?;
         let mut offset = prefill_len;
@@ -1065,7 +1087,7 @@ impl Qwen3TTS {
         let trailing_text_len = trailing_text_hidden.dim(1)?;
         let tts_pad_embed = self.talker.get_tts_pad_embed()?;
 
-        let all_codes = self.generate_codes(
+        let all_codes_batch = self.generate_codes(
             &gen_config,
             &mut sampling_ctx,
             &mut kv_caches,
@@ -1077,6 +1099,7 @@ impl Qwen3TTS {
             &tts_pad_embed,
             progress_bar.clone(),
         )?;
+        let all_codes = all_codes_batch.into_iter().next().unwrap();
 
         // Prepend ref_codes for ICL decoder context (same fix as synthesize_voice_clone)
         #[cfg(feature = "profiling")]
@@ -1503,6 +1526,276 @@ impl Qwen3TTS {
         }
     }
 
+    /// Synthesize speech from multiple text segments in a single batch.
+    ///
+    /// This is significantly faster for long inputs than sequential synthesis,
+    /// as it parallelizes the GPU computation across all segments.
+    pub fn synthesize_batch(
+        &self,
+        texts: &[String],
+        speaker: Speaker,
+        language: Language,
+        options: Option<SynthesisOptions>,
+    ) -> Result<Vec<AudioBuffer>> {
+        let batch_size = texts.len();
+        if batch_size == 0 {
+            return Ok(Vec::new());
+        }
+
+        let options = options.unwrap_or_default();
+        let mut sampling_ctx = generation::SamplingContext::new(options.seed);
+        let gen_config = options.to_gen_config();
+
+        // Tokenize all texts
+        let mut all_token_ids = Vec::with_capacity(batch_size);
+        for text in texts {
+            all_token_ids.push(self.text_tokenizer.encode(text)?);
+        }
+
+        // Build batched trailing text
+        let (trailing_text_hidden, trailing_text_len, tts_pad_embed) =
+            self.build_trailing_text_batch(&all_token_ids)?;
+
+        // Prefill
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, batch_size);
+
+        let (hidden, logits) = if batch_size == 1 {
+            self.talker.prefill_custom_voice(
+                &all_token_ids[0],
+                speaker,
+                language,
+                &mut kv_caches,
+                1,
+                None,
+            )?
+        } else {
+            self.talker.prefill_custom_voice_batch(
+                &all_token_ids,
+                speaker,
+                language,
+                &mut kv_caches,
+                None,
+            )?
+        };
+        let prefill_len = hidden.dim(1)?;
+        let last_hidden = hidden.i((.., prefill_len - 1..prefill_len, ..))?;
+
+        // Generation
+        let all_codes_batch = self.generate_codes(
+            &gen_config,
+            &mut sampling_ctx,
+            &mut kv_caches,
+            prefill_len,
+            last_hidden,
+            &logits,
+            &trailing_text_hidden,
+            trailing_text_len,
+            &tts_pad_embed,
+            None,
+        )?;
+
+        // Decode each sequence
+        let mut audios = Vec::with_capacity(batch_size);
+        for codes in all_codes_batch {
+            audios.push(self.decode_codes(&codes)?);
+        }
+
+        Ok(audios)
+    }
+
+    /// Batch version of [`Qwen3TTS::synthesize_voice_clone`].
+    pub fn synthesize_voice_clone_batch(
+        &self,
+        texts: &[String],
+        prompt: &VoiceClonePrompt,
+        language: Language,
+        options: Option<SynthesisOptions>,
+    ) -> Result<Vec<AudioBuffer>> {
+        let batch_size = texts.len();
+        if batch_size == 0 {
+            return Ok(Vec::new());
+        }
+
+        let options = options.unwrap_or_default();
+        let mut sampling_ctx = generation::SamplingContext::new(options.seed);
+
+        // Determine ICL mode and adjust config
+        let is_icl = prompt.ref_codes.is_some() && prompt.ref_text_ids.is_some();
+        let mut all_token_ids = Vec::with_capacity(batch_size);
+        let mut max_input_len = 0;
+        for text in texts {
+            let ids = self.text_tokenizer.encode(text)?;
+            max_input_len = max_input_len.max(ids.len());
+            all_token_ids.push(ids);
+        }
+
+        let repetition_penalty = if is_icl {
+            options.repetition_penalty.max(ICL_MIN_REPETITION_PENALTY)
+        } else {
+            options.repetition_penalty
+        };
+        let max_new_tokens = if is_icl {
+            options
+                .max_length
+                .min(ICL_MIN_FRAMES.max(max_input_len * ICL_FRAMES_PER_TOKEN))
+        } else {
+            options.max_length
+        };
+
+        let mut gen_config = options.to_gen_config();
+        gen_config.max_new_tokens = max_new_tokens;
+        gen_config.repetition_penalty = repetition_penalty;
+
+        let speaker_embed = prompt.speaker_embedding.to_dtype(self.compute_dtype)?;
+
+        // Prefill
+        let mut kv_caches = self
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, batch_size);
+        let (last_hidden, logits, offset, trailing_text_hidden, trailing_text_len, tts_pad_embed) =
+            if is_icl {
+                let ref_codes = prompt.ref_codes.as_ref().expect("ICL checked above");
+                let ref_text_ids = prompt.ref_text_ids.as_ref().expect("ICL checked above");
+                let ref_codec_embeds = self.sum_ref_codec_embeddings(ref_codes)?;
+
+                let (hidden, _prefill_logits) = self.talker.prefill_voice_clone_batch(
+                    &all_token_ids,
+                    &speaker_embed,
+                    language,
+                    true,
+                    &mut kv_caches,
+                    None,
+                )?;
+                let prefill_len = hidden.dim(1)?;
+                let mut offset = prefill_len;
+
+                let (icl_embed, trailing_text_hidden, trailing_text_len) =
+                    self.talker.build_icl_prompt_batch(
+                        &all_token_ids,
+                        ref_text_ids,
+                        &ref_codec_embeds,
+                        false,
+                    )?;
+
+                let icl_len = icl_embed.dim(1)?;
+                let mask = models::transformer::create_causal_mask(icl_len, offset, &self.device)?;
+
+                let mut icl_hidden = icl_embed;
+                for (i, layer) in self.talker.layers_iter().enumerate() {
+                    icl_hidden = layer.forward(
+                        &icl_hidden,
+                        self.talker.rope(),
+                        Some(&mask),
+                        Some(&mut kv_caches[i]),
+                        offset,
+                    )?;
+                }
+                icl_hidden = self.talker.apply_norm(&icl_hidden)?;
+                offset += icl_len;
+
+                let last_hidden = icl_hidden.i((.., icl_len - 1..icl_len, ..))?;
+                let logits = self.talker.apply_codec_head(&last_hidden)?;
+                let tts_pad_embed = self.talker.get_tts_pad_embed()?;
+
+                (
+                    last_hidden,
+                    logits,
+                    offset,
+                    trailing_text_hidden,
+                    trailing_text_len,
+                    tts_pad_embed,
+                )
+            } else {
+                let (trailing_text_hidden, trailing_text_len, tts_pad_embed) =
+                    self.build_trailing_text_batch(&all_token_ids)?;
+                let (hidden, logits) = self.talker.prefill_voice_clone_batch(
+                    &all_token_ids,
+                    &speaker_embed,
+                    language,
+                    false,
+                    &mut kv_caches,
+                    None,
+                )?;
+                let prefill_len = hidden.dim(1)?;
+                let last_hidden = hidden.i((.., prefill_len - 1..prefill_len, ..))?;
+                (
+                    last_hidden,
+                    logits,
+                    prefill_len,
+                    trailing_text_hidden,
+                    trailing_text_len,
+                    tts_pad_embed,
+                )
+            };
+
+        // Generation
+        let all_codes_batch = self.generate_codes(
+            &gen_config,
+            &mut sampling_ctx,
+            &mut kv_caches,
+            offset,
+            last_hidden,
+            &logits,
+            &trailing_text_hidden,
+            trailing_text_len,
+            &tts_pad_embed,
+            None,
+        )?;
+
+        // Decode each sequence
+        let mut audios = Vec::with_capacity(batch_size);
+        for codes in all_codes_batch {
+            audios.push(self.decode_codes(&codes)?);
+        }
+
+        Ok(audios)
+    }
+
+    /// Build batched trailing text embeddings with padding.
+    fn build_trailing_text_batch(
+        &self,
+        all_token_ids: &[Vec<u32>],
+    ) -> Result<(Tensor, usize, Tensor)> {
+        let batch_size = all_token_ids.len();
+
+        // Prepare trailing sequences: [tokens[1..], tts_eos]
+        let mut trailing_embeds = Vec::with_capacity(batch_size);
+        let mut max_trailing_len = 0;
+
+        for ids in all_token_ids {
+            let trailing_ids = if ids.len() > 1 {
+                let mut v = ids[1..].to_vec();
+                v.push(tts_tokens::TTS_EOS);
+                v
+            } else {
+                vec![tts_tokens::TTS_EOS]
+            };
+            max_trailing_len = max_trailing_len.max(trailing_ids.len());
+            trailing_embeds.push(self.talker.get_projected_text_embeddings(&trailing_ids)?);
+        }
+
+        // Pad trailing embeddings to max length
+        let mut padded = Vec::with_capacity(batch_size);
+        let tts_pad_embed = self.talker.get_tts_pad_embed()?; // [1, 1, hidden]
+
+        for embed in trailing_embeds {
+            let cur_len = embed.dim(1)?;
+            if cur_len < max_trailing_len {
+                let diff = max_trailing_len - cur_len;
+                let padding =
+                    tts_pad_embed.broadcast_as((1, diff, self.talker.config().hidden_size))?;
+                padded.push(Tensor::cat(&[&embed, &padding], 1)?);
+            } else {
+                padded.push(embed);
+            }
+        }
+
+        let batched_trailing = Tensor::cat(&padded, 0)?;
+        Ok((batched_trailing, max_trailing_len, tts_pad_embed))
+    }
+
     /// Load weights from safetensors file.
     ///
     /// Tensors are loaded in their native dtype (typically BF16 for Qwen3-TTS).
@@ -1641,11 +1934,15 @@ impl<'a> StreamingSession<'a> {
         let (trailing_text_hidden, trailing_text_len, tts_pad_embed) =
             model.build_trailing_text(input_ids)?;
 
-        let mut kv_caches = model.talker.new_kv_caches(config.max_new_tokens + 256);
-        let prefill_result =
-            model
-                .talker
-                .prefill_custom_voice(input_ids, speaker, language, &mut kv_caches)?;
+        let mut kv_caches = model.talker.new_kv_caches(config.max_new_tokens + 256, 1);
+        let prefill_result = model.talker.prefill_custom_voice(
+            input_ids,
+            speaker,
+            language,
+            &mut kv_caches,
+            1,
+            None,
+        )?;
 
         Self::from_prefill(
             model,
@@ -1677,11 +1974,15 @@ impl<'a> StreamingSession<'a> {
         let (trailing_text_hidden, trailing_text_len, tts_pad_embed) =
             model.build_trailing_text(input_ids)?;
 
-        let mut kv_caches = model.talker.new_kv_caches(config.max_new_tokens + 256);
-        let prefill_result =
-            model
-                .talker
-                .prefill_voice_design(input_ids, instruct_ids, language, &mut kv_caches)?;
+        let mut kv_caches = model.talker.new_kv_caches(config.max_new_tokens + 256, 1);
+        let prefill_result = model.talker.prefill_voice_design(
+            input_ids,
+            instruct_ids,
+            language,
+            &mut kv_caches,
+            1,
+            None,
+        )?;
 
         Self::from_prefill(
             model,
@@ -1736,7 +2037,9 @@ impl<'a> StreamingSession<'a> {
         gen_config.max_new_tokens = max_new_tokens;
         gen_config.repetition_penalty = repetition_penalty;
 
-        let mut kv_caches = model.talker.new_kv_caches(gen_config.max_new_tokens + 256);
+        let mut kv_caches = model
+            .talker
+            .new_kv_caches(gen_config.max_new_tokens + 256, 1);
 
         // Cast speaker embedding to compute dtype
         let speaker_embed = prompt.speaker_embedding.to_dtype(model.compute_dtype)?;
@@ -1748,6 +2051,8 @@ impl<'a> StreamingSession<'a> {
             language,
             is_icl,
             &mut kv_caches,
+            1,
+            None,
         )?;
 
         let prefill_len = hidden.dim(1)?;
@@ -1891,10 +2196,10 @@ impl<'a> StreamingSession<'a> {
         )?;
         let first_token = generation::sample(&logits_2d, &config, &mut sampling_ctx)?;
         let first_token_id: u32 = first_token.flatten_all()?.to_vec1::<u32>()?[0];
-        Qwen3TTS::update_penalty_mask(&mut penalty_mask, first_token_id, vocab_size)?;
+        Qwen3TTS::update_penalty_mask_row(&mut penalty_mask, 0, first_token_id, vocab_size)?;
 
         let done = config.eos_token_id == Some(first_token_id);
-        let cp_kv_caches = model.code_predictor.new_kv_caches();
+        let cp_kv_caches = model.code_predictor.new_kv_caches(1);
 
         // 计算最大静音帧阈值：基于 chunk_frames 的 2-3 倍，最少 30 帧
         let max_silent_frames = (chunk_frames * 3).max(30);
@@ -1964,10 +2269,10 @@ impl<'a> StreamingSession<'a> {
         )?;
         let first_token = generation::sample(&logits_2d, &config, &mut sampling_ctx)?;
         let first_token_id: u32 = first_token.flatten_all()?.to_vec1::<u32>()?[0];
-        Qwen3TTS::update_penalty_mask(&mut penalty_mask, first_token_id, vocab_size)?;
+        Qwen3TTS::update_penalty_mask_row(&mut penalty_mask, 0, first_token_id, vocab_size)?;
 
         let done = config.eos_token_id == Some(first_token_id);
-        let cp_kv_caches = model.code_predictor.new_kv_caches();
+        let cp_kv_caches = model.code_predictor.new_kv_caches(1);
 
         // 计算最大静音帧阈值：基于 chunk_frames 的 2-3 倍，最少 30 帧
         let max_silent_frames = (chunk_frames * 3).max(30);
@@ -2108,8 +2413,9 @@ impl<'a> StreamingSession<'a> {
                 break;
             }
 
-            Qwen3TTS::update_penalty_mask(
+            Qwen3TTS::update_penalty_mask_row(
                 &mut self.penalty_mask,
+                0,
                 next_token_id,
                 codec_tokens::CODEC_VOCAB_SIZE,
             )?;
@@ -2299,6 +2605,21 @@ impl Default for SynthesisOptions {
 /// let model = Qwen3TTS::from_pretrained("path/to/model", device)?;
 /// ```
 pub fn auto_device() -> Result<Device> {
+    #[cfg(feature = "metal")]
+    {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        return match catch_unwind(AssertUnwindSafe(|| Device::new_metal(0))) {
+            Ok(Ok(device)) => {
+                tracing::info!("Using Metal device");
+                Ok(device)
+            }
+            Ok(Err(err)) => Err(anyhow!("Metal device init failed: {err}")),
+            Err(_) => Err(anyhow!("Metal device init panicked")),
+        };
+    }
+
+    #[cfg(not(feature = "metal"))]
     #[cfg(feature = "cuda")]
     {
         if let Ok(device) = Device::cuda_if_available(0) {
@@ -2309,15 +2630,9 @@ pub fn auto_device() -> Result<Device> {
         }
     }
 
-    #[cfg(feature = "metal")]
-    {
-        if let Ok(device) = Device::new_metal(0) {
-            tracing::info!("Using Metal device");
-            return Ok(device);
-        }
-    }
-
+    #[cfg(not(feature = "metal"))]
     tracing::info!("Using CPU device");
+    #[cfg(not(feature = "metal"))]
     Ok(Device::Cpu)
 }
 
@@ -2509,7 +2824,7 @@ mod tests {
         let vocab_size = 3072;
         let mut mask = Tensor::zeros((1, vocab_size), DType::F32, &device).unwrap();
 
-        Qwen3TTS::update_penalty_mask(&mut mask, 42, vocab_size).unwrap();
+        Qwen3TTS::update_penalty_mask_row(&mut mask, 0, 42, vocab_size).unwrap();
 
         let vals: Vec<f32> = mask.flatten_all().unwrap().to_vec1().unwrap();
         assert_eq!(vals[42], 1.0);
@@ -2525,7 +2840,7 @@ mod tests {
         let mut mask = Tensor::zeros((1, vocab_size), DType::F32, &device).unwrap();
 
         // Token beyond vocab_size should be a no-op (no panic)
-        Qwen3TTS::update_penalty_mask(&mut mask, 9999, vocab_size).unwrap();
+        Qwen3TTS::update_penalty_mask_row(&mut mask, 0, 9999, vocab_size).unwrap();
 
         let sum: f32 = mask.sum_all().unwrap().to_scalar().unwrap();
         assert_eq!(sum, 0.0);
@@ -2558,7 +2873,7 @@ pub fn generate_voice(
     output_path: &str,
     progress_bar: Option<AppProgressBar>,
 ) -> Result<()> {
-    let device = base::get_default_device(false)?;
+    let device = base::get_device();
 
     let model = Qwen3TTS::from_pretrained(model_path, device)?;
 
@@ -2568,11 +2883,17 @@ pub fn generate_voice(
     // ICL mode: full voice cloning with reference text
     let prompt = model.create_voice_clone_prompt(&ref_audio, Some(ref_text))?;
 
+    // let options = SynthesisOptions {
+    //     seed: Some(42),
+    //     max_length: 320,
+    //     ..Default::default()
+    // };
     let start_time = Instant::now();
     let audio = model.synthesize_voice_clone(
         text_to_speech,
         &prompt,
         Language::Chinese,
+        // Some(options),
         None,
         progress_bar,
     )?;
@@ -2584,5 +2905,48 @@ pub fn generate_voice(
         start_time.elapsed().as_secs_f64() / audio_len as f64
     );
     audio.save(output_path)?;
+    Ok(())
+}
+
+/// Batch version of [`generate_voice`].
+pub fn generate_voice_batch(
+    model_path: &str,
+    ref_audio: &str,
+    ref_text: &str,
+    texts: &[&str],
+    output_prefix: &str,
+    progress_bar: Option<AppProgressBar>,
+) -> Result<()> {
+    let device = base::get_default_device(false)?;
+    let model = Qwen3TTS::from_pretrained(model_path, device)?;
+
+    // Load reference audio
+    let ref_audio = AudioBuffer::load(ref_audio)?;
+
+    // ICL mode: full voice cloning with reference text
+    let prompt = model.create_voice_clone_prompt(&ref_audio, Some(ref_text))?;
+
+    let texts_owned: Vec<String> = texts.iter().map(|&s| s.to_string()).collect();
+    let start_time = Instant::now();
+
+    let audios =
+        model.synthesize_voice_clone_batch(&texts_owned, &prompt, Language::Chinese, None)?;
+
+    info!(
+        "Batch tts cost time:[{}] for {} items",
+        start_time.elapsed().as_secs_f32(),
+        texts.len()
+    );
+
+    for (i, audio) in audios.into_iter().enumerate() {
+        let filename = if i == 0 {
+            output_prefix.to_string()
+        } else {
+            format!("{}_{}.wav", output_prefix.trim_end_matches(".wav"), i)
+        };
+        audio.save(&filename)?;
+        info!("saved file {}", &filename);
+    }
+
     Ok(())
 }

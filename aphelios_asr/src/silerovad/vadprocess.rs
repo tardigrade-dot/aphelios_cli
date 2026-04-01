@@ -1,8 +1,7 @@
 use anyhow::Result;
-use aphelios_core::AudioLoader;
+use aphelios_core::{utils::base::get_available_ep, AudioLoader};
 use ndarray::{Array, Array2, Array3};
 use ort::{
-    ep::CoreML,
     inputs,
     session::{builder::GraphOptimizationLevel, Session},
     value::Value,
@@ -28,9 +27,8 @@ pub struct VadProcessor {
 impl VadProcessor {
     pub fn new_default() -> Result<Self> {
         let model_path = "/Volumes/sw/onnx_models/silero-vad/onnx/model.onnx";
-        let coreml_options = CoreML::default().with_subgraphs(true);
         let session = Session::builder()?
-            .with_execution_providers([coreml_options.build()])?
+            .with_execution_providers(get_available_ep())?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(1)?
             .commit_from_file(model_path)?;
@@ -55,7 +53,7 @@ impl VadProcessor {
         use aphelios_core::audio::{ResampleQuality, Resampler};
         let audio = AudioLoader::new().load(audio_path)?;
         let mono = audio.to_stereo().to_mono();
-        
+
         let resampled = if mono.sample_rate != 16000 {
             Resampler::new()
                 .with_quality(ResampleQuality::High)

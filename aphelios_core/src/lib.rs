@@ -16,6 +16,7 @@ pub mod audio;
 pub mod demucs;
 pub mod imglabel;
 pub mod openai;
+pub mod traits;
 pub mod utils;
 
 // 重新导出常用类型

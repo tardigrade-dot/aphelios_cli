@@ -32,7 +32,7 @@ impl std::ops::Deref for GraniteModel {
 impl GraniteModel {
     /// 初始化模型：支持本地路径或 HuggingFace ID
     pub fn new(model_id: &str) -> Result<Self> {
-        let device = base::device();
+        let device = base::get_device();
         let dtype = if device.is_cuda() || device.is_metal() {
             DType::BF16
         } else {
@@ -67,10 +67,6 @@ impl GraniteModel {
         })
     }
 
-    pub fn generate_with_speech(&mut self, audio_path: &str, user_prompt: &str) -> Result<()> {
-        println!();
-        Ok(())
-    }
     /// 执行推理生成
     pub fn generate(&mut self, prompt: &str, sample_len: usize, temp: f64) -> Result<()> {
         let chat_prompt = format!(

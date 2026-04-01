@@ -279,7 +279,7 @@ impl CodePredictor {
     /// Callers should create this once and pass it to [`CodePredictor::generate_acoustic_codes`]
     /// on each frame — the method resets the caches internally, avoiding
     /// per-frame allocation.
-    pub fn new_kv_caches(&self) -> Vec<AnyKVCache> {
+    pub fn new_kv_caches(&self, batch: usize) -> Vec<AnyKVCache> {
         // Code predictor: 2 prefill + 15 decode = 17 max tokens
         const CP_MAX_SEQ: usize = 17;
 
@@ -287,7 +287,7 @@ impl CodePredictor {
             .map(|_| {
                 if self.device.is_cuda() || self.device.is_metal() {
                     PreAllocKVCache::new(
-                        1, // batch
+                        batch,
                         self.config.num_key_value_heads,
                         CP_MAX_SEQ,
                         self.config.head_dim,
@@ -332,12 +332,19 @@ impl CodePredictor {
         }
 
         let device = talker_hidden.device();
+        let (batch, _, _) = talker_hidden.dims3()?;
         let num_acoustic = self.config.num_code_groups - 1; // 15 acoustic codes
 
-        // Step 1: Prefill with [talker_hidden, semantic_embed]
-        let input = Tensor::cat(&[talker_hidden, semantic_embed], 1)?;
+        // Step 1: Prefill with [talker_hidden, semantic_embed].
+        // For 1.7B models these arrive in codec_embed_dim=2048 and must stay there
+        // until `small_to_mtp_projection` maps them down to the code predictor hidden size.
+        let input_dim = self.config.codec_embed_dim();
+        let talker_hidden = talker_hidden.broadcast_as((batch, 1, input_dim))?;
+        let semantic_embed = semantic_embed.broadcast_as((batch, 1, input_dim))?;
 
-        // Apply projection if needed (CustomVoice: 2048 -> 1024)
+        let input = Tensor::cat(&[talker_hidden, semantic_embed], 1)?.contiguous()?;
+
+        // Apply projection if needed (e.g. 1.7B talker/codec embeds: 2048 -> 1024).
         let input = if let Some(proj) = &self.small_to_mtp_projection {
             proj.forward(&input)?
         } else {
@@ -347,11 +354,15 @@ impl CodePredictor {
         let seq_len = input.dim(1)?;
         // Use cached mask for the standard 2-token prefill, create on-the-fly otherwise
         let dynamic_mask;
-        let mask = if seq_len == 2 {
-            &self.prefill_mask
+        let mask = if seq_len > 1 {
+            if seq_len == 2 {
+                Some(&self.prefill_mask)
+            } else {
+                dynamic_mask = super::transformer::create_causal_mask(seq_len, 0, device)?;
+                Some(&dynamic_mask)
+            }
         } else {
-            dynamic_mask = self.create_causal_mask(seq_len, device)?;
-            &dynamic_mask
+            None
         };
 
         let mut hidden = input;
@@ -359,7 +370,7 @@ impl CodePredictor {
             hidden = layer.forward(
                 &hidden,
                 &self.rope,
-                Some(mask),
+                mask,
                 Some(&mut cp_kv_caches[i]),
                 0,
             )?;
@@ -367,16 +378,13 @@ impl CodePredictor {
         hidden = self.norm.forward(&hidden)?;
 
         // Step 2: Predict first acoustic code from last position
-        // Keep codes as GPU tensors to avoid per-step GPU→CPU syncs.
-        // Pre-allocate a single [num_acoustic] tensor and write each code into it
-        // to avoid Tensor::cat overhead on many small tensors.
         let last_hidden = hidden.i((.., seq_len - 1..seq_len, ..))?;
-        let logits = self.lm_heads[0].forward(&last_hidden)?;
-        let first_code = logits.argmax(D::Minus1)?.flatten_all()?; // [1] tensor on GPU
+        let logits = self.lm_heads[0].forward(&last_hidden)?
+            .broadcast_as((batch, 1, self.config.vocab_size))?; // Ensure [batch, 1, vocab]
+        let first_code = logits.argmax(D::Minus1)?.reshape((batch, 1))?; // [batch, 1] tensor on GPU
 
-        let mut all_codes = Tensor::zeros(num_acoustic, candle_core::DType::U32, device)?;
-        let range = 0..1;
-        all_codes = all_codes.slice_assign(&[range], &first_code)?;
+        let mut all_codes = Tensor::zeros((batch, num_acoustic), candle_core::DType::U32, device)?;
+        all_codes = all_codes.slice_assign(&[0..batch, 0..1], &first_code)?;
 
         // Also keep a reference to the latest code for embedding lookup
         let mut prev_code = first_code;
@@ -385,8 +393,7 @@ impl CodePredictor {
         let mut offset = seq_len;
         for group_idx in 1..num_acoustic {
             // Embed previous code using the previous group's embedding (stays on GPU)
-            let code_embed = self.codec_embeddings[group_idx - 1].forward(&prev_code)?;
-            let code_embed = code_embed.unsqueeze(0)?; // [1, 1, codec_embed_dim]
+            let code_embed = self.codec_embeddings[group_idx - 1].forward(&prev_code)?; // [batch, 1, codec_embed_dim]
 
             // Apply projection if needed
             let code_embed = if let Some(proj) = &self.small_to_mtp_projection {
@@ -395,8 +402,7 @@ impl CodePredictor {
                 code_embed
             };
 
-            // Single token attending to all previous positions via KV cache —
-            // no masking needed (all-zeros mask is a no-op).
+            // Single token attending to all previous positions via KV cache
             let mut h = code_embed;
             for (i, layer) in self.layers.iter().enumerate() {
                 h = layer.forward(&h, &self.rope, None, Some(&mut cp_kv_caches[i]), offset)?;
@@ -405,9 +411,8 @@ impl CodePredictor {
 
             // Predict next code (stays on GPU)
             let logits = self.lm_heads[group_idx].forward(&h)?;
-            let next_code = logits.argmax(D::Minus1)?.flatten_all()?; // [1] tensor on GPU
-            let range = group_idx..group_idx + 1;
-            all_codes = all_codes.slice_assign(&[range], &next_code)?;
+            let next_code = logits.argmax(D::Minus1)?.reshape((batch, 1))?; // [batch, 1] tensor on GPU
+            all_codes = all_codes.slice_assign(&[0..batch, group_idx..group_idx + 1], &next_code)?;
             prev_code = next_code;
             offset += 1;
         }
@@ -425,9 +430,8 @@ impl CodePredictor {
     /// Returns: [1, 1, codec_embed_dim] tensor
     pub fn get_acoustic_embedding(
         &self,
-        code: u32,
+        code: &Tensor, // [batch, 1]
         group_idx: usize,
-        device: &candle_core::Device,
     ) -> Result<Tensor> {
         if group_idx >= self.codec_embeddings.len() {
             anyhow::bail!(
@@ -436,9 +440,7 @@ impl CodePredictor {
                 self.codec_embeddings.len() - 1
             );
         }
-        let code_tensor = Tensor::new(&[code], device)?;
-        let embed = self.codec_embeddings[group_idx].forward(&code_tensor)?;
-        Ok(embed.unsqueeze(0)?) // [1, 1, codec_embed_dim]
+        Ok(self.codec_embeddings[group_idx].forward(code)?) // [batch, 1, codec_embed_dim]
     }
 
     /// Embed a sequence of codes for a specific acoustic group.
@@ -480,12 +482,14 @@ impl CodePredictor {
             );
         }
 
-        let first = self.get_acoustic_embedding(acoustic_codes[0], 0, device)?;
+        let first_code = Tensor::new(&[acoustic_codes[0]], device)?.unsqueeze(0)?;
+        let first = self.get_acoustic_embedding(&first_code, 0)?;
         acoustic_codes[1..]
             .iter()
             .enumerate()
             .try_fold(first, |acc, (i, &code)| {
-                let embed = self.get_acoustic_embedding(code, i + 1, device)?;
+                let code_tensor = Tensor::new(&[code], device)?.unsqueeze(0)?;
+                let embed = self.get_acoustic_embedding(&code_tensor, i + 1)?;
                 acc.add(&embed).map_err(Into::into)
             })
     }
@@ -498,7 +502,7 @@ impl CodePredictor {
         &self,
         acoustic_codes: &Tensor,
     ) -> Result<Tensor> {
-        let n = acoustic_codes.dim(0)?;
+        let (batch, n) = acoustic_codes.dims2()?;
         if n != self.codec_embeddings.len() {
             anyhow::bail!(
                 "Expected {} acoustic codes, got {}",
@@ -507,15 +511,16 @@ impl CodePredictor {
             );
         }
 
-        let first_code = acoustic_codes.narrow(0, 0, 1)?;
-        let first = self.codec_embeddings[0]
-            .forward(&first_code)?
-            .unsqueeze(0)?;
-        (1..n).try_fold(first, |acc, i| {
-            let code = acoustic_codes.narrow(0, i, 1)?;
-            let embed = self.codec_embeddings[i].forward(&code)?.unsqueeze(0)?;
-            acc.add(&embed).map_err(Into::into)
-        })
+        let mut total_sum = None;
+        for i in 0..n {
+            let codes_i = acoustic_codes.narrow(1, i, 1)?; // [batch, 1]
+            let embed = self.codec_embeddings[i].forward(&codes_i)?; // [batch, 1, hidden]
+            total_sum = match total_sum {
+                None => Some(embed),
+                Some(s) => Some(s.add(&embed)?),
+            };
+        }
+        Ok(total_sum.unwrap())
     }
 }
 

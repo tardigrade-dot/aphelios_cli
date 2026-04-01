@@ -41,7 +41,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 fastembed = { workspace = true }
@@ -63,16 +62,16 @@ md5 = "0.7"
 
 [features]
 metal = [
-    "candle-core/metal", 
-    "candle-nn/metal", 
+    "candle-core/metal",
+    "candle-nn/metal",
     "candle-transformers/metal",
     #"mistralrs/metal",
     "ort/coreml",
     "aphelios_core/metal",
 ]
 cuda = [
-    "candle-core/cuda", 
-    "candle-nn/cuda", 
+    "candle-core/cuda",
+    "candle-nn/cuda",
     "candle-transformers/cuda",
     #"mistralrs/cuda",
     "ort/coreml",

@@ -3,7 +3,7 @@ import "./pingfang-sc-regular.ttf";
 
 export component MainMenu inherits Window {
     width: 400px;
-    height: 520px;
+    height: 560px;
     title: "Aphelios AI Toolkit";
     background: #eef1f6;
     default-font-family: "PingFang SC";
@@ -12,6 +12,7 @@ export component MainMenu inherits Window {
     callback open_asr();
     callback open_tts();
     callback open_book_search();
+    callback open_text_align();
     callback open_settings();
     callback quit_app();
 
@@ -89,6 +90,14 @@ export component MainMenu inherits Window {
                 height: 44px;
                 clicked => {
                     root.open_book_search();
+                }
+            }
+
+            Button {
+                text: "📝  文本对齐 (SRT)";
+                height: 44px;
+                clicked => {
+                    root.open_text_align();
                 }
             }
         }

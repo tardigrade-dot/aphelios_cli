@@ -2,10 +2,9 @@
 //!
 //! 提供流畅的音频播放功能，合成和播放完全并行
 
-use rodio::{OutputStream, Sink, Source, buffer::SamplesBuffer};
+use rodio::{buffer::SamplesBuffer, OutputStream, Sink, Source};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 /// 音频播放器 - 真正的异步播放
 pub struct AudioPlayer {

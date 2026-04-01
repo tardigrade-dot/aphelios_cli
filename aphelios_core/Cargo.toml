@@ -50,7 +50,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 rusqlite = { workspace = true }
@@ -75,6 +74,7 @@ minijinja = { workspace = true }
 usls = { workspace = true }
 chrono = { workspace = true }
 tempfile = { workspace = true }
+rbook = "0.7.5"
 
 [features]
 metal = [
@@ -86,9 +86,6 @@ metal = [
     "candle-transformers/accelerate",
     #"mistralrs/metal",
     "ort/coreml",
-    "qwen_tts/metal",
-    "qwen_tts/accelerate",
-    "qwen_tts/audio-loading",
     "parakeet-rs/coreml",
     "usls/coreml",
 ]
@@ -98,6 +95,4 @@ cuda = [
     "candle-transformers/cuda",
     #"mistralrs/cuda",
     "ort/cuda",
-    "qwen_tts/cuda",
-    "qwen_tts/audio-loading",
 ]

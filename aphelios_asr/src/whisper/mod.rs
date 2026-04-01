@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::base::{self, write_to_file};
+use aphelios_core::utils::base::{self, get_device, write_to_file};
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::{
     ops::{log_softmax, softmax},
@@ -629,7 +629,7 @@ pub fn run_whisper_with_segments(
     println!("pcm data loaded {}", pcm_data.len());
     let num_mel_bins = config.num_mel_bins;
 
-    let device = base::device();
+    let device = base::get_device();
     let vb =
         unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
@@ -758,7 +758,7 @@ pub fn run_whisper(
     // let language_token = lang.map(|lang| token_id(&tokenizer, lang).unwrap_or(50259));
     let language_token =
         lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
-    let mut dc = Decoder::new(
+    let mut whisper_decoder = Decoder::new(
         model,
         tokenizer,
         299792458,
@@ -768,7 +768,7 @@ pub fn run_whisper(
         None,
         false,
     )?;
-    let res = dc.run(&mel)?;
+    let res = whisper_decoder.run(&mel)?;
     Ok(res)
 }
 
@@ -903,8 +903,8 @@ pub async fn generate_srt(segments: &Vec<AsrSegment>, save_file: &str) -> Result
 
 /// Run ASR on the given `input` file, writing a `.srt` beside it with the given suffix.
 /// `lang` is an ISO-639-1 language code (e.g. "zh", "en", "ja"), or `None` for auto-detect.
-pub async fn run_asr(input: &str, lang: Option<&str>) -> Result<()> {
-    let device = Device::new_metal(0)?;
+pub async fn run_whisper_asr(input: &str, lang: Option<&str>) -> Result<()> {
+    let device = get_device();
 
     let output_path = Path::new(input)
         .with_file_name(Path::new(input).file_stem().unwrap().to_str().unwrap())

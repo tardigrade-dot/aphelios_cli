@@ -1,0 +1,353 @@
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+
+export component TextAlignWindow inherits Window {
+    width: 900px;
+    height: 750px;
+    title: "文本对齐 - 生成 SRT 字幕";
+    background: #f6f6f6;
+    default-font-family: "PingFang SC";
+
+    // 配置属性
+    in-out property <string> model_path: "/Volumes/sw/onnx_models/sensevoice";
+    in-out property <string> audio_file_path;
+    in-out property <string> target_text_path;
+    in-out property <string> output_path;
+    in-out property <string> min_segment_length: "80";
+    in-out property <string> max_segment_length: "120";
+
+    // 状态属性
+    in-out property <string> status_message: "就绪";
+    in-out property <bool> is_running: false;
+    in-out property <[string]> log_messages: ["Session started"];
+    in-out property <string> srt_preview;
+    in-out property <length> log_viewport_y: 0;
+    in-out property <length> preview_viewport_y: 0;
+
+    callback scroll_to_bottom();
+    scroll_to_bottom => {
+        log_viewport_y = -100000px;
+    }
+
+    callback scroll_preview_to_bottom();
+    scroll_preview_to_bottom => {
+        preview_viewport_y = -100000px;
+    }
+
+    // 回调事件
+    callback go_back();
+    callback select_model_path();
+    callback select_audio_file();
+    callback select_target_text();
+    callback select_output_path();
+    callback start_alignment();
+    callback stop_alignment();
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 15px;
+        alignment: start;
+
+        // --- 标题栏 ---
+        HorizontalLayout {
+            height: 32px;
+            alignment: space-between;
+            Button {
+                text: "← 返回";
+                width: 70px;
+                clicked => {
+                    root.go_back();
+                }
+            }
+
+            Text {
+                text: "文本对齐 - 生成 SRT 字幕";
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+
+            // 状态指示灯
+            HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 5px;
+                    background: is_running ? #00ff00 : #cccccc;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: status_message;
+                    font-size: 12px;
+                    color: #666;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // --- 核心配置卡片 ---
+        Rectangle {
+            background: #ffffff;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #e0e0e0;
+            vertical-stretch: 0;
+
+            VerticalLayout {
+                padding: 15px;
+                spacing: 12px;
+
+                // 模型路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "模型路径";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: #666;
+                    }
+
+                    LineEdit {
+                        text <=> model_path;
+                        placeholder-text: "SenseVoice 模型目录";
+                        enabled: !is_running;
+                    }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_model_path();
+                        }
+                        enabled: !is_running;
+                    }
+                }
+
+                // 输入音频行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "输入音频";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: #666;
+                    }
+
+                    LineEdit {
+                        text <=> audio_file_path;
+                        placeholder-text: "请选择音频文件 (wav/mp3/flac/ogg/m4a)";
+                        enabled: !is_running;
+                    }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_audio_file();
+                        }
+                        enabled: !is_running;
+                    }
+                }
+
+                // 目标文本行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "目标文本";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: #666;
+                    }
+
+                    LineEdit {
+                        text <=> target_text_path;
+                        placeholder-text: "请选择目标文本文件 (txt)";
+                        enabled: !is_running;
+                    }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_target_text();
+                        }
+                        enabled: !is_running;
+                    }
+                }
+
+                // 输出路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "保存路径";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: #666;
+                    }
+
+                    LineEdit {
+                        text <=> output_path;
+                        placeholder-text: "SRT 字幕保存位置";
+                        enabled: !is_running;
+                    }
+
+                    Button {
+                        text: "选择";
+                        width: 60px;
+                        clicked => {
+                            root.select_output_path();
+                        }
+                        enabled: !is_running;
+                    }
+                }
+
+                // 分段长度设置
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "分段长度";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: #666;
+                    }
+
+                    LineEdit {
+                        text <=> min_segment_length;
+                        placeholder-text: "最小";
+                        enabled: !is_running;
+                        width: 80px;
+                    }
+
+                    Text {
+                        text: "~";
+                        vertical-alignment: center;
+                        color: #999;
+                    }
+
+                    LineEdit {
+                        text <=> max_segment_length;
+                        placeholder-text: "最大";
+                        enabled: !is_running;
+                        width: 80px;
+                    }
+
+                    Text {
+                        text: "字";
+                        vertical-alignment: center;
+                        color: #999;
+                    }
+                }
+            }
+        }
+
+        // --- 操作按钮 ---
+        HorizontalLayout {
+            alignment: center;
+            height: 40px;
+            spacing: 12px;
+            Button {
+                text: is_running ? "正在对齐..." : "▶  开始对齐";
+                primary: true;
+                width: 150px;
+                height: 36px;
+                enabled: audio_file_path != "" && target_text_path != "" && !is_running;
+                clicked => {
+                    root.start_alignment();
+                }
+            }
+
+            Button {
+                text: "停止";
+                width: 80px;
+                height: 36px;
+                clicked => {
+                    root.stop_alignment();
+                }
+            }
+        }
+
+        // --- SRT 预览和日志 (左右分栏) ---
+        HorizontalLayout {
+            spacing: 15px;
+            vertical-stretch: 2;
+
+            // SRT 预览区
+            VerticalLayout {
+                spacing: 5px;
+                width: 50%;
+                Text {
+                    text: "SRT 预览";
+                    font-size: 12px;
+                    color: #888;
+                }
+
+                Rectangle {
+                    background: #f8f8f8;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    ScrollView {
+                        viewport-y <=> preview_viewport_y;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            alignment: start;
+                            Text {
+                                text: root.srt_preview;
+                                font-family: "PingFang SC";
+                                font-size: 11px;
+                                color: #333;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 日志终端
+            VerticalLayout {
+                spacing: 5px;
+                width: 50%;
+                Text {
+                    text: "系统日志";
+                    font-size: 11px;
+                    color: #999;
+                }
+
+                Rectangle {
+                    background: #1e1e1e;
+                    border-radius: 6px;
+                    min-height: 200px;
+                    clip: true;
+
+                    ScrollView {
+                        viewport-y <=> log_viewport_y;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            alignment: start;
+                            for msg in log_messages: Text {
+                                text: "> " + msg;
+                                color: #a6e22e;
+                                font-family: "PingFang SC";
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

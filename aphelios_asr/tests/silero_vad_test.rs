@@ -8,7 +8,7 @@ use aphelios_core::utils::init_logging;
 use tracing::info;
 
 const BIG_WAV_PATH: &str = "/Volumes/sw/tts_result/gcsjdls/gcsjdls-4_1.wav";
-const SMALL_WAV_PATH: &str = "/Volumes/sw/video/mQlxALUw3h4_16k.wav";
+const SMALL_WAV_PATH: &str = "/Volumes/sw/video/mQlxALUw3h4.wav";
 const STALIN_WAV_PATH: &str = "/Volumes/sw/video/Why Does Joseph Stalin Matter？.wav";
 const PHI_WAV_PATH: &str = "/Volumes/sw/video/How to Journal (Like a Philosopher).wav";
 

@@ -47,7 +47,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 fastembed = { workspace = true }
@@ -81,9 +80,6 @@ metal = [
     "candle-transformers/accelerate",
     #"mistralrs/metal",
     "ort/coreml",
-    "qwen_tts/metal",
-    "qwen_tts/accelerate",
-    "qwen_tts/audio-loading",
 ]
 cuda = [
     "candle-core/cuda",
@@ -91,8 +87,6 @@ cuda = [
     "candle-transformers/cuda",
     #"mistralrs/cuda",
     "ort/cuda",
-    "qwen_tts/cuda",
-    "qwen_tts/audio-loading",
 ]
 hub = []
 profiling = []

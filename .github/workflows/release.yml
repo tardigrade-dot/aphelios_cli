@@ -3,31 +3,29 @@ name: Release
 on:
   push:
     tags:
-      - "v*" # 当推送以 v 开头的标签时触发，如 v1.0.0
+      - "v*"
 
 jobs:
   build-and-release:
-    name: Build for ${{ matrix.os }}
+    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-
     permissions:
       contents: write
 
     strategy:
+      fail-fast: false
       matrix:
         include:
-          #   - os: ubuntu-latest
-          #     artifact_name: my-tool-linux
-          #     asset_name: my-tool-x86_64-unknown-linux-gnu.tar.gz
-          #   - os: windows-latest
-          #     artifact_name: my-tool.exe
-          #     asset_name: my-tool-x86_64-pc-windows-msvc.zip
           - os: macos-latest
-            artifact_name: aphelios_slint
-            asset_name: aphelios_slint-x86_64-apple-darwin.tar.gz
-          - os: macos-latest
-            artifact_name: aphelios_tool
-            asset_name: aphelios_tool-x86_64-apple-darwin.tar.gz
+            features: "metal"
+            arch: "arm64"
+            suffix: "macos-arm64" # Apple Silicon
+          # - os: ubuntu-latest
+          #   features: "cuda"
+          #   suffix: "linux-x64"
+          # - os: windows-latest
+          #   features: "cuda"
+          #   suffix: "windows-x64"
 
     steps:
       - name: Checkout code
@@ -36,24 +34,42 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release
-        run: cargo build --release --features metal
+      # 安装依赖 (针对 Linux/Windows 的 CUDA 构建可能需要额外的库)
+      - name: Install Dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev # Slint 编译常用依赖
 
-      - name: Package (Unix)
+      - name: Install UPX
+        uses: svenstaro/upx-action@v2
+        with:
+          install-only: true
+
+      - name: Run Build Script
+        # macOS/Linux 使用 sh, Windows 使用 bash (GitHub Actions 自带)
+        run: bash ./build_release.sh "${{ matrix.features }}"
+
+      - name: Package Assets (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cd target/release
-          tar -czf ../../${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          # 打包 CLI 工具
+          tar -czf aphelios-tool-${{ matrix.suffix }}.tar.gz -C release_bin aphelios_tool
+          # 打包 .app bundle (压缩为 zip 以保持 .app 结构)
+          cd release_bin && zip -rq ../aphelios-${{ matrix.suffix }}.zip Aphelios.app
 
-      - name: Package (Windows)
+      - name: Package Assets (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd target/release
-          Compress-Archive -Path ${{ matrix.artifact_name }} -DestinationPath ..\..\${{ matrix.asset_name }}
+          Compress-Archive -Path release_bin\aphelios_tool.exe -DestinationPath aphelios-tool-${{ matrix.suffix }}.zip
 
-      - name: Upload Release Asset
+      - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset_name }}
+          files: |
+            *.tar.gz
+            *.zip
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

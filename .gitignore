@@ -19,3 +19,4 @@ frame*
 .cargo-ok
 trace*.json
 .claude
+.qwen

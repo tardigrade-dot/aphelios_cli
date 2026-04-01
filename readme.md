@@ -1,10 +1,10 @@
-- 运行一个run指令: cargo run -- run --verbose
+运行一个run指令: cargo run -- run --verbose
 
-- cargo clean
-- 创建: cargo new hello_cli
-- 安装指令: cargo install --path .
-- 卸载指令: cargo uninstall aphelios_cli
-- 运行指令: aphelios_cli run --verbose
+cargo clean
+创建: cargo new hello_cli
+安装指令: cargo install --path .
+卸载指令: cargo uninstall aphelios_cli
+运行指令: aphelios_cli run --verbose
 
 cargo run --example texify2_onnx
 
@@ -31,6 +31,8 @@ cargo test --release -p aphelios_asr --test whisper_rs_test --features metal -- 
 cargo test --release -p aphelios_core --test rtdetr_example --features metal -- label_video_test --exact --nocapture
 
 cargo tree > tree.log
+
+ ./build_release.sh --features metal
 
 # 默认端口 3000
 cargo run -p aphelios_web

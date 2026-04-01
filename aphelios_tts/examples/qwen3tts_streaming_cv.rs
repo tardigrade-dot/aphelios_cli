@@ -16,8 +16,8 @@
 
 use aphelios_core::utils::{base, logger};
 use aphelios_tts::models::talker::Speaker;
-use aphelios_tts::qwen_tts::qwen_tts_v2::SynthesisOptions;
-use aphelios_tts::{audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts_v2::Qwen3TTS};
+use aphelios_tts::qwen_tts::qwen_tts::SynthesisOptions;
+use aphelios_tts::{audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS};
 use std::env;
 use std::time::Instant;
 

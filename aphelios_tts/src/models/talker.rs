@@ -18,9 +18,8 @@
 
 use anyhow::Result;
 use candle_core::{DType, Device, IndexOp, Module, Tensor};
-use candle_nn::{Embedding, Linear, RmsNorm, VarBuilder, embedding, linear_no_bias, rms_norm};
+use candle_nn::{embedding, linear_no_bias, rms_norm, Embedding, Linear, RmsNorm, VarBuilder};
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::str::FromStr;
 
 use super::config::Qwen3TTSConfig;
@@ -437,16 +436,8 @@ impl TalkerModel {
 
     /// Prefill for CustomVoice model with speaker and language
     ///
-    /// Constructs the full input sequence matching the Python implementation:
-    /// - Positions 0-2: role prefix (text_proj of im_start, assistant, newline)
-    /// - Positions 3-8: tts_pad/tts_bos ADDED with codec embeddings
-    ///   - 3: tts_pad + codec_think
-    ///   - 4: tts_pad + codec_think_bos
-    ///   - 5: tts_pad + language_id
-    ///   - 6: tts_pad + codec_think_eos
-    ///   - 7: tts_pad + speaker
-    ///   - 8: tts_bos + codec_pad
-    /// - Position 9: first_text_proj + codec_bos
+    /// Constructs the full input sequence matching the Python implementation.
+    /// Supports batches via `text_tokens` leading dimension or by broadcasting.
     ///
     /// Returns (hidden_states, logits) for generation.
     pub fn prefill_custom_voice(
@@ -455,10 +446,12 @@ impl TalkerModel {
         speaker: Speaker,
         language: Language,
         kv_caches: &mut [AnyKVCache],
+        batch: usize, // New parameter
+        attention_mask: Option<&Tensor>, // New parameter
     ) -> Result<(Tensor, Tensor)> {
         use codec_tokens::*;
 
-        let role_prefix_hidden = self.build_role_prefix()?;
+        let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec: [think, think_bos, lang, think_eos, speaker, pad, bos]
         let codec_ids = Tensor::new(
@@ -473,22 +466,70 @@ impl TalkerModel {
             ],
             &self.device,
         )?;
-        let codec_embed = self.codec_embedding.forward(&codec_ids)?.unsqueeze(0)?;
+        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+            .unsqueeze(0)?
+            .broadcast_as((batch, 7, self.config.hidden_size))?;
 
         // 5 × tts_pad + 1 × tts_bos overlaid on first 6 codec tokens
-        let tts_text_embed = self.build_tts_pad_bos(5)?;
+        let tts_text_embed = self.build_tts_pad_bos(5, batch)?;
         let codec_first6 = codec_embed.i((.., ..6, ..))?;
-        let codec_hidden = tts_text_embed.add(&codec_first6)?;
+        let codec_hidden = tts_text_embed.broadcast_add(&codec_first6)?;
 
-        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?;
+        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?.contiguous()?;
 
         // First text token + codec_bos
         let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed)? {
+        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
-        self.run_prefill_layers(hidden, kv_caches)
+        self.run_prefill_layers(hidden, kv_caches, attention_mask)
+    }
+
+    /// Batched variant of [`Self::prefill_custom_voice`] using each sequence's own first text token.
+    pub fn prefill_custom_voice_batch(
+        &self,
+        text_tokens_batch: &[Vec<u32>],
+        speaker: Speaker,
+        language: Language,
+        kv_caches: &mut [AnyKVCache],
+        attention_mask: Option<&Tensor>,
+    ) -> Result<(Tensor, Tensor)> {
+        use codec_tokens::*;
+
+        let batch = text_tokens_batch.len();
+        let role_prefix_hidden = self.build_role_prefix(batch)?;
+
+        let codec_ids = Tensor::new(
+            &[
+                CODEC_THINK,
+                CODEC_THINK_BOS,
+                language.token_id(),
+                CODEC_THINK_EOS,
+                speaker.token_id(),
+                CODEC_PAD,
+                CODEC_BOS,
+            ],
+            &self.device,
+        )?;
+        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+            .unsqueeze(0)?
+            .broadcast_as((batch, 7, self.config.hidden_size))?;
+
+        let tts_text_embed = self.build_tts_pad_bos(5, batch)?;
+        let codec_first6 = codec_embed.i((.., ..6, ..))?;
+        let codec_hidden = tts_text_embed.broadcast_add(&codec_first6)?;
+
+        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?.contiguous()?;
+
+        let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
+        if let Some(combined) =
+            self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)?
+        {
+            hidden = Tensor::cat(&[&hidden, &combined], 1)?;
+        }
+
+        self.run_prefill_layers(hidden, kv_caches, attention_mask)
     }
 
     /// Prefill for voice cloning (x_vector_only mode).
@@ -516,10 +557,12 @@ impl TalkerModel {
         language: Language,
         icl_mode: bool,
         kv_caches: &mut [AnyKVCache],
+        batch: usize,
+        attention_mask: Option<&Tensor>,
     ) -> Result<(Tensor, Tensor)> {
         use codec_tokens::*;
 
-        let role_prefix_hidden = self.build_role_prefix()?;
+        let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec: [think, think_bos, lang, think_eos] + speaker_embed + [pad, bos]
         let codec_prefix_ids = Tensor::new(
@@ -534,34 +577,97 @@ impl TalkerModel {
         let codec_prefix_embed = self
             .codec_embedding
             .forward(&codec_prefix_ids)?
-            .unsqueeze(0)?;
+            .unsqueeze(0)?
+            .broadcast_as((batch, 4, self.config.hidden_size))?;
 
-        let speaker = speaker_embed.reshape((1, 1, self.config.hidden_size))?;
+        let speaker = speaker_embed.reshape((1, 1, self.config.hidden_size))?
+            .broadcast_as((batch, 1, self.config.hidden_size))?;
 
         let codec_suffix_ids = Tensor::new(&[CODEC_PAD, CODEC_BOS], &self.device)?;
         let codec_suffix_embed = self
             .codec_embedding
             .forward(&codec_suffix_ids)?
-            .unsqueeze(0)?;
+            .unsqueeze(0)?
+            .broadcast_as((batch, 2, self.config.hidden_size))?;
 
         let codec_embed = Tensor::cat(&[&codec_prefix_embed, &speaker, &codec_suffix_embed], 1)?;
 
         // 5 × tts_pad + 1 × tts_bos overlaid on first 6 codec tokens
-        let tts_text_embed = self.build_tts_pad_bos(5)?;
+        let tts_text_embed = self.build_tts_pad_bos(5, batch)?;
         let codec_first6 = codec_embed.i((.., ..6, ..))?;
-        let codec_hidden = tts_text_embed.add(&codec_first6)?;
+        let codec_hidden = tts_text_embed.broadcast_add(&codec_first6)?;
 
-        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?;
+        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?.contiguous()?;
 
         // First text token + codec_bos (skipped in ICL mode)
         if !icl_mode {
             let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-            if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed)? {
+            if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
                 hidden = Tensor::cat(&[&hidden, &combined], 1)?;
             }
         }
 
-        self.run_prefill_layers(hidden, kv_caches)
+        self.run_prefill_layers(hidden, kv_caches, attention_mask)
+    }
+
+    /// Batched variant of [`Self::prefill_voice_clone`] using each sequence's own first text token.
+    pub fn prefill_voice_clone_batch(
+        &self,
+        text_tokens_batch: &[Vec<u32>],
+        speaker_embed: &Tensor,
+        language: Language,
+        icl_mode: bool,
+        kv_caches: &mut [AnyKVCache],
+        attention_mask: Option<&Tensor>,
+    ) -> Result<(Tensor, Tensor)> {
+        use codec_tokens::*;
+
+        let batch = text_tokens_batch.len();
+        let role_prefix_hidden = self.build_role_prefix(batch)?;
+
+        let codec_prefix_ids = Tensor::new(
+            &[
+                CODEC_THINK,
+                CODEC_THINK_BOS,
+                language.token_id(),
+                CODEC_THINK_EOS,
+            ],
+            &self.device,
+        )?;
+        let codec_prefix_embed = self
+            .codec_embedding
+            .forward(&codec_prefix_ids)?
+            .unsqueeze(0)?
+            .broadcast_as((batch, 4, self.config.hidden_size))?;
+
+        let speaker = speaker_embed.reshape((1, 1, self.config.hidden_size))?
+            .broadcast_as((batch, 1, self.config.hidden_size))?;
+
+        let codec_suffix_ids = Tensor::new(&[CODEC_PAD, CODEC_BOS], &self.device)?;
+        let codec_suffix_embed = self
+            .codec_embedding
+            .forward(&codec_suffix_ids)?
+            .unsqueeze(0)?
+            .broadcast_as((batch, 2, self.config.hidden_size))?;
+
+        let codec_embed = Tensor::cat(&[&codec_prefix_embed, &speaker, &codec_suffix_embed], 1)?;
+
+        let tts_text_embed = self.build_tts_pad_bos(5, batch)?;
+        let codec_first6 = codec_embed.i((.., ..6, ..))?;
+        let codec_hidden = tts_text_embed.broadcast_add(&codec_first6)?;
+
+        let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?.contiguous()?;
+
+        if !icl_mode {
+            let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
+            if let Some(combined) =
+                self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)?
+            {
+                hidden = Tensor::cat(&[&hidden, &combined], 1)?;
+            }
+        }
+
+        self.run_prefill_layers(hidden, kv_caches, attention_mask)
     }
 
     /// Prefill for VoiceDesign model with text-described voice conditioning.
@@ -589,13 +695,16 @@ impl TalkerModel {
         instruct_tokens: &[u32],
         language: Language,
         kv_caches: &mut [AnyKVCache],
+        batch: usize,
+        attention_mask: Option<&Tensor>,
     ) -> Result<(Tensor, Tensor)> {
         use codec_tokens::*;
 
         // Instruct text prefix
-        let instruct_embed = self.get_projected_text_embeddings(instruct_tokens)?;
+        let instruct_embed = self.get_projected_text_embeddings(instruct_tokens)?
+            .broadcast_as((batch, instruct_tokens.len(), self.config.hidden_size))?;
 
-        let role_prefix_hidden = self.build_role_prefix()?;
+        let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec (no speaker): [think, think_bos, lang, think_eos, pad, bos]
         let codec_ids = Tensor::new(
@@ -609,10 +718,12 @@ impl TalkerModel {
             ],
             &self.device,
         )?;
-        let codec_embed = self.codec_embedding.forward(&codec_ids)?.unsqueeze(0)?;
+        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+            .unsqueeze(0)?
+            .broadcast_as((batch, 6, self.config.hidden_size))?;
 
         // 4 × tts_pad + 1 × tts_bos overlaid on first 5 codec tokens
-        let tts_text_embed = self.build_tts_pad_bos(4)?;
+        let tts_text_embed = self.build_tts_pad_bos(4, batch)?;
         let codec_first5 = codec_embed.i((.., ..5, ..))?;
         let codec_hidden = tts_text_embed.add(&codec_first5)?;
 
@@ -620,11 +731,11 @@ impl TalkerModel {
 
         // First text token + codec_bos (index 5)
         let codec_bos_embed = codec_embed.i((.., 5..6, ..))?;
-        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed)? {
+        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
-        self.run_prefill_layers(hidden, kv_caches)
+        self.run_prefill_layers(hidden, kv_caches, attention_mask)
     }
 
     /// Build ICL (in-context learning) prompt for voice cloning.
@@ -710,6 +821,48 @@ impl TalkerModel {
         }
     }
 
+    /// Batched variant of [`Self::build_icl_prompt`] with per-sequence target text and padded trailing context.
+    pub fn build_icl_prompt_batch(
+        &self,
+        target_text_ids_batch: &[Vec<u32>],
+        ref_text_ids: &[u32],
+        ref_codec_embeds: &Tensor, // [1, T_ref, hidden]
+        non_streaming: bool,
+    ) -> Result<(Tensor, Tensor, usize)> {
+        let mut icl_embeds = Vec::with_capacity(target_text_ids_batch.len());
+        let mut trailing_embeds = Vec::with_capacity(target_text_ids_batch.len());
+        let mut max_trailing_len = 0;
+
+        for target_text_ids in target_text_ids_batch {
+            let (icl_embed, trailing_embed) =
+                self.build_icl_prompt(target_text_ids, ref_text_ids, ref_codec_embeds, non_streaming)?;
+            max_trailing_len = max_trailing_len.max(trailing_embed.dim(1)?);
+            icl_embeds.push(icl_embed);
+            trailing_embeds.push(trailing_embed);
+        }
+
+        let icl_embed = Tensor::cat(&icl_embeds, 0)?;
+        let tts_pad_embed = self.get_tts_pad_embed()?;
+        let mut padded_trailing = Vec::with_capacity(trailing_embeds.len());
+
+        for trailing in trailing_embeds {
+            let cur_len = trailing.dim(1)?;
+            if cur_len < max_trailing_len {
+                let padding = tts_pad_embed.broadcast_as((
+                    1,
+                    max_trailing_len - cur_len,
+                    self.config.hidden_size,
+                ))?;
+                padded_trailing.push(Tensor::cat(&[&trailing, &padding], 1)?);
+            } else {
+                padded_trailing.push(trailing);
+            }
+        }
+
+        let trailing = Tensor::cat(&padded_trailing, 0)?;
+        Ok((icl_embed, trailing, max_trailing_len))
+    }
+
     /// Generate step with pre-built input embedding
     ///
     /// This allows the caller to build the full input embedding externally
@@ -738,20 +891,21 @@ impl TalkerModel {
 
     /// Build the role prefix embeddings: text_proj([im_start, assistant, newline]).
     ///
-    /// Returns a `[1, 3, hidden_size]` tensor used at the start of every prefill variant.
-    fn build_role_prefix(&self) -> Result<Tensor> {
+    /// Returns a `[batch, 3, hidden_size]` tensor used at the start of every prefill variant.
+    fn build_role_prefix(&self, batch: usize) -> Result<Tensor> {
         use special_tokens::*;
         let role_prefix_ids = Tensor::new(&[IM_START, ASSISTANT, NEWLINE], &self.device)?;
         let role_prefix_embed = self.text_embedding.forward(&role_prefix_ids)?;
         let role_prefix_embed = role_prefix_embed.unsqueeze(0)?;
-        self.text_projection.forward(&role_prefix_embed)
+        let role_prefix_proj = self.text_projection.forward(&role_prefix_embed)?;
+        Ok(role_prefix_proj.broadcast_as((batch, 3, self.config.hidden_size))?)
     }
 
     /// Build tts_pad (projected, count copies) and tts_bos (projected, 1 copy).
     ///
-    /// Returns a `[1, pad_count + 1, hidden_size]` tensor of
+    /// Returns a `[batch, pad_count + 1, hidden_size]` tensor of
     /// `[tts_pad × pad_count, tts_bos × 1]`.
-    fn build_tts_pad_bos(&self, pad_count: usize) -> Result<Tensor> {
+    fn build_tts_pad_bos(&self, pad_count: usize, batch: usize) -> Result<Tensor> {
         use tts_tokens::*;
         let tts_pad_id = Tensor::new(&[TTS_PAD], &self.device)?;
         let tts_pad_embed = self.text_embedding.forward(&tts_pad_id)?.unsqueeze(0)?;
@@ -762,17 +916,20 @@ impl TalkerModel {
         let tts_bos_proj = self.text_projection.forward(&tts_bos_embed)?;
 
         let tts_pad_expanded =
-            tts_pad_proj.broadcast_as((1, pad_count, self.config.hidden_size))?;
-        Ok(Tensor::cat(&[&tts_pad_expanded, &tts_bos_proj], 1)?)
+            tts_pad_proj.broadcast_as((batch, pad_count, self.config.hidden_size))?;
+        let tts_bos_expanded =
+            tts_bos_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
+        Ok(Tensor::cat(&[&tts_pad_expanded, &tts_bos_expanded], 1)?)
     }
 
     /// Build first text token combined with codec_bos embedding.
     ///
-    /// Returns `Some([1, 1, hidden_size])` if text_tokens is non-empty, `None` otherwise.
+    /// Returns `Some([batch, 1, hidden_size])` if text_tokens is non-empty, `None` otherwise.
     fn build_first_text_combined(
         &self,
         text_tokens: &[u32],
         codec_bos_embed: &Tensor,
+        batch: usize,
     ) -> Result<Option<Tensor>> {
         if text_tokens.is_empty() {
             return Ok(None);
@@ -780,6 +937,28 @@ impl TalkerModel {
         let first_text_id = Tensor::new(&[text_tokens[0]], &self.device)?;
         let first_text_embed = self.text_embedding.forward(&first_text_id)?.unsqueeze(0)?;
         let first_text_proj = self.text_projection.forward(&first_text_embed)?;
+        let first_text_expanded =
+            first_text_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
+        Ok(Some(first_text_expanded.add(codec_bos_embed)?))
+    }
+
+    /// Batched version of [`Self::build_first_text_combined`] using one first token per sequence.
+    fn build_first_text_combined_batch(
+        &self,
+        text_tokens_batch: &[Vec<u32>],
+        codec_bos_embed: &Tensor,
+    ) -> Result<Option<Tensor>> {
+        if text_tokens_batch.is_empty() {
+            return Ok(None);
+        }
+
+        let first_text_ids: Vec<u32> = text_tokens_batch
+            .iter()
+            .map(|tokens| tokens.first().copied().unwrap_or(tts_tokens::TTS_EOS))
+            .collect();
+        let first_text_ids = Tensor::new(first_text_ids.as_slice(), &self.device)?;
+        let first_text_embed = self.text_embedding.forward(&first_text_ids)?;
+        let first_text_proj = self.text_projection.forward(&first_text_embed)?.unsqueeze(1)?;
         Ok(Some(first_text_proj.add(codec_bos_embed)?))
     }
 
@@ -815,22 +994,29 @@ impl TalkerModel {
     ) -> Result<(Tensor, Tensor)> {
         let embed = self.text_embedding.forward(input_ids)?;
         let projected = self.text_projection.forward(&embed)?;
-        self.run_prefill_layers(projected, kv_caches)
+        self.run_prefill_layers(projected, kv_caches, None)
     }
 
-    /// Run prefill through all layers: causal mask → layers → norm → logits.
+    /// Run prefill through all layers: (optional) mask → layers → norm → logits.
     ///
     /// Returns `(hidden_states, logits)` for the full sequence.
     fn run_prefill_layers(
         &self,
         mut hidden: Tensor,
         kv_caches: &mut [AnyKVCache],
+        attention_mask: Option<&Tensor>,
     ) -> Result<(Tensor, Tensor)> {
         let seq_len = hidden.dim(1)?;
-        let mask = self.create_causal_mask(seq_len, 0)?;
+        let dynamic_mask;
+        let mask = if let Some(m) = attention_mask {
+            m
+        } else {
+            dynamic_mask = self.create_causal_mask(seq_len, 0)?;
+            &dynamic_mask
+        };
 
         for (i, layer) in self.layers.iter().enumerate() {
-            hidden = layer.forward(&hidden, &self.rope, Some(&mask), Some(&mut kv_caches[i]), 0)?;
+            hidden = layer.forward(&hidden, &self.rope, Some(mask), Some(&mut kv_caches[i]), 0)?;
         }
 
         hidden = self.norm.forward(&hidden)?;
@@ -889,13 +1075,13 @@ impl TalkerModel {
     }
 
     /// Create new KV caches for generation
-    pub fn new_kv_caches(&self, max_seq: usize) -> Vec<AnyKVCache> {
+    pub fn new_kv_caches(&self, max_seq: usize, batch: usize) -> Vec<AnyKVCache> {
         if (self.device.is_cuda() || self.device.is_metal()) && max_seq > 0 {
             let dtype = self.codec_head.weight().dtype();
             (0..self.config.num_hidden_layers)
                 .map(|_| {
                     PreAllocKVCache::new(
-                        1, // batch
+                        batch,
                         self.config.num_key_value_heads,
                         max_seq,
                         self.config.head_dim,
@@ -927,7 +1113,7 @@ impl TalkerModel {
     pub fn get_codec_embedding_from_tensor(&self, token: &Tensor) -> Result<Tensor> {
         let token = token.flatten_all()?;
         let embed = self.codec_embedding.forward(&token)?;
-        Ok(embed.unsqueeze(0)?) // [1, 1, hidden_size]
+        Ok(embed.unsqueeze(1)?) // [batch, 1, hidden_size]
     }
 
     /// Get config

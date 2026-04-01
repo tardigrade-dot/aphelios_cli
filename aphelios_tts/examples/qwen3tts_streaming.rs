@@ -3,10 +3,9 @@
 //! 合成和播放完全并行，播放几乎不等待合成
 
 use aphelios_core::utils::{base, logger};
-use aphelios_tts::qwen_tts::qwen_tts_v2::SynthesisOptions;
+use aphelios_tts::qwen_tts::qwen_tts::SynthesisOptions;
 use aphelios_tts::{
-    audio::AudioBuffer, audio::AudioPlayer, models::talker::Language,
-    qwen_tts::qwen_tts_v2::Qwen3TTS,
+    audio::AudioBuffer, audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS,
 };
 use std::env;
 use std::time::Instant;

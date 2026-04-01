@@ -36,6 +36,25 @@ pub fn create_causal_mask(seq_len: usize, offset: usize, device: &Device) -> Res
     Ok(Tensor::new(mask.as_slice(), device)?.reshape((1, 1, seq_len, total_len))?)
 }
 
+/// Create a combined causal and padding mask.
+///
+/// `padding_mask` should be `[batch, total_len]` where `1.0` is valid and `0.0` is padding.
+/// Returns a `[batch, 1, seq_len, total_len]` mask.
+pub fn create_combined_mask(padding_mask: &Tensor, offset: usize, device: &Device) -> Result<Tensor> {
+    let (_batch, total_len) = padding_mask.dims2()?;
+    let seq_len = total_len - offset;
+    
+    // 1. Base causal mask: [1, 1, seq_len, total_len]
+    let causal = create_causal_mask(seq_len, offset, device)?;
+    
+    // 2. Padding mask: [batch, 1, 1, total_len] -> [batch, 1, seq_len, total_len]
+    // Values: 1.0 -> 0.0, 0.0 -> NEG_INFINITY
+    let pad = (padding_mask.unsqueeze(1)?.unsqueeze(1)? - 1.0)? * 1e9;
+    
+    // 3. Combined
+    Ok(causal.broadcast_add(&pad?.to_dtype(causal.dtype())?)?)
+}
+
 /// Apply RoPE rotation to a tensor.
 ///
 /// `x` has shape `[batch, heads, seq_len, head_dim]`.
@@ -43,27 +62,32 @@ pub fn create_causal_mask(seq_len: usize, offset: usize, device: &Device) -> Res
 ///
 /// Optimization: avoid unnecessary dtype conversions and broadcasts
 fn apply_rope_rotation(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor> {
-    let (b, h, _seq, d) = x.dims4()?;
+    let (b, h, s, d) = x.dims4()?;
     let x1 = x.narrow(D::Minus1, 0, d / 2)?;
     let x2 = x.narrow(D::Minus1, d / 2, d / 2)?;
 
-    // cos/sin are [seq_len, half_dim], need to broadcast to [batch, heads, seq_len, half_dim]
+    // cos/sin are [seq_len, half_dim], need to broadcast to [batch, heads, seq_len, head_dim]
     let cos_b = cos
         .unsqueeze(0)?
         .unsqueeze(0)?
-        .broadcast_as((b, h, cos.dim(0)?, cos.dim(1)?))?
-        .to_dtype(x.dtype())?;
+        .broadcast_as((b, h, s, d / 2))?
+        .to_dtype(x.dtype())?
+        .contiguous()?;
     let sin_b = sin
         .unsqueeze(0)?
         .unsqueeze(0)?
-        .broadcast_as((b, h, sin.dim(0)?, sin.dim(1)?))?
-        .to_dtype(x.dtype())?;
+        .broadcast_as((b, h, s, d / 2))?
+        .to_dtype(x.dtype())?
+        .contiguous()?;
 
     // Standard RoPE: [x1*cos - x2*sin, x2*cos + x1*sin]
+    let part1 = (x1.mul(&cos_b)? - x2.mul(&sin_b)?)?;
+    let part2 = (x2.mul(&cos_b)? + x1.mul(&sin_b)?)?;
+    
     let rotated = Tensor::cat(
         &[
-            &(x1.mul(&cos_b)? - x2.mul(&sin_b)?)?,
-            &(x2.mul(&cos_b)? + x1.mul(&sin_b)?)?,
+            &part1,
+            &part2,
         ],
         D::Minus1,
     )?;
@@ -345,39 +369,40 @@ impl Attention {
             }
             #[cfg(not(feature = "flash-attn"))]
             unreachable!()
-        } else if *self.use_sdpa.borrow() && q.device().is_metal() && attention_mask.is_none() {
-            // Metal SDPA for decode steps (seq_len=1, no mask needed).
-            // Fused tiled kernel with native GQA; 2-pass for k_seq >= 1024.
-            // Layout: [B, H, S, D] — already in this form after transpose.
-            let q = q.contiguous()?;
-            let k = k.contiguous()?;
-            let v = v.contiguous()?;
-            let attn_output = candle_nn::ops::sdpa(
-                &q,
-                &k,
-                &v,
-                /* mask */ None,
-                /* causal */ true,
-                self.scale as f32,
-                /* softcapping */ 1.0,
-            )?;
-            attn_output.transpose(1, 2)?.reshape((
-                batch,
-                seq_len,
-                self.num_heads * self.head_dim,
-            ))?
         } else {
-            // CPU/CUDA-without-flash fallback: manual scaled dot-product attention
             let k = self.repeat_kv(&k)?;
             let v = self.repeat_kv(&v)?;
-            let q = q.contiguous()?;
-            let k = k.contiguous()?;
-            let v = v.contiguous()?;
-            let attn_weights =
-                (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * self.scale)?;
+            
+            if *self.use_sdpa.borrow() && q.device().is_metal() && attention_mask.is_none() {
+                // Metal SDPA for decode steps (seq_len=1, no mask needed).
+                // Fused tiled kernel with native GQA; 2-pass for k_seq >= 1024.
+                // Layout: [B, H, S, D] — already in this form after transpose.
+                let q = q.contiguous()?;
+                let k = k.contiguous()?;
+                let v = v.contiguous()?;
+                let attn_output = candle_nn::ops::sdpa(
+                    &q,
+                    &k,
+                    &v,
+                    /* mask */ None,
+                    /* causal */ true,
+                    self.scale as f32,
+                    /* softcapping */ 1.0,
+                )?;
+                attn_output.transpose(1, 2)?.reshape((
+                    batch,
+                    seq_len,
+                    self.num_heads * self.head_dim,
+                ))?
+            } else {
+                // CPU/CUDA-without-flash fallback: manual scaled dot-product attention
+                let q = q.contiguous()?;
+                let k = k.contiguous()?;
+                let attn_weights = (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * self.scale)?;
             let attn_weights = if let Some(mask) = attention_mask {
                 let mask = mask.to_dtype(attn_weights.dtype())?;
-                attn_weights.broadcast_add(&mask)?
+                let mask = mask.broadcast_as(attn_weights.shape())?;
+                attn_weights.add(&mask)?
             } else {
                 attn_weights
             };
@@ -388,7 +413,8 @@ impl Attention {
                 seq_len,
                 self.num_heads * self.head_dim,
             ))?
-        };
+        }
+    };
 
         Ok(self.o_proj.forward(&attn_output)?)
     }

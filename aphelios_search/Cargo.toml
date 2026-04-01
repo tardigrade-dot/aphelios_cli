@@ -42,7 +42,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-qwen_tts = { workspace = true }
 usearch = { workspace = true }
 
 fastembed = { workspace = true }
@@ -69,5 +68,5 @@ metal = [
     "candle-transformers/metal",
     "ort/coreml",
     "aphelios_ocr/metal",
-    "aphelios_core/metal"
-    ]
+    "aphelios_core/metal",
+]
