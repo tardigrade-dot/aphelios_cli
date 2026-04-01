@@ -48,6 +48,9 @@ fn main() -> Result<()> {
 
     // 显示主菜单
     let main_menu = MainMenu::new()?;
+    // 设置版本号（从 Cargo.toml 获取）
+    main_menu.set_app_version(env!("CARGO_PKG_VERSION").into());
+
     let main_menu_weak = main_menu.as_weak();
 
     main_menu.on_open_ocr({

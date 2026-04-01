@@ -114,7 +114,7 @@ chinese-number = "0.7.8"
 
 # 3. 统一管理包信息（可选，Rust 1.64+ 支持）
 [workspace.package]
-version = "0.1.0"
+version = "0.0.3"
 edition = "2021"
 authors = ["Your Name <email@example.com>"]
 license = "MIT"

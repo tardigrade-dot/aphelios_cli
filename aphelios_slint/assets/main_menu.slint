@@ -8,6 +8,8 @@ export component MainMenu inherits Window {
     background: #eef1f6;
     default-font-family: "PingFang SC";
 
+    in property <string> app_version;
+
     callback open_ocr();
     callback open_asr();
     callback open_tts();
@@ -144,7 +146,7 @@ export component MainMenu inherits Window {
                 padding-top: 14px;
 
                 Text {
-                    text: "© 2026 Aphelios CLI · v1.2";
+                    text: "© 2026 Aphelios · v" + root.app_version;
                     font-size: 11px;
                     color: #b0bec5;
                     vertical-alignment: center;
