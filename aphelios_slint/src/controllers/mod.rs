@@ -1,10 +1,11 @@
+pub mod demucs;
 pub mod ocr;
-pub mod tts;
 pub mod search;
+pub mod tts;
 
-use std::sync::{Arc, Mutex};
-use aphelios_core::traits::{OcrEngine, TtsEngine, SearchEngine};
 use crate::config::AppSettings;
+use aphelios_core::traits::{OcrEngine, SearchEngine, TtsEngine};
+use std::sync::{Arc, Mutex};
 
 /// 应用全局上下文，持有所有服务引擎和配置
 pub struct AppContext {

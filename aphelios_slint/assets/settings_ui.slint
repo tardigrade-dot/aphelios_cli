@@ -2,7 +2,7 @@ import { Button, LineEdit } from "std-widgets.slint";
 
 export component SettingsWindow inherits Window {
     width: 680px;
-    height: 720px;
+    height: 780px;
     title: "设置";
     background: #f6f6f6;
     default-font-family: "PingFang SC";
@@ -13,7 +13,8 @@ export component SettingsWindow inherits Window {
 
     // ASR 语音识别设置
     in-out property <string> asr_model_path;
-    in-out property <string> asr_output_path;
+    in-out property <string> asr_aligner_model_path;
+    in-out property <string> asr_vad_model_path;
 
     // SRT 文本对齐设置
     in-out property <string> srt_model_path;
@@ -26,16 +27,24 @@ export component SettingsWindow inherits Window {
     in-out property <string> tts_ref_audio_path;
     in-out property <string> tts_ref_text;
 
+    // Demucs 人声分离设置
+    in-out property <string> demucs_model_path;
+
+    // 保存状态
+    in-out property <string> save_status_message: "";
+
     callback go_back();
     callback save_settings();
     callback select_ocr_model_path();
     callback select_ocr_output_dir();
     callback select_asr_model_path();
-    callback select_asr_output_path();
+    callback select_asr_aligner_model_path();
+    callback select_asr_vad_model_path();
     callback select_srt_model_path();
     callback select_tts_model_path();
     callback select_tts_output_path();
     callback select_tts_ref_audio();
+    callback select_demucs_model_path();
 
     VerticalLayout {
         padding: 20px;
@@ -61,12 +70,25 @@ export component SettingsWindow inherits Window {
                 vertical-alignment: center;
             }
 
-            Button {
-                text: "💾 保存设置";
-                width: 90px;
-                primary: true;
-                clicked => {
-                    root.save_settings();
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: center;
+
+                if save_status_message != "": Text {
+                    text: save_status_message;
+                    font-size: 12px;
+                    color: #52c41a;
+                    vertical-alignment: center;
+                }
+
+                Button {
+                    text: "💾 保存设置";
+                    width: 90px;
+                    primary: true;
+                    enabled: save_status_message == "";
+                    clicked => {
+                        root.save_settings();
+                    }
                 }
             }
         }
@@ -100,6 +122,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -123,6 +146,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -159,21 +183,70 @@ export component SettingsWindow inherits Window {
                         height: 28px;
                         spacing: 10px;
                         Text {
-                            text: "输出路径";
+                            text: "ASR模型";
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
-                            text <=> root.asr_output_path;
+                            text <=> root.asr_model_path;
                         }
 
                         Button {
                             text: "选择";
                             width: 50px;
                             clicked => {
-                                root.select_asr_output_path();
+                                root.select_asr_model_path();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "Aligner模型";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: #1a2535;
+                        }
+
+                        LineEdit {
+                            text <=> root.asr_aligner_model_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_asr_aligner_model_path();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "VAD模型";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: #1a2535;
+                        }
+
+                        LineEdit {
+                            text <=> root.asr_vad_model_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_asr_vad_model_path();
                             }
                         }
                     }
@@ -203,6 +276,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -226,6 +300,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -236,7 +311,7 @@ export component SettingsWindow inherits Window {
                         Text {
                             text: "~";
                             vertical-alignment: center;
-                            color: #999;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -247,7 +322,7 @@ export component SettingsWindow inherits Window {
                         Text {
                             text: "字";
                             vertical-alignment: center;
-                            color: #999;
+                            color: #1a2535;
                         }
                     }
                 }
@@ -276,6 +351,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -299,6 +375,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -320,6 +397,7 @@ export component SettingsWindow inherits Window {
                         Text {
                             text: "参考音频";
                             width: 70px;
+                            color: #1a2535;
                             vertical-alignment: center;
                             font-size: 12px;
                         }
@@ -345,6 +423,7 @@ export component SettingsWindow inherits Window {
                             width: 70px;
                             vertical-alignment: center;
                             font-size: 12px;
+                            color: #1a2535;
                         }
 
                         LineEdit {
@@ -354,7 +433,48 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            // 5. 通用设置卡片
+            // 5. Demucs 人声分离卡片
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "🎵 Demucs 人声分离";
+                        font-weight: 700;
+                        color: #333;
+                    }
+
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 10px;
+                        Text {
+                            text: "模型路径";
+                            width: 70px;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: #1a2535;
+                        }
+
+                        LineEdit {
+                            text <=> root.demucs_model_path;
+                        }
+
+                        Button {
+                            text: "选择";
+                            width: 50px;
+                            clicked => {
+                                root.select_demucs_model_path();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. 通用设置卡片
             Rectangle {
                 background: #ffffff;
                 border-radius: 8px;

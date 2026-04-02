@@ -1,3 +1,5 @@
+pub mod harrier_embed;
+
 use anyhow::Result;
 use glob::glob;
 use rusqlite::{params, Connection};

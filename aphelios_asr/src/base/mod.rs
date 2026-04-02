@@ -1,3 +1,5 @@
+pub mod qwen3llm;
+
 #[derive(Debug, Clone)]
 pub struct VadSegment {
     pub start: f64,

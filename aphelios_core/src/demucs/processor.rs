@@ -5,6 +5,7 @@ use ort::session::Session;
 use ort::value::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct TrackSpec {
@@ -213,6 +214,7 @@ impl DemucsProcessor {
         &self,
         left_channel: &[f32],
         right_channel: &[f32],
+        progress_callback: Option<Arc<dyn Fn(f32) + Send + Sync>>,
     ) -> Result<SeparatedTracks, Box<dyn std::error::Error>> {
         let session_mutex = self.session.as_ref().ok_or("Model not loaded")?;
         let mut session = session_mutex
@@ -226,7 +228,7 @@ impl DemucsProcessor {
             .ceil() as usize)
             + 1;
 
-        eprintln!(
+        info!(
             "[Demucs] Total samples: {}, stride: {}, segments: {}",
             total_samples, stride, num_segments
         );
@@ -427,16 +429,21 @@ impl DemucsProcessor {
             // 可以在这里添加进度回调
             segment_idx += 1;
             let seg_elapsed = seg_start.elapsed().as_millis();
-            eprintln!(
+            info!(
                 "[Demucs] Segment {}/{} completed in {}ms",
                 segment_idx, num_segments, seg_elapsed
             );
+
+            // 调用进度回调
+            if let Some(ref cb) = progress_callback {
+                cb(segment_idx as f32 / num_segments as f32);
+            }
 
             start += stride;
         }
 
         let total_elapsed = total_start.elapsed().as_secs();
-        eprintln!("[Demucs] Total separation time: {}s", total_elapsed);
+        info!("[Demucs] Total separation time: {}s", total_elapsed);
 
         // 归一化输出
         for t in 0..Constants::TRACKS.len() {

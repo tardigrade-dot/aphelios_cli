@@ -6,6 +6,7 @@ include!(concat!(env!("OUT_DIR"), "/tts_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/settings_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/book_search_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/text_align_ui.rs"));
+include!(concat!(env!("OUT_DIR"), "/demucs_ui.rs"));
 
 mod config;
 mod controllers;
@@ -15,7 +16,9 @@ mod services;
 use anyhow::Result;
 use aphelios_core::traits::{OcrEngine, SearchEngine, TtsEngine};
 use config::AppSettings;
-use controllers::{ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext};
+use controllers::{
+    demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
+};
 use slint::{ComponentHandle, Model, ModelRc, PlatformError, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -42,9 +45,6 @@ fn main() -> Result<()> {
         search_engine,
         settings,
     ));
-
-    // 设置 macOS 菜单栏 (仅 macOS)
-    setup_macos_menu();
 
     // 显示主菜单
     let main_menu = MainMenu::new()?;
@@ -98,6 +98,15 @@ fn main() -> Result<()> {
         }
     });
 
+    main_menu.on_open_demucs({
+        let w = main_menu_weak.clone();
+        let ctx = ctx.clone();
+        move || {
+            let _ = w.upgrade();
+            let _ = run_demucs_ui(ctx.clone());
+        }
+    });
+
     main_menu.on_open_settings({
         let w = main_menu_weak.clone();
         let ctx = ctx.clone();
@@ -119,18 +128,6 @@ fn main() -> Result<()> {
 
     main_menu.run()?;
     Ok(())
-}
-
-/// 设置 macOS 菜单栏
-#[cfg(target_os = "macos")]
-fn setup_macos_menu() {
-    // 使用 slint 的内置菜单支持
-    // Slint 会自动在 macOS 上创建应用程序菜单
-}
-
-#[cfg(not(target_os = "macos"))]
-fn setup_macos_menu() {
-    // 非 macOS 平台不做任何操作
 }
 
 // ----------------------------------------------------------------------------
@@ -327,8 +324,14 @@ fn run_asr_ui(ctx: Arc<AppContext>) -> Result<()> {
 
     // 加载保存的设置
     let settings = ctx.get_settings();
-    if let Some(output_path) = settings.asr_output_path {
-        window.set_output_path(output_path.into());
+    if let Some(model_path) = settings.asr_model_path {
+        window.set_asr_model_path(model_path.into());
+    }
+    if let Some(aligner_model_path) = settings.asr_aligner_model_path {
+        window.set_aligner_model_path(aligner_model_path.into());
+    }
+    if let Some(vad_model_path) = settings.asr_vad_model_path {
+        window.set_vad_model_path(vad_model_path.into());
     }
 
     window.on_go_back({
@@ -338,7 +341,9 @@ fn run_asr_ui(ctx: Arc<AppContext>) -> Result<()> {
             if let Some(win) = w.upgrade() {
                 // 保存设置
                 let mut s = ctx.get_settings();
-                s.asr_output_path = Some(win.get_output_path().to_string());
+                s.asr_model_path = Some(win.get_asr_model_path().to_string());
+                s.asr_aligner_model_path = Some(win.get_aligner_model_path().to_string());
+                s.asr_vad_model_path = Some(win.get_vad_model_path().to_string());
                 ctx.save_settings(s);
                 let _: Result<(), PlatformError> = win.hide();
             }
@@ -354,7 +359,14 @@ fn run_asr_ui(ctx: Arc<AppContext>) -> Result<()> {
                     .pick_file()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
-                win.set_audio_file_path(path.into());
+                win.set_audio_file_path(path.clone().into());
+
+                // Auto-set output path to same location with .srt extension
+                if !path.is_empty() {
+                    let audio_path_buf = std::path::PathBuf::from(&path);
+                    let srt_path = audio_path_buf.with_extension("srt");
+                    win.set_output_path(srt_path.to_string_lossy().to_string().into());
+                }
             }
         }
     });
@@ -413,22 +425,80 @@ fn run_asr_ui(ctx: Arc<AppContext>) -> Result<()> {
         let ctx = ctx.clone();
         move || {
             let Some(win) = w.upgrade() else { return };
+            let asr_model: String = win.get_asr_model_path().to_string();
+            let aligner_model: String = win.get_aligner_model_path().to_string();
+            let vad_model: String = win.get_vad_model_path().to_string();
             let audio_file: String = win.get_audio_file_path().to_string();
             let output_path: String = win.get_output_path().to_string();
+            let language: String = win.get_language().to_string();
 
             // 保存设置
             let mut s = ctx.get_settings();
-            s.asr_output_path = Some(output_path.clone());
+            s.asr_model_path = Some(asr_model.clone());
+            s.asr_aligner_model_path = Some(aligner_model.clone());
+            s.asr_vad_model_path = Some(vad_model.clone());
             ctx.save_settings(s);
 
             win.set_is_running(true);
+            win.set_progress(0.3);
             win.set_status_message("ASR 识别中...".into());
-            lm.push(format!("🎤 开始 ASR 识别：{}", audio_file).into());
+            lm.push("=== Aphelios Qwen3 ASR 语音识别 ===".into());
+            lm.push(format!("🎤 音频文件：{}", audio_file).into());
+            lm.push(format!("🤖 ASR模型：{}", asr_model).into());
+            lm.push(format!("🔧 Aligner模型：{}", aligner_model).into());
+            lm.push(format!("🔊 VAD模型：{}", vad_model).into());
+            lm.push(format!("🌐 语言：{}", language).into());
+            lm.push(format!("💾 输出：{}", output_path).into());
             win.invoke_scroll_to_bottom();
 
+            let w2 = w.clone();
             std::thread::spawn(move || {
-                info!("Starting ASR: input={}", audio_file);
-                // ASR logic currently disabled in original code
+                info!(
+                    "Starting ASR: input={}, asr_model={}, aligner_model={}, vad_model={}",
+                    audio_file, asr_model, aligner_model, vad_model
+                );
+
+                let result = aphelios_asr::qwenasr::qwen3asr_with_vad(
+                    &asr_model,
+                    &aligner_model,
+                    &vad_model,
+                    &audio_file,
+                    &language,
+                );
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(win) = w2.upgrade() else { return };
+                    win.set_is_running(false);
+
+                    match result {
+                        Ok(items) => {
+                            info!("ASR completed with {} items", items.len());
+                            win.set_progress(1.0);
+                            win.set_status_message("识别完成!".into());
+                            let lm = win.get_log_messages();
+                            if let Some(vm) = lm.as_any().downcast_ref::<VecModel<SharedString>>() {
+                                vm.push(format!("✅ 识别完成！共 {} 个词/字", items.len()).into());
+                            }
+
+                            // 读取 SRT 文件用于预览
+                            if !output_path.is_empty() {
+                                if let Ok(content) = std::fs::read_to_string(&output_path) {
+                                    win.set_transcription_result(content.into());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("ASR failed: {}", e);
+                            win.set_progress(0.0);
+                            win.set_status_message("识别失败".into());
+                            let lm = win.get_log_messages();
+                            if let Some(vm) = lm.as_any().downcast_ref::<VecModel<SharedString>>() {
+                                vm.push(format!("❌ 识别失败：{}", e).into());
+                            }
+                        }
+                    }
+                    win.invoke_scroll_to_bottom();
+                });
             });
         }
     });
@@ -448,8 +518,14 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
     if let Some(output_dir) = settings.ocr_output_dir {
         window.set_ocr_output_dir(output_dir.into());
     }
-    if let Some(output_path) = settings.asr_output_path {
-        window.set_asr_output_path(output_path.into());
+    if let Some(model_path) = settings.asr_model_path {
+        window.set_asr_model_path(model_path.into());
+    }
+    if let Some(aligner_model_path) = settings.asr_aligner_model_path {
+        window.set_asr_aligner_model_path(aligner_model_path.into());
+    }
+    if let Some(vad_model_path) = settings.asr_vad_model_path {
+        window.set_asr_vad_model_path(vad_model_path.into());
     }
     if let Some(model_path) = settings.srt_model_path {
         window.set_srt_model_path(model_path.into());
@@ -472,6 +548,9 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
     if let Some(ref_text) = settings.tts_ref_text {
         window.set_tts_ref_text(ref_text.into());
     }
+    if let Some(model_path) = settings.demucs_model_path {
+        window.set_demucs_model_path(model_path.into());
+    }
 
     let window_weak = window.as_weak();
 
@@ -479,24 +558,45 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
         let w = window_weak.clone();
         let ctx = ctx.clone();
         move || {
-            if let Some(win) = w.upgrade() {
-                // 保存设置
-                let mut s = ctx.get_settings();
-                s.ocr_model_path = Some(win.get_ocr_model_path().to_string());
-                s.ocr_output_dir = Some(win.get_ocr_output_dir().to_string());
-                s.asr_output_path = Some(win.get_asr_output_path().to_string());
-                s.srt_model_path = Some(win.get_srt_model_path().to_string());
-                s.srt_min_segment_length =
-                    Some(win.get_srt_min_segment_length().parse().unwrap_or(80));
-                s.srt_max_segment_length =
-                    Some(win.get_srt_max_segment_length().parse().unwrap_or(120));
-                s.tts_model_path = Some(win.get_tts_model_path().to_string());
-                s.tts_output_path = Some(win.get_tts_output_path().to_string());
-                s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
-                s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
-                ctx.save_settings(s);
-                let _: Result<(), PlatformError> = win.hide();
-            }
+            let Some(win) = w.upgrade() else { return };
+
+            win.set_save_status_message("保存中...".into());
+
+            // 保存设置
+            let mut s = ctx.get_settings();
+            s.ocr_model_path = Some(win.get_ocr_model_path().to_string());
+            s.ocr_output_dir = Some(win.get_ocr_output_dir().to_string());
+            s.asr_model_path = Some(win.get_asr_model_path().to_string());
+            s.asr_aligner_model_path = Some(win.get_asr_aligner_model_path().to_string());
+            s.asr_vad_model_path = Some(win.get_asr_vad_model_path().to_string());
+            s.srt_model_path = Some(win.get_srt_model_path().to_string());
+            s.srt_min_segment_length = Some(win.get_srt_min_segment_length().parse().unwrap_or(80));
+            s.srt_max_segment_length =
+                Some(win.get_srt_max_segment_length().parse().unwrap_or(120));
+            s.tts_model_path = Some(win.get_tts_model_path().to_string());
+            s.tts_output_path = Some(win.get_tts_output_path().to_string());
+            s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
+            s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
+            s.demucs_model_path = Some(win.get_demucs_model_path().to_string());
+            ctx.save_settings(s);
+
+            // 短暂显示保存完成后再关闭
+            let w2 = w.clone();
+            let w3 = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w2.upgrade() {
+                        win.set_save_status_message("保存完成".into());
+                    }
+                });
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w3.upgrade() {
+                        let _: Result<(), PlatformError> = win.hide();
+                    }
+                });
+            });
         }
     });
 
@@ -504,23 +604,95 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
         let w = window_weak.clone();
         let ctx = ctx.clone();
         move || {
-            if let Some(win) = w.upgrade() {
-                // 保存设置
-                let mut s = ctx.get_settings();
-                s.ocr_model_path = Some(win.get_ocr_model_path().to_string());
-                s.ocr_output_dir = Some(win.get_ocr_output_dir().to_string());
-                s.asr_output_path = Some(win.get_asr_output_path().to_string());
-                s.srt_model_path = Some(win.get_srt_model_path().to_string());
-                s.srt_min_segment_length =
-                    Some(win.get_srt_min_segment_length().parse().unwrap_or(80));
-                s.srt_max_segment_length =
-                    Some(win.get_srt_max_segment_length().parse().unwrap_or(120));
-                s.tts_model_path = Some(win.get_tts_model_path().to_string());
-                s.tts_output_path = Some(win.get_tts_output_path().to_string());
-                s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
-                s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
-                ctx.save_settings(s);
-            }
+            let Some(win) = w.upgrade() else { return };
+
+            // 显示保存中状态
+            win.set_save_status_message("保存中...".into());
+
+            // 保存设置
+            let mut s = ctx.get_settings();
+            s.ocr_model_path = Some(win.get_ocr_model_path().to_string());
+            s.ocr_output_dir = Some(win.get_ocr_output_dir().to_string());
+            s.asr_model_path = Some(win.get_asr_model_path().to_string());
+            s.asr_aligner_model_path = Some(win.get_asr_aligner_model_path().to_string());
+            s.asr_vad_model_path = Some(win.get_asr_vad_model_path().to_string());
+            s.srt_model_path = Some(win.get_srt_model_path().to_string());
+            s.srt_min_segment_length = Some(win.get_srt_min_segment_length().parse().unwrap_or(80));
+            s.srt_max_segment_length =
+                Some(win.get_srt_max_segment_length().parse().unwrap_or(120));
+            s.tts_model_path = Some(win.get_tts_model_path().to_string());
+            s.tts_output_path = Some(win.get_tts_output_path().to_string());
+            s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
+            s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
+            s.demucs_model_path = Some(win.get_demucs_model_path().to_string());
+            ctx.save_settings(s);
+
+            // 0.3秒后显示保存完成
+            let w2 = w.clone();
+            let w3 = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w2.upgrade() {
+                        win.set_save_status_message("保存完成".into());
+                    }
+                });
+                // 再过0.3秒后清除状态
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w3.upgrade() {
+                        win.set_save_status_message("".into());
+                    }
+                });
+            });
+        }
+    });
+
+    window.on_save_settings({
+        let w = window_weak.clone();
+        let ctx = ctx.clone();
+        move || {
+            let Some(win) = w.upgrade() else { return };
+
+            // 显示保存中状态
+            win.set_save_status_message("保存中...".into());
+
+            // 保存设置
+            let mut s = ctx.get_settings();
+            s.ocr_model_path = Some(win.get_ocr_model_path().to_string());
+            s.ocr_output_dir = Some(win.get_ocr_output_dir().to_string());
+            s.asr_model_path = Some(win.get_asr_model_path().to_string());
+            s.asr_aligner_model_path = Some(win.get_asr_aligner_model_path().to_string());
+            s.asr_vad_model_path = Some(win.get_asr_vad_model_path().to_string());
+            s.srt_model_path = Some(win.get_srt_model_path().to_string());
+            s.srt_min_segment_length = Some(win.get_srt_min_segment_length().parse().unwrap_or(80));
+            s.srt_max_segment_length =
+                Some(win.get_srt_max_segment_length().parse().unwrap_or(120));
+            s.tts_model_path = Some(win.get_tts_model_path().to_string());
+            s.tts_output_path = Some(win.get_tts_output_path().to_string());
+            s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
+            s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
+            s.demucs_model_path = Some(win.get_demucs_model_path().to_string());
+            ctx.save_settings(s);
+
+            // 0.3秒后显示保存完成
+            let w2 = w.clone();
+            let w3 = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w2.upgrade() {
+                        win.set_save_status_message("保存完成".into());
+                    }
+                });
+                // 再过0.3秒后清除状态
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(win) = w3.upgrade() {
+                        win.set_save_status_message("".into());
+                    }
+                });
+            });
         }
     });
 
@@ -550,16 +722,41 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
         }
     });
 
-    window.on_select_asr_output_path({
+    window.on_select_asr_model_path({
         let w = window_weak.clone();
         move || {
             if let Some(win) = w.upgrade() {
                 let path = rfd::FileDialog::new()
-                    .add_filter("文本文件", &["txt"])
-                    .save_file()
+                    .pick_folder()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
-                win.set_asr_output_path(path.into());
+                win.set_asr_model_path(path.into());
+            }
+        }
+    });
+
+    window.on_select_asr_aligner_model_path({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_asr_aligner_model_path(path.into());
+            }
+        }
+    });
+
+    window.on_select_asr_vad_model_path({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_asr_vad_model_path(path.into());
             }
         }
     });
@@ -614,6 +811,19 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
                 win.set_tts_ref_audio_path(path.into());
+            }
+        }
+    });
+
+    window.on_select_demucs_model_path({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_demucs_model_path(path.into());
             }
         }
     });
@@ -1204,6 +1414,209 @@ fn run_text_align_ui(ctx: Arc<AppContext>) -> Result<()> {
                 lm.push("⏹️ 已停止".into());
                 win.invoke_scroll_to_bottom();
             }
+        }
+    });
+
+    window.run()?;
+    Ok(())
+}
+
+fn run_demucs_ui(ctx: Arc<AppContext>) -> Result<()> {
+    let window = DemucsWindow::new()?;
+
+    // 加载保存的设置
+    let settings = ctx.get_settings();
+    if let Some(model_path) = settings.demucs_model_path {
+        window.set_model_path(model_path.into());
+    }
+
+    let window_weak = window.as_weak();
+    let logic = Arc::new(DemucsLogic::new(ctx.clone()));
+
+    window.on_go_back({
+        let w = window_weak.clone();
+        let ctx = ctx.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                // 保存设置
+                let mut s = ctx.get_settings();
+                s.demucs_model_path = Some(win.get_model_path().to_string());
+                ctx.save_settings(s);
+                let _: Result<(), PlatformError> = win.hide();
+            }
+        }
+    });
+
+    window.on_select_audio_file({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .add_filter("音频文件", &["wav", "mp3", "flac", "ogg", "m4a"])
+                    .pick_file()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_audio_file_path(path.into());
+            }
+        }
+    });
+
+    window.on_select_model_path({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_model_path(path.into());
+            }
+        }
+    });
+
+    window.on_select_output_dir({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_output_dir(path.into());
+            }
+        }
+    });
+
+    window.on_toggle_separation_mode({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let current = win.get_separation_mode().to_string();
+                let new_mode = if current == "vocals_instrumental" {
+                    "four_stem"
+                } else {
+                    "vocals_instrumental"
+                };
+                win.set_separation_mode(new_mode.into());
+            }
+        }
+    });
+
+    let log_model: Rc<VecModel<SharedString>> = Rc::new(VecModel::default());
+    window.set_log_messages(ModelRc::from(log_model.clone()));
+
+    // 订阅全局日志
+    let mut log_rx = logger::subscribe_logs();
+    let w_weak = window.as_weak();
+    std::thread::spawn(move || {
+        while let Ok(msg) = log_rx.blocking_recv() {
+            let _ = slint::invoke_from_event_loop({
+                let w = w_weak.clone();
+                let msg_clone = msg.clone();
+                move || {
+                    if let Some(win) = w.upgrade() {
+                        let log_model = win.get_log_messages();
+                        if let Some(vm) =
+                            log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                        {
+                            vm.push(msg_clone.into());
+                            if vm.row_count() > MAX_LOG_LINES {
+                                vm.remove(0);
+                            }
+                            win.invoke_scroll_to_bottom();
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    // 添加初始日志
+    log_model.push("=== Aphelios Demucs 人声分离 ===".into());
+    log_model.push("就绪，请选择音频文件开始分离".into());
+    window.invoke_scroll_to_bottom();
+
+    window.on_start_separation({
+        let w = window_weak.clone();
+        let lm = log_model.clone();
+        let logic = logic.clone();
+        move || {
+            let Some(win) = w.upgrade() else { return };
+
+            let audio_file: String = win.get_audio_file_path().to_string();
+            let model_path: String = win.get_model_path().to_string();
+            let output_dir: String = win.get_output_dir().to_string();
+            let separation_mode: String = win.get_separation_mode().to_string();
+
+            // 如果输出目录为空，使用输入音频的同路径
+            let actual_output = if output_dir.is_empty() {
+                std::path::Path::new(&audio_file)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| ".".to_string())
+            } else {
+                output_dir.clone()
+            };
+
+            win.set_is_running(true);
+            win.set_status_message("分离执行中...".into());
+
+            // 添加开始日志
+            lm.push(format!("🎵 开始 Demucs 分离：{}", audio_file).into());
+            lm.push(format!("📂 输出目录：{}", actual_output).into());
+            lm.push(format!("🤖 模型路径：{}", model_path).into());
+            lm.push(format!("🔧 分离模式：{}", separation_mode).into());
+            lm.push("⏳ 正在加载模型并分离...".into());
+
+            let w2 = w.clone();
+            let w3 = w.clone();
+            logic.start_separation(
+                audio_file,
+                model_path,
+                output_dir,
+                separation_mode,
+                move |progress| {
+                    let w2_clone = w2.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(win) = w2_clone.upgrade() {
+                            win.set_progress(progress);
+                        }
+                    });
+                },
+                move |result| {
+                    let w3_clone = w3.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(win) = w3_clone.upgrade() else {
+                            return;
+                        };
+                        match result {
+                            Ok(()) => {
+                                info!("Demucs separation completed");
+                                let log_model = win.get_log_messages();
+                                if let Some(vm) =
+                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                {
+                                    vm.push("✅ 分离完成！文件已保存到输出目录".into());
+                                    win.invoke_scroll_to_bottom();
+                                }
+                                win.set_status_message("分离完成!".into());
+                            }
+                            Err(e) => {
+                                error!("Demucs separation failed: {}", e);
+                                let log_model = win.get_log_messages();
+                                if let Some(vm) =
+                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                {
+                                    vm.push(format!("❌ 分离失败：{}", e).into());
+                                    win.invoke_scroll_to_bottom();
+                                }
+                                win.set_status_message("分离失败".into());
+                            }
+                        }
+                        win.set_is_running(false);
+                    });
+                },
+            );
         }
     });
 

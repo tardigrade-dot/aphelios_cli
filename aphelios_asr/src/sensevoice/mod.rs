@@ -129,8 +129,9 @@ pub fn sensevoice_asr(
 
     let encoder_path = PathBuf::from(sensevoice_model_path).join("model.int8.onnx");
     let tokens_path = PathBuf::from(sensevoice_model_path).join("tokens.txt");
+    let vad_model_path = PathBuf::from(sensevoice_model_path).join("vad-model.onnx");
 
-    if !encoder_path.exists() || !tokens_path.exists() {
+    if !encoder_path.exists() || !tokens_path.exists() || !vad_model_path.exists() {
         error!("model/resource files missing in snapshot. Please check repository contents.");
     }
 
@@ -143,7 +144,6 @@ pub fn sensevoice_asr(
         sense_voice_config.vad_speech_pad_ms,
         sense_voice_config.vad_merge_gap_ms,
     );
-    let vad_model_path = PathBuf::from(sensevoice_model_path).join("vad-model.onnx");
     let mut silero_vad = SileroVad::new(
         &vad_model_path,
         fe_cfg.sample_rate,

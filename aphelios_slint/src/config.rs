@@ -11,7 +11,9 @@ pub struct AppSettings {
     pub ocr_output_dir: Option<String>,
 
     // ASR 设置 (语音识别)
-    pub asr_output_path: Option<String>,
+    pub asr_model_path: Option<String>,
+    pub asr_aligner_model_path: Option<String>,
+    pub asr_vad_model_path: Option<String>,
 
     // SRT 设置 (文本对齐)
     pub srt_model_path: Option<String>,
@@ -23,6 +25,11 @@ pub struct AppSettings {
     pub tts_output_path: Option<String>,
     pub tts_ref_audio_path: Option<String>,
     pub tts_ref_text: Option<String>,
+
+    // Demucs 人声分离设置
+    pub demucs_model_path: Option<String>,
+    pub demucs_output_dir: Option<String>,
+    pub demucs_separation_mode: Option<String>,
 
     // 通用设置
     pub window_width: Option<i32>,
@@ -98,14 +105,6 @@ impl AppSettings {
         let _ = self.save();
     }
 
-    /// 更新并保存 ASR 设置
-    pub fn update_asr_settings(&mut self, output_path: Option<&str>) {
-        if let Some(path) = output_path {
-            self.asr_output_path = Some(path.to_string());
-        }
-        let _ = self.save();
-    }
-
     /// 更新并保存 SRT 设置
     pub fn update_srt_settings(
         &mut self,
@@ -121,12 +120,30 @@ impl AppSettings {
         let _ = self.save();
     }
 
+    /// 更新并保存 Demucs 设置
+    pub fn update_demucs_settings(
+        &mut self,
+        model_path: Option<&str>,
+        output_dir: Option<&str>,
+        separation_mode: Option<&str>,
+    ) {
+        if let Some(path) = model_path {
+            self.demucs_model_path = Some(path.to_string());
+        }
+        if let Some(dir) = output_dir {
+            self.demucs_output_dir = Some(dir.to_string());
+        }
+        if let Some(mode) = separation_mode {
+            self.demucs_separation_mode = Some(mode.to_string());
+        }
+        let _ = self.save();
+    }
+
     /// 更新所有设置
     pub fn update_all_settings(
         &mut self,
         ocr_model_path: Option<&str>,
         ocr_output_dir: Option<&str>,
-        asr_output_path: Option<&str>,
         srt_model_path: Option<&str>,
         srt_min_segment_length: Option<i32>,
         srt_max_segment_length: Option<i32>,
@@ -134,6 +151,9 @@ impl AppSettings {
         tts_output_path: Option<&str>,
         tts_ref_audio_path: Option<&str>,
         tts_ref_text: Option<&str>,
+        demucs_model_path: Option<&str>,
+        demucs_output_dir: Option<&str>,
+        demucs_separation_mode: Option<&str>,
         window_width: Option<i32>,
         window_height: Option<i32>,
     ) {
@@ -142,9 +162,6 @@ impl AppSettings {
         }
         if let Some(dir) = ocr_output_dir {
             self.ocr_output_dir = Some(dir.to_string());
-        }
-        if let Some(path) = asr_output_path {
-            self.asr_output_path = Some(path.to_string());
         }
         if let Some(path) = srt_model_path {
             self.srt_model_path = Some(path.to_string());
@@ -162,6 +179,15 @@ impl AppSettings {
         }
         if let Some(text) = tts_ref_text {
             self.tts_ref_text = Some(text.to_string());
+        }
+        if let Some(path) = demucs_model_path {
+            self.demucs_model_path = Some(path.to_string());
+        }
+        if let Some(dir) = demucs_output_dir {
+            self.demucs_output_dir = Some(dir.to_string());
+        }
+        if let Some(mode) = demucs_separation_mode {
+            self.demucs_separation_mode = Some(mode.to_string());
         }
         self.window_width = window_width;
         self.window_height = window_height;

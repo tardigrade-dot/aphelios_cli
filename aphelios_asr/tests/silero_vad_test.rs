@@ -34,7 +34,7 @@ mod tests {
         let audio_path = STALIN_WAV_PATH;
         init_logging();
         info!("Audio file: {}", audio_path);
-        let mut vad = VadProcessor::new_default()?;
+        let mut vad = VadProcessor::new_default("/Volumes/sw/onnx_models/silero-vad/onnx")?;
         let segments = vad.process_from_file(audio_path)?;
         info!("Detected {} speech segments", segments.len());
         for (i, segment) in segments.iter().enumerate() {
@@ -66,7 +66,7 @@ mod tests {
 
         init_logging();
         info!("Audio file: {}", audio_path);
-        let mut vad = VadProcessor::new_default()?;
+        let mut vad = VadProcessor::new_default("/Volumes/sw/onnx_models/silero-vad/onnx")?;
         let segments = vad.process_from_file(audio_path)?;
         info!("Detected {} speech segments", segments.len());
         for (i, segment) in segments.iter().enumerate() {

@@ -1,4 +1,9 @@
-import { Button, LineEdit, StandardListView, ScrollView } from "std-widgets.slint";
+import {
+    Button,
+    LineEdit,
+    StandardListView,
+    ScrollView,
+} from "std-widgets.slint";
 import "./pingfang-sc-regular.ttf";
 
 export component OcrWindow inherits Window {
@@ -45,6 +50,7 @@ export component OcrWindow inherits Window {
                     go_back();
                 }
             }
+
             Text {
                 text: "Dolphin OCR 文字识别";
                 font-size: 14px;
@@ -52,7 +58,10 @@ export component OcrWindow inherits Window {
                 color: #333;
                 vertical-alignment: center;
             }
-            Rectangle { width: 60px; } // 占位保持居中
+
+            Rectangle {
+                width: 60px;
+            } // 占位保持居中
         }
 
         // --- 主配置面板 (用 Rectangle 代替 GroupBox，更紧凑) ---
@@ -61,7 +70,7 @@ export component OcrWindow inherits Window {
             border-radius: 8px;
             border-width: 1px;
             border-color: #e0e0e0;
-            
+
             VerticalLayout {
                 padding: 12px;
                 spacing: 10px;
@@ -70,12 +79,20 @@ export component OcrWindow inherits Window {
                 HorizontalLayout {
                     spacing: 8px;
                     height: 28px;
-                    Text { text: "模型路径"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
+                    Text {
+                        text: "模型路径";
+                        vertical-alignment: center;
+                        width: 60px;
+                        font-size: 12px;
+                        color: #e9a60a84;
+                    }
+
                     LineEdit {
                         text <=> model_path;
                     }
-                    Button { 
-                        text: "选择"; 
+
+                    Button {
+                        text: "选择";
                         width: 50px;
                         clicked => {
                             select_model_path();
@@ -90,10 +107,21 @@ export component OcrWindow inherits Window {
                     // 输入
                     HorizontalLayout {
                         spacing: 8px;
-                        Text { text: "输入文件"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
-                        LineEdit { text <=> input_file_path; placeholder-text: "图片/PDF"; }
-                        Button { 
-                            text: "选择"; 
+                        Text {
+                            text: "输入文件";
+                            vertical-alignment: center;
+                            width: 60px;
+                            font-size: 12px;
+                            color: #666;
+                        }
+
+                        LineEdit {
+                            text <=> input_file_path;
+                            placeholder-text: "图片/PDF";
+                        }
+
+                        Button {
+                            text: "选择";
                             width: 50px;
                             clicked => {
                                 select_input_file();
@@ -103,10 +131,20 @@ export component OcrWindow inherits Window {
                     // 输出
                     HorizontalLayout {
                         spacing: 8px;
-                        Text { text: "输出目录"; vertical-alignment: center; width: 60px; font-size: 12px; color: #666; }
-                        LineEdit { text <=> output_dir_path; }
-                        Button { 
-                            text: "选择"; 
+                        Text {
+                            text: "输出目录";
+                            vertical-alignment: center;
+                            width: 60px;
+                            font-size: 12px;
+                            color: #666;
+                        }
+
+                        LineEdit {
+                            text <=> output_dir_path;
+                        }
+
+                        Button {
+                            text: "选择";
                             width: 50px;
                             clicked => {
                                 select_output_dir();
@@ -131,6 +169,7 @@ export component OcrWindow inherits Window {
                     start_ocr();
                 }
             }
+
             Button {
                 text: "停止";
                 width: 80px;
@@ -141,7 +180,12 @@ export component OcrWindow inherits Window {
             }
         }
 
-        Text { text: " 运行日志"; font-size: 11px; color: #999; }
+        Text {
+            text: " 运行日志";
+            font-size: 11px;
+            color: #999;
+        }
+
         Rectangle {
             background: #1e1e1e; // 深色日志区更有 Geek 感
             border-radius: 6px;
@@ -155,7 +199,7 @@ export component OcrWindow inherits Window {
                     padding: 8px;
                     spacing: 4px;
                     alignment: start;
-                    for msg in log_messages : Text {
+                    for msg in log_messages: Text {
                         text: msg;
                         color: #bff50e;
                         font-family: "PingFang SC";

@@ -58,6 +58,7 @@ measureme = { workspace = true }
 hf-hub = { workspace = true }
 tempfile = "3"
 # vibevoice = { workspace = true, optional = true }
+chromiumoxide = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

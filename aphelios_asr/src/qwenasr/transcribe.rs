@@ -70,10 +70,10 @@ impl Pipeline {
     }
 
     /// Transcribe a WAV file to text.
-    pub fn transcribe(&mut self, wav_path: &Path) -> Result<String, TranscribeError> {
-        info!("transcribe: {}", wav_path.display());
+    pub fn transcribe(&mut self, wav_path: &str) -> Result<String, TranscribeError> {
+        info!("transcribe: {}", wav_path);
         info!("start compute mel");
-        let (mel, _) = self.mel_from_wav(wav_path)?;
+        let (mel, _) = self.mel_from_wav(PathBuf::from(wav_path).as_path())?;
         info!("start transcribe mel");
         let (text, _) = self.transcribe_mel(&mel, 0.0)?;
         Ok(text)

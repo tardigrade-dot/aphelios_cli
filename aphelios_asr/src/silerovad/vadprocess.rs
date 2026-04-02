@@ -25,8 +25,8 @@ pub struct VadProcessor {
 }
 
 impl VadProcessor {
-    pub fn new_default() -> Result<Self> {
-        let model_path = "/Volumes/sw/onnx_models/silero-vad/onnx/model.onnx";
+    pub fn new_default(model_dir: &str) -> Result<Self> {
+        let model_path = format!("{}/model.onnx", model_dir);
         let session = Session::builder()?
             .with_execution_providers(get_available_ep())?
             .with_optimization_level(GraphOptimizationLevel::Level3)?

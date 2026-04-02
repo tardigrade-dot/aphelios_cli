@@ -55,7 +55,6 @@ tracing-test = { workspace = true }
 imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
 hf-hub = { workspace = true }
-chromiumoxide = { workspace = true }
 
 
 [dev-dependencies]

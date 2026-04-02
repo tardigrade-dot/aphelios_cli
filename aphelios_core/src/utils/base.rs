@@ -5,7 +5,7 @@ use image::{DynamicImage, GenericImageView};
 use ort::ep::{ExecutionProviderDispatch, CPU};
 use std::path::Path;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     audio::{MonoBuffer, ResampleQuality},
@@ -339,7 +339,9 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
     }
     #[cfg(feature = "metal")]
     {
-        return try_metal_device();
+        use candle_core::{backend::BackendDevice, MetalDevice};
+        let device = Device::Metal(MetalDevice::new(0)?);
+        return Ok(device);
     }
     #[cfg(not(feature = "metal"))]
     #[cfg(feature = "cuda")]
@@ -367,9 +369,14 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
 
 #[cfg(feature = "metal")]
 fn try_metal_device() -> Result<Device> {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{catch_unwind, set_hook, take_hook, AssertUnwindSafe};
 
-    match catch_unwind(AssertUnwindSafe(|| Device::new_metal(0))) {
+    let previous_hook = take_hook();
+    set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(|| Device::new_metal(0)));
+    set_hook(previous_hook);
+
+    match result {
         Ok(Ok(device)) => Ok(device),
         Ok(Err(err)) => Err(anyhow!("Metal device init failed: {err}")),
         Err(_) => Err(anyhow!("Metal device init panicked")),
@@ -469,6 +476,16 @@ pub const RTDETR_V4_M: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/rtdet
 
 pub const PARAKEET_TDT_MODEL_PATH: &str = "/Volumes/sw/onnx_models/parakeet-tdt-0.6b-v3-onnx";
 
+///! without fallback
 pub fn get_device() -> Device {
-    get_default_device(false).unwrap()
+    get_default_device(false).unwrap_or_else(|err| {
+        panic!("Device initialization failed: {err}");
+    })
+}
+
+pub fn get_device_fallback() -> Device {
+    get_default_device(false).unwrap_or_else(|err| {
+        warn!("Device initialization failed, falling back to CPU: {err}");
+        Device::Cpu
+    })
 }

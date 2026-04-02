@@ -1,16 +1,27 @@
-import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import {
+    Button,
+    ComboBox,
+    LineEdit,
+    ProgressIndicator,
+    ScrollView,
+} from "std-widgets.slint";
 
 export component AsrWindow inherits Window {
     width: 800px;
     height: 750px;
-    title: "Parakeet ASR";
-    background: #f6f6f6;
+    title: "Qwen3 ASR 语音识别";
+    background: #eef1f6;
     default-font-family: "PingFang SC";
 
+    in-out property <string> asr_model_path;
+    in-out property <string> aligner_model_path;
+    in-out property <string> vad_model_path;
     in-out property <string> audio_file_path;
     in-out property <string> output_path;
+    in-out property <string> language: "Chinese";
     in-out property <string> status_message: "就绪";
     in-out property <bool> is_running: false;
+    in-out property <float> progress: 0.0;
     in-out property <[string]> log_messages: ["Session started"];
     in-out property <string> transcription_result;
     in-out property <length> log_viewport_y: 0;
@@ -75,10 +86,83 @@ export component AsrWindow inherits Window {
             border-width: 1px;
             border-color: #e0e0e0;
             vertical-stretch: 0; // 严禁拉伸
-            
+
             VerticalLayout {
                 padding: 15px;
                 spacing: 12px;
+
+                // ASR 模型路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "ASR模型";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    LineEdit {
+                        text <=> asr_model_path;
+                        placeholder-text: "ASR 模型路径";
+                        enabled: !is_running;
+                    }
+                }
+
+                // Aligner 模型路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "Aligner";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    LineEdit {
+                        text <=> aligner_model_path;
+                        placeholder-text: "Aligner 模型路径";
+                        enabled: !is_running;
+                    }
+                }
+
+                // VAD 模型路径行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "VAD模型";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    LineEdit {
+                        text <=> vad_model_path;
+                        placeholder-text: "VAD 模型路径";
+                        enabled: !is_running;
+                    }
+                }
+
+                // 语言选择行
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 10px;
+                    Text {
+                        text: "语言";
+                        width: 60px;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+
+                    ComboBox {
+                        current-value <=> root.language;
+                        enabled: !is_running;
+                        model: ["Chinese", "English", "Japanese", "Korean"];
+                        width: 120px;
+                    }
+                }
 
                 // 输入音频行
                 HorizontalLayout {
@@ -112,7 +196,7 @@ export component AsrWindow inherits Window {
                     height: 30px;
                     spacing: 10px;
                     Text {
-                        text: "保存路径";
+                        text: "SRT路径";
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
@@ -120,7 +204,7 @@ export component AsrWindow inherits Window {
 
                     LineEdit {
                         text <=> output_path;
-                        placeholder-text: "识别结果保存位置 (可选)";
+                        placeholder-text: "字幕文件保存位置 (默认同路径同名的.srt)";
                         enabled: !is_running;
                     }
 
@@ -149,6 +233,27 @@ export component AsrWindow inherits Window {
                 clicked => {
                     root.start_asr();
                 }
+            }
+        }
+
+        // --- 进度（运行时） ---
+        if is_running: HorizontalLayout {
+            height: 16px;
+            spacing: 10px;
+            ProgressIndicator {
+                progress: progress;
+                height: 4px;
+                horizontal-stretch: 1;
+            }
+
+            Text {
+                text: Math.round(progress * 100) + "%";
+                font-size: 11px;
+                font-weight: 600;
+                color: #1565c0;
+                width: 32px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
             }
         }
 

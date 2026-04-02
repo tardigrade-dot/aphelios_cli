@@ -20,3 +20,4 @@ frame*
 trace*.json
 .claude
 .qwen
+/roadmap.txt
