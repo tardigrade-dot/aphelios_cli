@@ -1,20 +1,22 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use anyhow::{Error as E, Result};
-use async_stream::{stream, try_stream};
+use anyhow::Result;
+use async_stream::try_stream;
 use candle_core::{Device, Tensor};
-use futures_util::{Stream, StreamExt, pin_mut};
-use hayro::hayro_interpret::InterpreterSettings;
-use hayro::hayro_syntax::Pdf;
-use hayro::vello_cpu::color::palette::css::WHITE;
-use hayro::{RenderSettings, render};
+use futures_util::Stream;
 use image::{DynamicImage, GenericImageView, Rgba};
 use imageproc::drawing::draw_hollow_rect_mut;
 use imageproc::rect::Rect;
-use tracing::{Level, info};
+use pdfium_render::prelude::*;
+use tracing::info;
 
-static INIT: std::sync::Once = std::sync::Once::new();
+/// Get the directory where the running executable resides.
+fn get_exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
 
 pub fn draw_bbox_and_save_multi(
     img: &DynamicImage,
@@ -57,22 +59,37 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
 
 pub fn load_pdf_images(path: PathBuf) -> impl Stream<Item = Result<DynamicImage>> {
     try_stream! {
-        let pdf_file = std::fs::read(path)?;
-        let pdf = Pdf::new(Arc::new(pdf_file)).unwrap();
+        // On macOS, when running from an .app bundle, the executable is in
+        // Contents/MacOS/, so we use the executable directory to find libpdfium.dylib
+        // which is bundled in the same directory.
+        let exe_dir = get_exe_dir();
+        info!("Executable dir: {:?}", exe_dir);
 
-        let interpreter_settings = InterpreterSettings::default();
-        let render_settings = RenderSettings {
-            bg_color: WHITE, // 建议显式设置背景色，否则透明 PDF 可能会变黑
-            ..Default::default()
-        };
+        let pdfium_lib_path = Pdfium::pdfium_platform_library_name_at_path(&exe_dir);
+        info!("Resolved pdfium lib path: {:?}", pdfium_lib_path);
 
-        for page in pdf.pages().iter() {
-            let pixmap = render(page, &interpreter_settings, &render_settings);
-            let png_bytes = pixmap.into_png()
-                .map_err(|e| anyhow::anyhow!("PNG encoding failed: {:?}", e))?;
+        let pdfium = Pdfium::new(
+            Pdfium::bind_to_library(&pdfium_lib_path)
+                .or_else(|_| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("../libs/")))
+                .or_else(|_| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./libs/")))
+                .or_else(|_| Pdfium::bind_to_system_library())
+                .map_err(|e| anyhow::anyhow!("Failed to bind to pdfium library: {:?}", e))?
+        );
 
-            // 2. 利用 image 库直接从内存字节加载为 DynamicImage
-            let img = image::load_from_memory(&png_bytes)?;
+        let document = pdfium.load_pdf_from_file(path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?, None)?;
+
+        let render_config = PdfRenderConfig::default();
+
+        for page in document.pages().iter() {
+            #[cfg(feature = "profiling")]
+            let _span = tracing::info_span!("render_page").entered();
+
+            let img = page.render_with_config(&render_config)?
+                .as_image()?;
+
+            #[cfg(feature = "profiling")]
+            _span.exit();
+
             yield img;
         }
     }
@@ -83,6 +100,7 @@ pub fn get_tensor_from_image(
     target_height: u32,
     target_width: u32,
     device: &Device,
+    dtype: candle_core::DType,
 ) -> Tensor {
     let resized = img.resize(
         target_width,
@@ -120,7 +138,10 @@ pub fn get_tensor_from_image(
             }
         }
     }
-    let tensor: Tensor = Tensor::from_vec(normalized, (1, 3, height, width), device).unwrap();
+    let tensor: Tensor = Tensor::from_vec(normalized, (1, 3, height, width), device)
+        .unwrap()
+        .to_dtype(dtype)
+        .unwrap();
     tensor
 }
 

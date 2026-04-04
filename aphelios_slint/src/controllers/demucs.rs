@@ -13,10 +13,6 @@ impl DemucsLogic {
         Self { ctx }
     }
 
-    pub fn ctx(&self) -> &Arc<AppContext> {
-        &self.ctx
-    }
-
     pub fn start_separation(
         &self,
         audio_file: String,
@@ -52,10 +48,18 @@ impl DemucsLogic {
             // 根据分离模式调用不同的函数
             let result = if separation_mode == "vocals_instrumental" {
                 // 人声/伴奏分离模式
-                aphelios_core::demucs::run_vocal_separation(&model_path, &audio_file, Some(progress_cb.clone()))
+                aphelios_core::demucs::run_vocal_separation(
+                    &model_path,
+                    &audio_file,
+                    Some(progress_cb.clone()),
+                )
             } else {
                 // 四轨分离模式
-                aphelios_core::demucs::run_demucs(&model_path, &audio_file, Some(progress_cb.clone()))
+                aphelios_core::demucs::run_demucs(
+                    &model_path,
+                    &audio_file,
+                    Some(progress_cb.clone()),
+                )
             };
 
             // 完成时调用回调

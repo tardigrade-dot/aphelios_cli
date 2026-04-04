@@ -41,16 +41,9 @@ candle-nn = { workspace = true }
 candle-transformers = { workspace = true }
 
 regex = { workspace = true }
-#mistralrs = { workspace = true }
-
 reqwest = { workspace = true }
 once_cell = { workspace = true }
-epub = { workspace = true }
 
-usearch = { workspace = true }
-
-fastembed = { workspace = true }
-rusqlite = { workspace = true }
 glob = { workspace = true }
 hayro = { workspace = true }
 async-stream = { workspace = true }

@@ -44,7 +44,6 @@ epub = { workspace = true }
 
 usearch = { workspace = true }
 
-fastembed = { workspace = true }
 rusqlite = { workspace = true }
 glob = { workspace = true }
 hayro = { workspace = true }
@@ -55,6 +54,7 @@ tracing-test = { workspace = true }
 imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
 hf-hub = { workspace = true }
+zhconv = "0.4"
 
 
 [dev-dependencies]

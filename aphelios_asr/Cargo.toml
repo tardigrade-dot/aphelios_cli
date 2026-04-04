@@ -33,7 +33,6 @@ thiserror = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 log = { workspace = true }
-parakeet-rs = { workspace = true }
 tokio = { workspace = true }
 knf-rs-sys = { workspace = true }
 ureq = { workspace = true }
@@ -46,9 +45,10 @@ tracing-subscriber = { workspace = true }
 test-log = { workspace = true }
 
 [features]
-default = []
+profiling = []
 metal = [
     "aphelios_core/metal",
+    "aphelios_core/profiling",
     #"whisper-rs/metal",
     "ort/coreml",
 ]

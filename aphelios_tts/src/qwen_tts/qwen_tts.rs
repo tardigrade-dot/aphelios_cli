@@ -2354,8 +2354,7 @@ impl<'a> StreamingSession<'a> {
             // Build [16] frame tensor on GPU: [semantic_token, acoustic_0..14]
             // acoustic_codes_tensor is [1, 15] for batch=1, flatten to match token's rank.
             let acoustic_codes_1d = acoustic_codes_tensor.flatten_all()?;
-            let frame_tensor =
-                Tensor::cat(&[&token_tensor.reshape(1)?, &acoustic_codes_1d], 0)?;
+            let frame_tensor = Tensor::cat(&[&token_tensor.reshape(1)?, &acoustic_codes_1d], 0)?;
 
             // Accumulate GPU tensor (defer CPU transfer)
             gpu_frame_tensors.push(frame_tensor);

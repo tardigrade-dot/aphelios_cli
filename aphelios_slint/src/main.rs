@@ -10,11 +10,11 @@ include!(concat!(env!("OUT_DIR"), "/demucs_ui.rs"));
 
 mod config;
 mod controllers;
-mod logger;
 mod services;
 
 use anyhow::Result;
-use aphelios_core::traits::{OcrEngine, SearchEngine, TtsEngine};
+use aphelios_core::traits::{OcrEngine, SearchEngine, SearchMode, TtsEngine};
+use aphelios_core::utils::logger;
 use config::AppSettings;
 use controllers::{
     demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
@@ -35,7 +35,10 @@ fn main() -> Result<()> {
 
     // 初始化服务引擎
     let ocr_engine: Arc<Mutex<dyn OcrEngine>> = Arc::new(Mutex::new(services::DolphinOcrClient));
-    let search_engine: Arc<dyn SearchEngine> = Arc::new(services::SqliteSearchClient);
+    // 使用默认书籍目录，UI 中可修改
+    let book_dir = settings.books_dir.as_deref().unwrap_or("/Volumes/sw/books");
+    let search_engine: Arc<dyn SearchEngine> =
+        Arc::new(services::SqliteSearchClient::new(book_dir));
     let tts_engine: Arc<dyn TtsEngine> = Arc::new(services::QwenTtsClient);
 
     // 创建应用上下文
@@ -551,6 +554,12 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
     if let Some(model_path) = settings.demucs_model_path {
         window.set_demucs_model_path(model_path.into());
     }
+    if let Some(books_dir) = settings.books_dir {
+        window.set_books_dir(books_dir.into());
+    }
+    if let Some(harrier_model_path) = settings.harrier_model_path {
+        window.set_harrier_model_path(harrier_model_path.into());
+    }
 
     let window_weak = window.as_weak();
 
@@ -578,6 +587,8 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
             s.tts_ref_audio_path = Some(win.get_tts_ref_audio_path().to_string());
             s.tts_ref_text = Some(win.get_tts_ref_text().to_string());
             s.demucs_model_path = Some(win.get_demucs_model_path().to_string());
+            s.books_dir = Some(win.get_books_dir().to_string());
+            s.harrier_model_path = Some(win.get_harrier_model_path().to_string());
             ctx.save_settings(s);
 
             // 短暂显示保存完成后再关闭
@@ -828,6 +839,32 @@ fn run_settings_ui(ctx: Arc<AppContext>) -> Result<()> {
         }
     });
 
+    window.on_select_books_dir({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_books_dir(path.into());
+            }
+        }
+    });
+
+    window.on_select_harrier_model_path({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .pick_folder()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                win.set_harrier_model_path(path.into());
+            }
+        }
+    });
+
     window.run()?;
     Ok(())
 }
@@ -1068,6 +1105,17 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
     let book_count = logic.get_book_count().unwrap_or(0);
     window.set_book_count(book_count as i32);
 
+    // 获取并显示索引状态
+    if let Ok(status) = logic.get_index_status() {
+        window.set_has_index(status.exists);
+        window.set_has_semantic_index(status.semantic_exists);
+
+        if status.exists {
+            let status_text = format_index_status(&status);
+            window.set_index_status_text(status_text.into());
+        }
+    }
+
     let window_weak = window.as_weak();
 
     window.on_go_back({
@@ -1085,12 +1133,15 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
         move || {
             let Some(win) = w.upgrade() else { return };
 
+            let book_dir = win.get_books_dir().to_string();
             win.set_is_indexing(true);
-            win.set_status_message("正在构建索引...".into());
+            win.set_status_message("正在构建完整索引（BM25 + 语义向量）...".into());
 
             let w2 = w.clone();
-            logic.build_index(move |result| {
+            let logic2 = logic.clone();
+            logic.build_index(book_dir, move |result| {
                 let w3 = w2.clone();
+                let logic3 = logic2.clone();
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(win) = w3.upgrade() else { return };
                     win.set_is_indexing(false);
@@ -1098,10 +1149,18 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
                         Ok(count) => {
                             win.set_book_count(count as i32);
                             win.set_status_message(
-                                format!("索引构建完成，共 {} 本书", count).into(),
+                                format!("索引构建完成，共 {} 本书（全文+向量）", count).into(),
                             );
+                            // Refresh index status display
+                            if let Ok(status) = logic3.get_index_status() {
+                                win.set_has_index(status.exists);
+                                win.set_has_semantic_index(status.semantic_exists);
+                                let status_text = format_index_status(&status);
+                                win.set_index_status_text(status_text.into());
+                            }
                         }
                         Err(e) => {
+                            error!("Index build failed: {}", e);
                             win.set_status_message(format!("索引构建失败: {}", e).into());
                         }
                     }
@@ -1118,8 +1177,16 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
 
             win.set_status_message("搜索中...".into());
 
+            // 获取搜索模式
+            let mode_str = win.get_search_mode().to_string();
+            let search_mode = match mode_str.as_str() {
+                "semantic" => SearchMode::Semantic,
+                "hybrid" => SearchMode::Hybrid,
+                _ => SearchMode::Keyword,
+            };
+
             let w2 = w.clone();
-            logic.search_books(query.to_string(), 50, move |result| {
+            logic.search_books_with_mode(query.to_string(), 50, search_mode, move |result| {
                 let w3 = w2.clone();
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(win) = w3.upgrade() else { return };
@@ -1146,6 +1213,7 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
                             );
                         }
                         Err(e) => {
+                            error!("Search failed: {}", e);
                             win.set_status_message(format!("搜索失败: {}", e).into());
                         }
                     }
@@ -1166,6 +1234,35 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
 
     window.run()?;
     Ok(())
+}
+
+fn format_index_status(status: &aphelios_core::traits::IndexStatus) -> String {
+    let mut parts = Vec::new();
+
+    parts.push(format!("{} 本书", status.book_count));
+
+    if let Some(created) = &status.created_at {
+        // Format timestamp to show date and time
+        let formatted = if created.contains('T') {
+            // ISO format: 2024-01-15T10:30:00 -> 01-15 10:30
+            created
+                .replace('T', " ")
+                .chars()
+                .take(16)
+                .collect::<String>()
+        } else {
+            created.clone()
+        };
+        parts.push(format!("创建于 {}", formatted));
+    }
+
+    if status.semantic_exists {
+        parts.push("✓ 语义索引".to_string());
+    } else {
+        parts.push("语义索引未构建".to_string());
+    }
+
+    parts.join(", ")
 }
 
 fn format_file_size(size: u64) -> String {

@@ -32,28 +32,3 @@ fn test_test() -> anyhow::Result<()> {
     drop(guard);
     Ok(())
 }
-
-#[test]
-fn tes2_test() -> anyhow::Result<()> {
-    let (chrome_layer, _) = ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
-    info!("test tracing chrome");
-    // static INIT: std::sync::Once = std::sync::Once::new();
-    // let guard = INIT.call_once(|| {
-    //     let filter = EnvFilter::new("info");
-
-    //     let fmt_layer = fmt::layer();
-
-    //     let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
-
-    //     tracing_subscriber::registry()
-    //         .with(filter)
-    //         .with(fmt_layer)
-    //         .with(chrome_layer)
-    //         .init();
-    //     guard
-    // });
-    // info!("test tracing chrome");
-    // drop(guard); // 强制 flush
-    Ok(())
-}

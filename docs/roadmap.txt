@@ -1,0 +1,53 @@
+多版本依赖
+vad统一
+safetensors模型类型检测
+tracing日志chrome tracing
+device fallback
+首页、配置页 ui上下距离不够
+
+## OCR 流式处理 + Double Buffering 实现方案
+
+### 当前问题
+1. 所有 crops 预处理完后才做推理 → GPU 等待 CPU → GPU 利用率低
+2. 所有 tensors 一次性加载到内存 → 8GB Swap
+
+### 设计目标
+- 流式处理：分批预处理 + 分批推理
+- Double Buffering：预处理 batch N+1 时，GPU 在推理 batch N
+- 内存占用：从 O(all_crops) → O(batch_size)
+
+### 实现方案
+
+#### 1. 添加 crossbeam-channel 依赖 (已在 aphelios_device 使用)
+#### 2. 修改 `run_ocr_second_stage` 为流式版本
+
+核心流程:
+```
+[Layout] → [Crop regions]
+                ↓
+    ┌──────────────────────────────┐
+    │  Preprocessing Thread        │
+    │  - 取 batch_size 个任务       │
+    │  - rayon 并行预处理           │
+    │  - to_device 传输 GPU         │
+    │  - 发送到 inference channel   │
+    │  - 等待 GPU 完成信号          │
+    └──────────────────────────────┘
+                ↓ (crossbeam channel)
+    ┌──────────────────────────────┐
+    │  Main Thread (GPU Inference)  │
+    │  - receive batch             │
+    │  - generate_text_batch       │
+    │  - 发送完成信号               │
+    └──────────────────────────────┘
+                ↓
+         [Results collected]
+```
+
+#### 3. 新增常量和类型
+- STREAMING_BATCH_SIZE = 8 (可调整)
+- GPU_CONCURRENCY = 2 (预填充的 batch 数)
+
+#### 4. 修改函数签名
+- 新增 `run_ocr_second_stage_streaming` 函数
+- 保持原函数兼容，通过 feature flag 或配置切换

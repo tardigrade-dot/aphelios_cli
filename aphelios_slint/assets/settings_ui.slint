@@ -1,4 +1,4 @@
-import { Button, LineEdit } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
 
 export component SettingsWindow inherits Window {
     width: 680px;
@@ -30,6 +30,10 @@ export component SettingsWindow inherits Window {
     // Demucs 人声分离设置
     in-out property <string> demucs_model_path;
 
+    // 搜索设置
+    in-out property <string> books_dir;
+    in-out property <string> harrier_model_path;
+
     // 保存状态
     in-out property <string> save_status_message: "";
 
@@ -45,11 +49,15 @@ export component SettingsWindow inherits Window {
     callback select_tts_output_path();
     callback select_tts_ref_audio();
     callback select_demucs_model_path();
+    callback select_books_dir();
+    callback select_harrier_model_path();
 
     VerticalLayout {
         padding: 20px;
         spacing: 16px;
-        alignment: start; // 关键：顶部对齐
+        alignment: stretch;
+        // width: 100%;
+        // height: 100%;
 
         // --- 头部工具栏 ---
         HorizontalLayout {
@@ -93,406 +101,480 @@ export component SettingsWindow inherits Window {
             }
         }
 
-        // --- 设置滚动区 (防止内容过多超出窗口) ---
-        // 注意：Slint原生ScrollView需要包装，这里先用VerticalLayout模拟紧凑排布
-        VerticalLayout {
-            spacing: 12px;
+        // --- 设置滚动区 ---
+        ScrollView {
+            vertical-stretch: 1;
+            horizontal-stretch: 0;
+            width: 100%;
+            height: 100%;
+            // min-height: 400px;
 
-            // 1. OCR 卡片
+            VerticalLayout {
+                spacing: 12px;
+
+                // 1. OCR 卡片
             Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "📝 OCR 识别设置";
-                        font-weight: 700;
-                        color: #333;
-                    }
-
-                    // 设置行组件化模拟
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        accessible-role: AccessibleRole.none;
+                        alignment: LayoutAlignment.stretch;
+                        padding: 12px;
+                        spacing: 8px;
                         Text {
-                            text: "模型路径";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
+                            text: "📝 OCR 识别设置";
+                            font-weight: 700;
+                            color: #333;
                         }
 
-                        LineEdit {
-                            text <=> root.ocr_model_path;
-                        }
+                        // 设置行组件化模拟
+                    HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "模型路径";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_ocr_model_path();
+                            LineEdit {
+                                text <=> root.ocr_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_ocr_model_path();
+                                }
                             }
                         }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "输出目录";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "输出目录";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        LineEdit {
-                            text <=> root.ocr_output_dir;
-                        }
+                            LineEdit {
+                                text <=> root.ocr_output_dir;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_ocr_output_dir();
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_ocr_output_dir();
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // 2. ASR 卡片
+                // 2. ASR 卡片
             Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "🎤 ASR 语音识别";
-                        font-weight: 700;
-                        color: #333;
-                    }
-
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
                         Text {
-                            text: "ASR模型";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
+                            text: "🎤 ASR 语音识别";
+                            font-weight: 700;
+                            color: #333;
                         }
 
-                        LineEdit {
-                            text <=> root.asr_model_path;
-                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "ASR模型";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_asr_model_path();
+                            LineEdit {
+                                text <=> root.asr_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_asr_model_path();
+                                }
                             }
                         }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "Aligner模型";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "Aligner模型";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        LineEdit {
-                            text <=> root.asr_aligner_model_path;
-                        }
+                            LineEdit {
+                                text <=> root.asr_aligner_model_path;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_asr_aligner_model_path();
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_asr_aligner_model_path();
+                                }
                             }
                         }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "VAD模型";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "VAD模型";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        LineEdit {
-                            text <=> root.asr_vad_model_path;
-                        }
+                            LineEdit {
+                                text <=> root.asr_vad_model_path;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_asr_vad_model_path();
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_asr_vad_model_path();
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // 3. SRT 文本对齐卡片
+                // 3. SRT 文本对齐卡片
             Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "📝 SRT 文本对齐";
-                        font-weight: 700;
-                        color: #333;
-                    }
-
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
                         Text {
-                            text: "模型路径";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
+                            text: "📝 SRT 文本对齐";
+                            font-weight: 700;
+                            color: #333;
                         }
 
-                        LineEdit {
-                            text <=> root.srt_model_path;
-                        }
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "模型路径";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
 
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_srt_model_path();
+                            LineEdit {
+                                text <=> root.srt_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_srt_model_path();
+                                }
                             }
                         }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "分段长度";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
-
-                        LineEdit {
-                            text <=> root.srt_min_segment_length;
-                            width: 60px;
-                        }
-
-                        Text {
-                            text: "~";
-                            vertical-alignment: center;
-                            color: #1a2535;
-                        }
-
-                        LineEdit {
-                            text <=> root.srt_max_segment_length;
-                            width: 60px;
-                        }
-
-                        Text {
-                            text: "字";
-                            vertical-alignment: center;
-                            color: #1a2535;
-                        }
-                    }
-                }
-            }
-
-            // 4. TTS 卡片
-            Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "🔊 TTS 语音合成";
-                        font-weight: 700;
-                        color: #333;
-                    }
-
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "模型路径";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
-
-                        LineEdit {
-                            text <=> root.tts_model_path;
-                        }
-
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_tts_model_path();
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "分段长度";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
                             }
-                        }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "输出路径";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
-
-                        LineEdit {
-                            text <=> root.tts_output_path;
-                        }
-
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_tts_output_path();
+                            LineEdit {
+                                text <=> root.srt_min_segment_length;
+                                width: 60px;
                             }
-                        }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "参考音频";
-                            width: 70px;
-                            color: #1a2535;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                        }
-
-                        LineEdit {
-                            text <=> root.tts_ref_audio_path;
-                        }
-
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_tts_ref_audio();
+                            Text {
+                                text: "~";
+                                vertical-alignment: center;
+                                color: #1a2535;
                             }
-                        }
-                    }
 
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "参考文本";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
+                            LineEdit {
+                                text <=> root.srt_max_segment_length;
+                                width: 60px;
+                            }
 
-                        LineEdit {
-                            text <=> root.tts_ref_text;
-                        }
-                    }
-                }
-            }
-
-            // 5. Demucs 人声分离卡片
-            Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "🎵 Demucs 人声分离";
-                        font-weight: 700;
-                        color: #333;
-                    }
-
-                    HorizontalLayout {
-                        height: 28px;
-                        spacing: 10px;
-                        Text {
-                            text: "模型路径";
-                            width: 70px;
-                            vertical-alignment: center;
-                            font-size: 12px;
-                            color: #1a2535;
-                        }
-
-                        LineEdit {
-                            text <=> root.demucs_model_path;
-                        }
-
-                        Button {
-                            text: "选择";
-                            width: 50px;
-                            clicked => {
-                                root.select_demucs_model_path();
+                            Text {
+                                text: "字";
+                                vertical-alignment: center;
+                                color: #1a2535;
                             }
                         }
                     }
                 }
-            }
 
-            // 6. 通用设置卡片
+                // 4. TTS 卡片
             Rectangle {
-                background: #ffffff;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    Text {
-                        text: "⚙️  通用设置";
-                        font-weight: 700;
-                        color: #333;
-                    }
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "🔊 TTS 语音合成";
+                            font-weight: 700;
+                            color: #333;
+                        }
 
-                    Text {
-                        text: "更多设置即将推出...";
-                        font-size: 12px;
-                        color: #999;
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "模型路径";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.tts_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_tts_model_path();
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "输出路径";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.tts_output_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_tts_output_path();
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "参考音频";
+                                width: 70px;
+                                color: #1a2535;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                            }
+
+                            LineEdit {
+                                text <=> root.tts_ref_audio_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_tts_ref_audio();
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "参考文本";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.tts_ref_text;
+                            }
+                        }
+                    }
+                }
+
+                // 5. Demucs 人声分离卡片
+            Rectangle {
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "🎵 Demucs 人声分离";
+                            font-weight: 700;
+                            color: #333;
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "模型路径";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.demucs_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_demucs_model_path();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6. 搜索设置卡片
+            Rectangle {
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "🔍 搜索设置";
+                            font-weight: 700;
+                            color: #333;
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "书籍目录";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.books_dir;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_books_dir();
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 10px;
+                            Text {
+                                text: "Harrier模型";
+                                width: 70px;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: #1a2535;
+                            }
+
+                            LineEdit {
+                                text <=> root.harrier_model_path;
+                            }
+
+                            Button {
+                                text: "选择";
+                                width: 50px;
+                                clicked => {
+                                    root.select_harrier_model_path();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 7. 通用设置卡片
+            Rectangle {
+                    background: #ffffff;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Text {
+                            text: "⚙️  通用设置";
+                            font-weight: 700;
+                            color: #333;
+                        }
+
+                        Text {
+                            text: "更多设置即将推出...";
+                            font-size: 12px;
+                            color: #999;
+                        }
                     }
                 }
             }

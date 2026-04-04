@@ -48,7 +48,6 @@ epub = { workspace = true }
 
 usearch = { workspace = true }
 
-fastembed = { workspace = true }
 rusqlite = { workspace = true }
 glob = { workspace = true }
 hayro = { workspace = true }

@@ -1,5 +1,6 @@
 import {
     Button,
+    ComboBox,
     LineEdit,
     ListView,
 } from "std-widgets.slint";
@@ -29,6 +30,10 @@ export component BookSearchWindow inherits Window {
     in-out property <int> selected_index: -1;
     in-out property <string> selected_file_path: "";
     in-out property <[BookItem]> search_results: [];
+    in-out property <string> search_mode: "keyword"; // "keyword", "semantic", "hybrid"
+    in-out property <string> index_status_text: ""; // Index status display text
+    in-out property <bool> has_index: false; // Whether index exists
+    in-out property <bool> has_semantic_index: false; // Whether semantic index exists
 
     callback go_back();
     callback build_index();
@@ -99,11 +104,20 @@ export component BookSearchWindow inherits Window {
                 height: 26px;
                 spacing: 10px;
                 Text {
-                    text: "关键词";
+                    text: "模式";
                     width: 44px;
                     font-size: 12px;
                     color: #1a2535;
                     vertical-alignment: center;
+                }
+
+                ComboBox {
+                    width: 90px;
+                    current-value: search_mode;
+                    model: ["keyword", "semantic", "hybrid"];
+                    selected(v) => {
+                        search_mode = v;
+                    }
                 }
 
                 LineEdit {
@@ -148,6 +162,27 @@ export component BookSearchWindow inherits Window {
                     clicked => {
                         build_index();
                     }
+                }
+            }
+
+            // 索引状态显示
+            if has_index: HorizontalLayout {
+                height: 20px;
+                spacing: 10px;
+                Text {
+                    text: "📊  索引状态";
+                    width: 70px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: index_status_text;
+                    font-size: 10px;
+                    color: #6b7a8d;
+                    vertical-alignment: center;
                 }
             }
 

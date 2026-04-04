@@ -31,11 +31,17 @@ pub struct AppSettings {
     pub demucs_output_dir: Option<String>,
     pub demucs_separation_mode: Option<String>,
 
+    // 搜索设置
+    pub books_dir: Option<String>,
+    pub harrier_model_path: Option<String>,
+    pub search_mode: Option<String>, // "keyword", "semantic", "hybrid"
+
     // 通用设置
     pub window_width: Option<i32>,
     pub window_height: Option<i32>,
 }
 
+#[allow(unused_variables, unused_imports)]
 impl AppSettings {
     /// 获取配置文件路径
     fn config_path() -> Option<PathBuf> {
@@ -135,6 +141,25 @@ impl AppSettings {
         }
         if let Some(mode) = separation_mode {
             self.demucs_separation_mode = Some(mode.to_string());
+        }
+        let _ = self.save();
+    }
+
+    /// 更新并保存搜索设置
+    pub fn update_search_settings(
+        &mut self,
+        books_dir: Option<&str>,
+        harrier_model_path: Option<&str>,
+        search_mode: Option<&str>,
+    ) {
+        if let Some(dir) = books_dir {
+            self.books_dir = Some(dir.to_string());
+        }
+        if let Some(path) = harrier_model_path {
+            self.harrier_model_path = Some(path.to_string());
+        }
+        if let Some(mode) = search_mode {
+            self.search_mode = Some(mode.to_string());
         }
         let _ = self.save();
     }

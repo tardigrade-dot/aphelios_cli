@@ -1,9 +1,9 @@
 use crate::commands::cli::{Cli, Commands};
 use anyhow::Result;
+use aphelios_ocr::dolphin::run_ocr;
 pub mod commands;
 
-use aphelios_ocr::dolphin::model::run_ocr;
-
+#[allow(unused_variables, unused_imports)]
 pub async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { path } => {

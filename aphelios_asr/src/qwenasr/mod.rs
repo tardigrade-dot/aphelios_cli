@@ -228,11 +228,11 @@ fn format_srt_time(seconds: f64) -> String {
     format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
 }
 
-/// Chinese sentence-ending punctuation
-const SENTENCE_ENDINGS: &[char] = &['。', '！', '？', '！', '?'];
+/// Sentence-ending punctuation (Chinese and English)
+const SENTENCE_ENDINGS: &[char] = &['。', '！', '？', '！', '?', '.', '!', ','];
 
 /// Generate SRT subtitle content from alignment items.
-/// Groups consecutive words into sentences based on Chinese punctuation.
+/// Groups consecutive words into sentences based on punctuation, length, and timing.
 pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
     if items.is_empty() {
         return String::new();
@@ -241,27 +241,32 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
     let mut srt_content = String::new();
     let mut subtitle_index = 1;
 
-    // Group items into sentences
     let mut current_sentence = String::new();
     let mut sentence_start: Option<f64> = None;
     let mut sentence_end: Option<f64> = None;
 
+    // Max constraints for a single subtitle entry
+    const MAX_CHARS: usize = 60;
+    const MAX_DURATION: f64 = 10.0;
+    const MAX_GAP: f64 = 1.0;
+
     for item in items {
-        // Add space before word if not starting a new sentence
-        if !current_sentence.is_empty() && !current_sentence.ends_with(' ') {
-            current_sentence.push(' ');
-        }
-        current_sentence.push_str(&item.text);
+        let is_punctuation = item.text.chars().any(|c| SENTENCE_ENDINGS.contains(&c));
+        let too_long =
+            !current_sentence.is_empty() && current_sentence.chars().count() + item.text.chars().count() > MAX_CHARS;
+        let too_much_time = if let Some(start) = sentence_start {
+            item.end_time - start > MAX_DURATION
+        } else {
+            false
+        };
+        let big_gap = if let Some(end) = sentence_end {
+            item.start_time - end > MAX_GAP
+        } else {
+            false
+        };
 
-        // Update timing
-        if sentence_start.is_none() {
-            sentence_start = Some(item.start_time);
-        }
-        sentence_end = Some(item.end_time);
-
-        // Check if this word ends a sentence (has sentence-ending punctuation)
-        if item.text.chars().any(|c| SENTENCE_ENDINGS.contains(&c)) {
-            // Write the SRT entry
+        // If we need to split BEFORE adding this word
+        if (too_long || too_much_time || big_gap) && !current_sentence.is_empty() {
             srt_content.push_str(&format!("{}\n", subtitle_index));
             srt_content.push_str(&format!(
                 "{} --> {}\n",
@@ -271,14 +276,40 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
             srt_content.push_str(&format!("{}\n\n", current_sentence.trim()));
             subtitle_index += 1;
 
-            // Reset for next sentence
+            current_sentence.clear();
+            sentence_start = None;
+            sentence_end = None;
+        }
+
+        // Add word to current segment
+        if !current_sentence.is_empty() && !current_sentence.ends_with(' ') {
+            current_sentence.push(' ');
+        }
+        current_sentence.push_str(&item.text);
+
+        if sentence_start.is_none() {
+            sentence_start = Some(item.start_time);
+        }
+        sentence_end = Some(item.end_time);
+
+        // If we need to split AFTER adding this word (due to punctuation)
+        if is_punctuation {
+            srt_content.push_str(&format!("{}\n", subtitle_index));
+            srt_content.push_str(&format!(
+                "{} --> {}\n",
+                format_srt_time(sentence_start.unwrap_or(0.0)),
+                format_srt_time(sentence_end.unwrap_or(0.0))
+            ));
+            srt_content.push_str(&format!("{}\n\n", current_sentence.trim()));
+            subtitle_index += 1;
+
             current_sentence.clear();
             sentence_start = None;
             sentence_end = None;
         }
     }
 
-    // Handle any remaining content (last sentence without ending punctuation)
+    // Handle any remaining content
     if !current_sentence.is_empty() {
         srt_content.push_str(&format!("{}\n", subtitle_index));
         srt_content.push_str(&format!(

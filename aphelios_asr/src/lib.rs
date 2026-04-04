@@ -1,5 +1,4 @@
 pub mod base;
-pub mod dia;
 pub mod granite;
 pub mod qwenasr;
 pub mod sensevoice;

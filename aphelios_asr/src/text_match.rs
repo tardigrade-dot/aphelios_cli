@@ -328,7 +328,7 @@ pub fn generate_srt_with_sensevoice(
 ) -> Result<String> {
     let diff = TextDiff::configure()
         .algorithm(Algorithm::Myers)
-        .diff_chars(&sv_result.text, &target_text);
+        .diff_chars(&sv_result.text, target_text);
 
     let mut keep_count = 0;
     for op in diff.ops() {

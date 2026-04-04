@@ -35,18 +35,12 @@ candle-nn = { workspace = true }
 candle-transformers = { workspace = true }
 
 regex = { workspace = true }
-#mistralrs = { workspace = true }
 
 reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-usearch = { workspace = true }
-
-fastembed = { workspace = true }
-rusqlite = { workspace = true }
 glob = { workspace = true }
-hayro = { workspace = true }
 async-stream = { workspace = true }
 futures-util = { workspace = true }
 tracing-test = { workspace = true }
@@ -56,18 +50,25 @@ hf-hub = { workspace = true }
 itertools = { workspace = true }
 measureme = { workspace = true }
 rayon = { workspace = true }
+crossbeam-channel = "0.5"
+pdfium-render = { version = "0.9.0", features = ["bindings"] }
 
 dirs = "5"
 md5 = "0.7"
 
 [features]
+profiling = []
 metal = [
     "candle-core/metal",
+    "candle-core/accelerate",
     "candle-nn/metal",
+    "candle-nn/accelerate",
     "candle-transformers/metal",
+    "candle-transformers/accelerate",
     #"mistralrs/metal",
     "ort/coreml",
     "aphelios_core/metal",
+    "aphelios_core/profiling",
 ]
 cuda = [
     "candle-core/cuda",

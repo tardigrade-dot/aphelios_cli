@@ -1,11 +1,10 @@
-use crate::dolphin::dolphin_utils;
 use crate::dolphin::donut::CusDonutModel;
+use crate::dolphin::{dolphin_utils, full_in_one};
 use anyhow::Context;
 use anyhow::{Error as E, Result};
+use aphelios_core::measure_time;
 use aphelios_core::utils::base;
-use aphelios_core::{measure_time, utils};
 use candle_core::{safetensors, DType, Device, Tensor, D};
-use candle_nn::VarBuilder;
 use candle_transformers::models::donut::DonutConfig;
 use futures_util::{pin_mut, StreamExt};
 use glob::glob;
@@ -16,24 +15,101 @@ use ndarray::Array;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_json::Value;
+use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::result::Result::Ok;
-use std::{env, fs};
+use std::sync::Arc;
 use tokenizers::AddedToken;
 use tokenizers::Tokenizer;
 use tracing::{error, info};
+
+const STAGE1_PAGE_BATCH_SIZE: usize = 6;
+const STAGE2_CLIP_BATCH_SIZE: usize = 6;
+const STAGE2_LOW_WATERMARK: usize = STAGE2_CLIP_BATCH_SIZE;
+const STAGE2_HIGH_WATERMARK: usize = STAGE2_CLIP_BATCH_SIZE * 3;
+
+struct PageTask {
+    idx: usize,
+    image: Arc<DynamicImage>,
+}
+
+struct ClipTask {
+    page_idx: usize,
+    reading_order: usize,
+    label: String,
+    prompt: String,
+    bbox: [u32; 4],
+    image: Arc<DynamicImage>,
+}
+
+struct PageProgress {
+    remaining_clips: usize,
+    lines: Vec<Option<String>>,
+}
+
+/// CPU-side Donut preprocessing (similar to preprocess_like_donut_sync but standalone)
+fn preprocess_like_donut_cpu(
+    img: &DynamicImage,
+    target_width: u32,
+    target_height: u32,
+) -> Result<ndarray::Array3<f32>> {
+    use ndarray::Array;
+
+    // 1. Resize preserving aspect ratio
+    let resized = img.resize(
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    );
+
+    // 2. Create black canvas and center
+    let mut canvas =
+        image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
+    let x_offset = (target_width - resized.width()) / 2;
+    let y_offset = (target_height - resized.height()) / 2;
+    image::imageops::overlay(
+        &mut canvas,
+        &resized.to_rgb8(),
+        x_offset.into(),
+        y_offset.into(),
+    );
+
+    // 3. Convert to ndarray (H, W, C)
+    let rgb = canvas.into_raw(); // Consumes canvas, getting raw bytes
+    let h = target_height as usize;
+    let w = target_width as usize;
+
+    let array = Array::from_shape_vec((h, w, 3), rgb)
+        .map_err(|e| anyhow::anyhow!("Failed to create array: {}", e))?;
+
+    // 4. Normalize: (H, W, C) -> (C, H, W) with Donut normalization
+    // Donut uses mean=0.5, std=0.5 for each channel
+    let normalized = array
+        .mapv(|x| (x as f32 / 127.5) - 1.0)
+        .permuted_axes([2, 0, 1]);
+
+    Ok(normalized)
+}
 
 pub struct DolphinModel {
     model: CusDonutModel,
     config: DonutConfig,
     tokenizer: Tokenizer,
     device: Device,
+    dtype: DType,
 }
 
 impl DolphinModel {
     pub fn load_model(model_id: &str) -> Result<Self> {
         let device = base::get_default_device(false)?;
+
+        let dtype = if device.is_metal() {
+            DType::F32
+        } else {
+            DType::F32
+        };
 
         // 1. Determine model file paths
         let (tokenizer_path, safetensors_path, config_path) = if model_id.starts_with('/') {
@@ -48,7 +124,7 @@ impl DolphinModel {
             info!("Loading model from HuggingFace hub: {}", model_id);
             let hf_api = ApiBuilder::new()
                 .with_progress(false)
-                .with_cache_dir(PathBuf::from("/Users/larry/coderesp/aphelios_cli/.cache"))
+                // .with_cache_dir(PathBuf::from(".cache"))
                 // .with_endpoint("https://hf-mirror.com".to_string())
                 .build()
                 .unwrap();
@@ -90,54 +166,44 @@ impl DolphinModel {
         let lm_head_bias_key = "decoder.lm_head.bias";
 
         if tensors.contains_key(lm_head_weight_key) && !tensors.contains_key(lm_head_bias_key) {
-            info!("Missing lm_head.bias detected, injecting zero-bias patch...");
+            info!(
+                "Missing lm_head.bias detected, injecting zero-bias patch with dtype {:?}...",
+                dtype
+            );
             let weight = &tensors[lm_head_weight_key];
             let out_dim = weight.dim(0)?;
-            let fake_bias = Tensor::zeros(out_dim, DType::F32, &device)?;
+            // Bias belongs to decoder, so it should use the target fast dtype
+            let fake_bias = Tensor::zeros(out_dim, dtype, &device)?;
             tensors.insert(lm_head_bias_key.to_string(), fake_bias);
         }
 
         // 5. Initialize model
-        let vb = VarBuilder::from_tensors(tensors, DType::F32, &device);
-        let model = CusDonutModel::load(&config, vb)?;
+        let model = CusDonutModel::load(&config, tensors, dtype, &device)?;
 
         Ok(Self {
             model,
             config,
             tokenizer,
             device,
+            dtype,
         })
     }
 
     pub async fn dolphin_ocr(&mut self, image_path: &str, output_dir: &str) -> Result<Vec<String>> {
-        utils::logger::init_logging();
-
         let mut res_li = vec![];
-
-        let file_name = Path::new(image_path).file_name().unwrap().to_str().unwrap();
-        let output_path = Path::new(output_dir).join(file_name);
+        let input_file_path = Path::new(image_path);
+        let output_path = Path::new(output_dir).join(input_file_path.file_stem().unwrap());
         let _ = std::fs::create_dir_all(&output_path);
-        // let ext = Path::new(image_path).extension().unwrap().to_str().;
-        let ext = image_path.rsplit('.').next().unwrap_or("").to_lowercase();
+        let ext = Path::new(image_path)
+            .extension()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_lowercase();
         if ext == "pdf" {
-            let img_iter =
-                dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
-            pin_mut!(img_iter);
-
-            while let Some((idx, img_result)) = img_iter.next().await {
-                match img_result {
-                    Ok(img) => {
-                        if let Err(e) =
-                            self.run_ocr_single_img(&img, &output_path, idx, &mut res_li)
-                        {
-                            error!("OCR failed for PDF page {}: {:?}", idx, e);
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to load PDF page {}: {:?}", idx, e);
-                    }
-                }
-            }
+            let existing_pages = Self::scan_existing_pages(&output_path);
+            self.dolphin_ocr_pdf(image_path, &output_path, existing_pages, &mut res_li)
+                .await?;
         } else {
             let img = image::ImageReader::open(image_path)
                 .with_context(|| format!("Failed to open image file {}", image_path))?
@@ -150,6 +216,273 @@ impl DolphinModel {
         }
         full_in_one(output_path.to_str().unwrap())?;
         Ok(res_li)
+    }
+
+    /// 扫描输出目录，返回已存在的页面编号集合
+    fn scan_existing_pages(output_path: &Path) -> std::collections::HashSet<usize> {
+        let mut existing = std::collections::HashSet::new();
+        let glob_pattern = format!("{}/[0-9]*_page.txt", output_path.to_str().unwrap());
+
+        if let Ok(entries) = glob(&glob_pattern) {
+            for entry in entries.flatten() {
+                if let Some(filename) = entry.file_name().and_then(|n| n.to_str()) {
+                    // 提取页面编号：格式为 "123_page.txt"
+                    if let Some(num_str) = filename.strip_suffix("_page.txt") {
+                        if let Ok(num) = num_str.parse::<usize>() {
+                            existing.insert(num);
+                        }
+                    }
+                }
+            }
+        }
+        existing
+    }
+
+    async fn dolphin_ocr_pdf(
+        &mut self,
+        image_path: &str,
+        output_path: &PathBuf,
+        existing_pages: HashSet<usize>,
+        res_li: &mut Vec<String>,
+    ) -> Result<()> {
+        info!(
+            "Found {} existing pages, stage1_batch={}, stage2_batch={}, high_watermark={}",
+            existing_pages.len(),
+            STAGE1_PAGE_BATCH_SIZE,
+            STAGE2_CLIP_BATCH_SIZE,
+            STAGE2_HIGH_WATERMARK
+        );
+
+        let copped_img_path = output_path.join("copped_img");
+        let _ = fs::create_dir_all(&copped_img_path);
+
+        let img_iter =
+            dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
+        pin_mut!(img_iter);
+
+        let mut pending_pages = VecDeque::new();
+        let mut pending_clips = VecDeque::new();
+        let mut page_progress = BTreeMap::new();
+        let mut pdf_done = false;
+
+        loop {
+            if pending_clips.len() >= STAGE2_CLIP_BATCH_SIZE
+                || (pdf_done && pending_pages.is_empty() && !pending_clips.is_empty())
+            {
+                let batch_size = pending_clips.len().min(STAGE2_CLIP_BATCH_SIZE);
+                self.run_stage2_clip_batch(
+                    &mut pending_clips,
+                    batch_size,
+                    &mut page_progress,
+                    output_path,
+                    res_li,
+                )?;
+                continue;
+            }
+
+            while !pdf_done
+                && pending_pages.len() < STAGE1_PAGE_BATCH_SIZE
+                && pending_clips.len() < STAGE2_HIGH_WATERMARK
+            {
+                match img_iter.next().await {
+                    Some((idx, img_result)) => {
+                        if existing_pages.contains(&idx) {
+                            info!("page [{}] already processed, skip", idx);
+                            continue;
+                        }
+
+                        let img = img_result
+                            .with_context(|| format!("Failed to load PDF page {}", idx))?;
+                        pending_pages.push_back(PageTask {
+                            idx,
+                            image: Arc::new(img),
+                        });
+                    }
+                    None => {
+                        pdf_done = true;
+                        break;
+                    }
+                }
+            }
+
+            if pending_clips.len() >= STAGE2_LOW_WATERMARK {
+                continue;
+            }
+
+            if !pending_pages.is_empty() {
+                let batch_size = pending_pages.len().min(STAGE1_PAGE_BATCH_SIZE);
+                self.run_stage1_page_batch(
+                    &mut pending_pages,
+                    batch_size,
+                    &mut pending_clips,
+                    &mut page_progress,
+                    &copped_img_path,
+                    output_path,
+                )?;
+                continue;
+            }
+
+            if pdf_done {
+                if pending_clips.is_empty() {
+                    break;
+                }
+                let batch_size = pending_clips.len().min(STAGE2_CLIP_BATCH_SIZE);
+                self.run_stage2_clip_batch(
+                    &mut pending_clips,
+                    batch_size,
+                    &mut page_progress,
+                    output_path,
+                    res_li,
+                )?;
+                continue;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn run_stage1_page_batch(
+        &mut self,
+        pending_pages: &mut VecDeque<PageTask>,
+        batch_size: usize,
+        pending_clips: &mut VecDeque<ClipTask>,
+        page_progress: &mut BTreeMap<usize, PageProgress>,
+        copped_img_path: &PathBuf,
+        output_path: &PathBuf,
+    ) -> Result<()> {
+        #[cfg(feature = "profiling")]
+        let _stage1_batch_span = tracing::info_span!("stage1_batch").entered();
+        let batch: Vec<PageTask> = pending_pages.drain(..batch_size).collect();
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let page_indexes: Vec<usize> = batch.iter().map(|page| page.idx).collect();
+        info!("stage1 batch pages {:?}", page_indexes);
+
+        #[cfg(feature = "profiling")]
+        let _run_ocr_first_stage_batch_span =
+            tracing::info_span!("stage1-model", index = batch.len()).entered();
+        let layouts = self.run_ocr_first_stage_batch(&batch)?;
+        #[cfg(feature = "profiling")]
+        _run_ocr_first_stage_batch_span.exit();
+
+        for (page, layout_str) in batch.into_iter().zip(layouts.into_iter()) {
+            let output_file = output_path.join(format!("{}_page.txt", page.idx));
+            if fs::exists(&output_file)? {
+                info!("{} exist, skip stage2 scheduling", output_file.display());
+                continue;
+            }
+
+            let page_clips =
+                self.build_clip_tasks_for_page(page.idx, page.image, &layout_str, copped_img_path)?;
+            let clip_count = page_clips.len();
+            if clip_count == 0 {
+                fs::write(&output_file, "")?;
+                continue;
+            }
+
+            page_progress.insert(
+                page.idx,
+                PageProgress {
+                    remaining_clips: clip_count,
+                    lines: vec![None; clip_count],
+                },
+            );
+            pending_clips.extend(page_clips);
+        }
+
+        Ok(())
+    }
+
+    fn run_stage2_clip_batch(
+        &mut self,
+        pending_clips: &mut VecDeque<ClipTask>,
+        batch_size: usize,
+        page_progress: &mut BTreeMap<usize, PageProgress>,
+        output_path: &PathBuf,
+        res_li: &mut Vec<String>,
+    ) -> Result<()> {
+        #[cfg(feature = "profiling")]
+        let _stage2_batch_span = tracing::info_span!("stage2_batch").entered();
+        let batch: Vec<ClipTask> = pending_clips.drain(..batch_size).collect();
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let clip_keys: Vec<(usize, usize)> = batch
+            .iter()
+            .map(|clip| (clip.page_idx, clip.reading_order))
+            .collect();
+        info!("stage2 batch clips {:?}", clip_keys);
+
+        let target_width = self.config.image_width() as u32;
+        let target_height = self.config.image_height() as u32;
+        let processed: Vec<Result<(usize, usize, String, ndarray::Array3<f32>)>> = batch
+            .par_iter()
+            .map(|clip| {
+                let cropped_img = dolphin_utils::crop_image(&clip.image, clip.bbox, 5);
+                let pixel_values =
+                    preprocess_like_donut_cpu(&cropped_img, target_width, target_height)
+                        .map_err(|e| anyhow::anyhow!("Preprocess failed: {}", e))?;
+                Ok((
+                    clip.page_idx,
+                    clip.reading_order,
+                    format!("[{}] - [{}]", clip.reading_order, clip.label),
+                    pixel_values,
+                ))
+            })
+            .collect();
+        let processed = processed.into_iter().collect::<Result<Vec<_>>>()?;
+
+        let mut labels = Vec::with_capacity(processed.len());
+        let mut pixel_values_li = Vec::with_capacity(processed.len());
+        let prompts: Vec<&str> = batch.iter().map(|clip| clip.prompt.as_str()).collect();
+        for (_, _, label, pixel_values) in processed {
+            labels.push(label);
+            let shape = pixel_values.shape();
+            let tensor = Tensor::from_vec(
+                pixel_values.iter().cloned().collect(),
+                (shape[0], shape[1], shape[2]),
+                &Device::Cpu,
+            )?
+            .to_dtype(self.dtype)?
+            .unsqueeze(0)?
+            .to_device(&self.device)?;
+            pixel_values_li.push(tensor);
+        }
+
+        #[cfg(feature = "profiling")]
+        let _generate_text_batch_span =
+            tracing::info_span!("stage2-model", index = pixel_values_li.len()).entered();
+        let results =
+            self.generate_text_batch(&pixel_values_li, &prompts, pixel_values_li.len())?;
+        #[cfg(feature = "profiling")]
+        _generate_text_batch_span.exit();
+
+        let mut completed_pages = Vec::new();
+        for (clip, label, ocr_content) in
+            izip!(batch.into_iter(), labels.into_iter(), results.into_iter())
+        {
+            if let Some(progress) = page_progress.get_mut(&clip.page_idx) {
+                progress.lines[clip.reading_order] = Some(format!("{} : {}", label, ocr_content));
+                progress.remaining_clips -= 1;
+                if progress.remaining_clips == 0 {
+                    completed_pages.push(clip.page_idx);
+                }
+            }
+        }
+
+        for page_idx in completed_pages {
+            if let Some(progress) = page_progress.remove(&page_idx) {
+                let page_lines: Vec<String> = progress.lines.into_iter().flatten().collect();
+                let output_file = output_path.join(format!("{}_page.txt", page_idx));
+                fs::write(&output_file, page_lines.join("\n"))?;
+                res_li.extend(page_lines);
+            }
+        }
+
+        Ok(())
     }
 
     fn run_ocr_single_img(
@@ -168,10 +501,10 @@ impl DolphinModel {
             info!("{} exist, to process next ", &output_file.to_str().unwrap());
             return Ok(());
         }
-        info!("start process page [{}] ...", idx);
-        let layout_str = self.run_ocr_first_stage(img)?;
+        info!("start process page [{}] first stage ...", idx);
+        let layout_str = self.run_ocr_first_stage(img, idx)?;
 
-        info!("end first stage layout_str {}", layout_str);
+        info!("start process page [{}] second stage ...", idx);
         let res = self.run_ocr_second_stage(&img, &layout_str, idx, &copped_img_path);
         match res {
             Ok(mut ok_vec) => {
@@ -183,18 +516,103 @@ impl DolphinModel {
         }
     }
 
-    fn run_ocr_first_stage(&mut self, img: &DynamicImage) -> Result<String> {
+    fn run_ocr_first_stage(&mut self, img: &DynamicImage, _idx: usize) -> Result<String> {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::info_span!("run_ocr_first_stage", index = _idx).entered();
+
         let img_tensor = dolphin_utils::get_tensor_from_image(
             &img,
             self.config.image_height() as u32,
             self.config.image_width() as u32,
             &self.device,
+            self.dtype,
         );
         let task_prompt = "<s>Parse the reading order of this document. <Answer/>";
         let mut layout_str = self.generate_text(&img_tensor, &task_prompt)?;
 
         layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
         Ok(layout_str)
+    }
+
+    fn run_ocr_first_stage_batch(&mut self, pages: &[PageTask]) -> Result<Vec<String>> {
+        if pages.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let prompt = "<s>Parse the reading order of this document. <Answer/>";
+        let prompts = vec![prompt; pages.len()];
+        let pixel_values_li: Vec<Tensor> = pages
+            .iter()
+            .map(|page| {
+                dolphin_utils::get_tensor_from_image(
+                    &page.image,
+                    self.config.image_height() as u32,
+                    self.config.image_width() as u32,
+                    &self.device,
+                    self.dtype,
+                )
+            })
+            .collect();
+
+        let mut layouts = self.generate_text_batch(&pixel_values_li, &prompts, pages.len())?;
+        for layout in &mut layouts {
+            *layout = layout.replace(prompt, "").replace("</s>", "");
+        }
+        Ok(layouts)
+    }
+
+    fn build_clip_tasks_for_page(
+        &self,
+        page_idx: usize,
+        image: Arc<DynamicImage>,
+        layout_str: &str,
+        copped_img_path: &PathBuf,
+    ) -> Result<Vec<ClipTask>> {
+        let (img_w, img_h) = image.dimensions();
+        let target_width = self.config.image_width() as u32;
+        let target_height = self.config.image_height() as u32;
+        let re = Regex::new(r"\[(\d+,\d+,\d+,\d+)\]\[([^\]]+)\]")?;
+
+        let mut bbox_list = Vec::new();
+        let mut clips = Vec::new();
+
+        for cap in re.captures_iter(layout_str) {
+            let label = cap[2].to_string();
+            if label == "fig" {
+                continue;
+            }
+            let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
+            let bbox = dolphin_utils::transform_to_pixel_dynamic(
+                &[coords_raw[0], coords_raw[1], coords_raw[2], coords_raw[3]],
+                img_w,
+                img_h,
+                target_width,
+                target_height,
+            );
+            bbox_list.push(bbox);
+
+            let prompt = match label.as_str() {
+                "tab" => "<s>Parse the table in the image. <Answer/>",
+                "equ" => "<s>Read formula in the image. <Answer/>",
+                _ => "<s>Read text in the image. <Answer/>",
+            };
+
+            clips.push(ClipTask {
+                page_idx,
+                reading_order: clips.len(),
+                label,
+                prompt: prompt.to_string(),
+                bbox,
+                image: Arc::clone(&image),
+            });
+        }
+
+        if !bbox_list.is_empty() {
+            let layout_draw_path = copped_img_path.join(format!("{}-layout.png", page_idx));
+            dolphin_utils::draw_bbox_and_save_multi(&image, &bbox_list, 5, &layout_draw_path);
+        }
+
+        Ok(clips)
     }
 
     fn run_ocr_second_stage(
@@ -204,6 +622,9 @@ impl DolphinModel {
         i_index: usize,
         copped_img_path: &PathBuf,
     ) -> Result<Vec<String>> {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::info_span!("run_ocr_second_stage", index = i_index).entered();
+
         let (img_w, img_h) = full_image.dimensions();
         let target_width = self.config.image_width() as u32;
         let target_height = self.config.image_height() as u32;
@@ -229,6 +650,10 @@ impl DolphinModel {
         }
 
         info!("Pre-processing {} image crops in parallel...", tasks.len());
+
+        #[cfg(feature = "profiling")]
+        let _preprocess_tasks_span = tracing::info_span!("preprocess_tasks").entered();
+        let dtype = self.dtype;
         let processed_tasks: Vec<_> = tasks
             .into_par_iter()
             .map(|(order, coords_raw, label)| {
@@ -244,7 +669,9 @@ impl DolphinModel {
                 // 这里我们需要在每个线程中进行预处理，但 Tensor 的创建需要 Device。
                 // 注意：candle Tensor::from_vec 在 CPU 上是并行的，但如果是 Metal Device，则需要小心。
                 // 这里的 preprocess_like_donut 内部调用了 Tensor::from_vec。
-                let pixel_values = self.preprocess_like_donut_sync(&cropped_img).unwrap();
+                let pixel_values = self
+                    .preprocess_like_donut_sync(&cropped_img, dtype)
+                    .unwrap();
 
                 let prompt = match label.as_str() {
                     "tab" => "<s>Parse the table in the image. <Answer/>",
@@ -255,6 +682,8 @@ impl DolphinModel {
                 (order, bbox, pixel_values, prompt, label)
             })
             .collect();
+        #[cfg(feature = "profiling")]
+        _preprocess_tasks_span.exit();
 
         let mut reading_orders = Vec::new();
         for (order, bbox, pixel_values, prompt, label) in processed_tasks {
@@ -266,10 +695,20 @@ impl DolphinModel {
             prompt_li.push(prompt);
         }
 
+        #[cfg(feature = "profiling")]
+        let _draw_bbox_and_save_multi_span =
+            tracing::info_span!("draw_bbox_and_save_multi").entered();
         dolphin_utils::draw_bbox_and_save_multi(full_image, &bbox_list, 5, &layout_draw_path);
+        #[cfg(feature = "profiling")]
+        _draw_bbox_and_save_multi_span.exit();
 
         info!("start seconde stage with batch inference...");
+
+        #[cfg(feature = "profiling")]
+        let _generate_text_batch_span = tracing::info_span!("generate_text_batch").entered();
         let res = self.generate_text_batch(&pixel_values_li, &prompt_li, 4)?;
+        #[cfg(feature = "profiling")]
+        _generate_text_batch_span.exit();
 
         let mut full_res = Vec::new();
         for (_, la, ocr_content) in izip!(&reading_orders, labels, res) {
@@ -425,7 +864,7 @@ impl DolphinModel {
                 ) {
                     std::result::Result::Ok(l) => l,
                     Err(e) => {
-                        println!("Candle Error detected: {:?}", e);
+                        error!("Candle Error detected: {:?}", e);
                         return Err(e.into());
                     }
                 };
@@ -455,11 +894,12 @@ impl DolphinModel {
     }
 
     fn preprocess_like_donut(&mut self, img: &DynamicImage) -> Result<Tensor> {
-        let tensor = self.preprocess_like_donut_sync(img)?;
+        let dtype = self.dtype;
+        let tensor = self.preprocess_like_donut_sync(img, dtype)?;
         Ok(tensor.to_device(&self.device)?)
     }
 
-    fn preprocess_like_donut_sync(&self, img: &DynamicImage) -> Result<Tensor> {
+    fn preprocess_like_donut_sync(&self, img: &DynamicImage, dtype: DType) -> Result<Tensor> {
         let target_height = self.config.image_height() as u32;
         let target_width = self.config.image_width() as u32;
 
@@ -499,6 +939,7 @@ impl DolphinModel {
             (3, h, w),
             &Device::Cpu,
         )?
+        .to_dtype(dtype)?
         .unsqueeze(0)?;
 
         Ok(tensor)
@@ -550,83 +991,4 @@ impl DolphinModel {
 
         Ok(tokenizer)
     }
-}
-
-pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
-    info!("start run dolphin ocr task");
-
-    // Allow model path to be configurable via environment variable or use default
-    let model_id = env::var("DOLPHIN_MODEL_PATH")
-        .unwrap_or_else(|_| "/Volumes/sw/pretrained_models/Dolphin-v1.5".to_string());
-
-    let mut dm = DolphinModel::load_model(&model_id)?;
-
-    let _ = &dm
-        .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())
-        .await?;
-    info!("ocr finished. start merge all file to single one");
-
-    full_in_one(output_path)?;
-    Ok(())
-}
-
-fn full_in_one(output_path: &str) -> Result<(), E> {
-    let page_datas = get_page_datas(output_path)?;
-    let output = Path::new(output_path);
-    let output_file: PathBuf = output.join("total_in_one.txt");
-    fs::write(&output_file, format!("{}", &page_datas.join("\n")))?;
-    info!("all text saved in {}", &output_file.to_str().unwrap());
-    Ok(())
-}
-
-fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
-    let mut page_datas: Vec<String> = Vec::new();
-    let re =
-        Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
-
-    let mut last_label = String::new();
-
-    for entry in glob(&format!("{}/[0-9]*_page.txt", output_path))? {
-        let path = entry?;
-        // 读取文件内容
-        let content = fs::read_to_string(&path)?;
-        let mut i_index = 0;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            if let Some(caps) = re.captures(line) {
-                let mut item_tag = caps["tag"].to_string();
-                let item_content = caps["content"].trim().to_string();
-
-                // 过滤掉不需要的标签
-                if ["fig", "tab", "equ", "code", "header", "foot", "fnote"]
-                    .contains(&item_tag.as_str())
-                {
-                    continue;
-                }
-                // half_para 统一为 para
-                if item_tag == "half_para" {
-                    item_tag = "para".to_string();
-                }
-
-                // 如果同标签且是本文件第一条，追加到上一条
-                if item_tag == last_label && i_index == 0 {
-                    if let Some(last) = page_datas.last_mut() {
-                        last.push_str(&item_content);
-                    }
-                } else {
-                    page_datas.push(item_content.to_string());
-                }
-
-                last_label = item_tag;
-                i_index += 1;
-            }
-        }
-    }
-
-    Ok(page_datas)
 }

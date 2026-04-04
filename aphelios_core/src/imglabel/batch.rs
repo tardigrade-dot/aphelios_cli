@@ -66,7 +66,6 @@ pub fn label_video_batch(video_path: &str) -> Result<String> {
 
     let annotator = Annotator::default();
     let mut processed_count = 0;
-    let start_time = std::time::Instant::now();
     // Step 1: 批量加载所有帧
     let mut images_to_process: Vec<Image> = Vec::with_capacity(frame_files.len());
     let mut frame_paths: Vec<&std::path::PathBuf> = Vec::with_capacity(frame_files.len());

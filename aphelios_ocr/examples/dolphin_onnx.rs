@@ -391,7 +391,8 @@ fn main() -> Result<()> {
         .decode()
         .with_context(|| format!("Failed to decode image {}", test_image.to_str().unwrap()))?;
 
-    let img_tensor = dolphin_utils::get_tensor_from_image(&img, 896, 896, &device);
+    let img_tensor =
+        dolphin_utils::get_tensor_from_image(&img, 896, 896, &device, candle_core::DType::F32);
 
     println!("Image preprocessed in {:?}", start.elapsed());
 
