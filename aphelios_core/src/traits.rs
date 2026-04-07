@@ -37,6 +37,27 @@ pub trait TtsEngine: Send + Sync {
         output_path: &str,
         progress: Option<AppProgressBar>,
     ) -> Result<()>;
+
+    /// 执行批量 TTS 语音合成（从 TXT 文件读取）
+    ///
+    /// # 参数
+    /// * `model_path` - 模型路径
+    /// * `ref_audio_path` - 参考音频路径（用于克隆）
+    /// * `ref_text` - 参考文本
+    /// * `txt_file_path` - TXT 文件路径，每行一段待合成文本
+    /// * `output_dir` - 输出目录（以 TXT 文件名命名）
+    /// * `batch_size` - 每批处理的文本数量
+    /// * `progress` - 进度回调
+    fn generate_batch(
+        &self,
+        model_path: &str,
+        ref_audio_path: &str,
+        ref_text: &str,
+        txt_file_path: &str,
+        output_dir: &str,
+        batch_size: usize,
+        progress: Option<AppProgressBar>,
+    ) -> Result<Vec<String>>;
 }
 
 /// 搜索结果中单本书的信息

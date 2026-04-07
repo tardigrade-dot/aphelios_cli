@@ -25,6 +25,7 @@ thiserror = { workspace = true }
 
 rand = { workspace = true }
 indicatif = { workspace = true }
+safetensors = { workspace = true }
 
 ort = { workspace = true }
 tokenizers = { workspace = true }
@@ -61,6 +62,7 @@ byteorder = { workspace = true }
 rubato = { workspace = true }
 tempfile = { workspace = true }
 strum_macros = { workspace = true }
+
 
 [features]
 metal = [

@@ -148,13 +148,21 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
     conn.execute("ALTER TABLE books ADD COLUMN author_norm TEXT", [])
         .ok(); // Ignore error if column exists
 
-    // 创建全文搜索虚拟表（使用原始文本和标准化文本）
+    // 添加 bi-gram 分词列（用于中文搜索）
+    conn.execute("ALTER TABLE books ADD COLUMN title_bigram TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE books ADD COLUMN author_bigram TEXT", [])
+        .ok();
+
+    // 创建全文搜索虚拟表（使用原始文本、标准化文本和 bi-gram 分词）
     conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS books_fts USING fts5(
             title,
             author,
             title_norm,
             author_norm,
+            title_bigram,
+            author_bigram,
             content='books',
             content_rowid='id'
         )",
@@ -164,26 +172,26 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
     // 创建触发器保持 FTS 同步
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
-            INSERT INTO books_fts(rowid, title, author, title_norm, author_norm)
-            VALUES (new.id, new.title, new.author, new.title_norm, new.author_norm);
+            INSERT INTO books_fts(rowid, title, author, title_norm, author_norm, title_bigram, author_bigram)
+            VALUES (new.id, new.title, new.author, new.title_norm, new.author_norm, new.title_bigram, new.author_bigram);
         END",
         [],
     )?;
 
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
-            INSERT INTO books_fts(books_fts, rowid, title, author, title_norm, author_norm)
-            VALUES('delete', old.id, old.title, old.author, old.title_norm, old.author_norm);
+            INSERT INTO books_fts(books_fts, rowid, title, author, title_norm, author_norm, title_bigram, author_bigram)
+            VALUES('delete', old.id, old.title, old.author, old.title_norm, old.author_norm, old.title_bigram, old.author_bigram);
         END",
         [],
     )?;
 
     conn.execute(
         "CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
-            INSERT INTO books_fts(books_fts, rowid, title, author, title_norm, author_norm)
-            VALUES('delete', old.id, old.title, old.author, old.title_norm, old.author_norm);
-            INSERT INTO books_fts(rowid, title, author, title_norm, author_norm)
-            VALUES (new.id, new.title, new.author, new.title_norm, new.author_norm);
+            INSERT INTO books_fts(books_fts, rowid, title, author, title_norm, author_norm, title_bigram, author_bigram)
+            VALUES('delete', old.id, old.title, old.author, old.title_norm, old.author_norm, old.title_bigram, old.author_bigram);
+            INSERT INTO books_fts(rowid, title, author, title_norm, author_norm, title_bigram, author_bigram)
+            VALUES (new.id, new.title, new.author, new.title_norm, new.author_norm, new.title_bigram, new.author_bigram);
         END",
         [],
     )?;
@@ -191,9 +199,18 @@ pub fn init_database(db_path: &str) -> Result<Connection> {
     Ok(conn)
 }
 
-/// 从文件路径提取书名和作者（原始文本 + 标准化文本）
-/// Returns: (title, author, title_norm, author_norm)
-fn extract_metadata(file_path: &Path) -> (String, Option<String>, String, Option<String>) {
+/// 从文件路径提取书名和作者（原始文本 + 标准化文本 + Jieba 分词）
+/// Returns: (title, author, title_norm, author_norm, title_bigram, author_bigram)
+pub fn extract_metadata(
+    file_path: &Path,
+) -> (
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+) {
     let filename = file_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -202,12 +219,20 @@ fn extract_metadata(file_path: &Path) -> (String, Option<String>, String, Option
 
     // 尝试解析常见格式: "书名 (作者)" 或 "书名 - 作者"
     let (title, author) = if let Some(paren_pos) = filename.find('(') {
-        let title = filename[..paren_pos].trim().to_string();
+        let raw_title = filename[..paren_pos].trim().to_string();
         let author = filename[paren_pos + 1..].find(')').map(|end| {
             filename[paren_pos + 1..paren_pos + 1 + end]
                 .trim()
                 .to_string()
         });
+
+        // 清理标题：移除英文副标题（以 " = " 或英文括号分隔的部分）
+        let title = if let Some(eq_pos) = raw_title.find(" = ") {
+            raw_title[..eq_pos].trim().to_string()
+        } else {
+            raw_title
+        };
+
         (title, author)
     } else if let Some(dash_pos) = filename.find(" - ") {
         let title = filename[..dash_pos].trim().to_string();
@@ -221,17 +246,40 @@ fn extract_metadata(file_path: &Path) -> (String, Option<String>, String, Option
             if !title.is_empty() {
                 let title_norm = chinese_norm::normalize(&title);
                 let author_norm = author.as_ref().map(|a| chinese_norm::normalize(a));
-                return (title, author, title_norm, author_norm);
+                let title_bigram = chinese_norm::tokenize_for_search(&title).join(" ");
+                let author_bigram = author
+                    .as_ref()
+                    .map(|a| chinese_norm::tokenize_for_search(a).join(" "));
+                return (
+                    title,
+                    author,
+                    title_norm,
+                    author_norm,
+                    title_bigram,
+                    author_bigram,
+                );
             }
         }
         (filename.clone(), None)
     };
 
-    // 生成标准化文本
+    // 生成标准化文本和 Jieba 分词
     let title_norm = chinese_norm::normalize(&title);
     let author_norm = author.as_ref().map(|a| chinese_norm::normalize(a));
+    // 对标准化后的文本（简体）进行 Jieba 分词，提高繁简兼容性
+    let title_bigram = chinese_norm::tokenize_for_search(&title_norm).join(" ");
+    let author_bigram = author
+        .as_ref()
+        .map(|a| chinese_norm::tokenize_for_search(&chinese_norm::normalize(a)).join(" "));
 
-    (title, author, title_norm, author_norm)
+    (
+        title,
+        author,
+        title_norm,
+        author_norm,
+        title_bigram,
+        author_bigram,
+    )
 }
 
 /// 扫描书籍目录并建立完整索引（SQLite FTS + 语义向量索引）
@@ -307,11 +355,12 @@ fn rebuild_search_index(
             .to_lowercase();
 
         let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) as i64;
-        let (title, author, title_norm, author_norm) = extract_metadata(path);
+        let (title, author, title_norm, author_norm, title_bigram, author_bigram) =
+            extract_metadata(path);
 
         if let Err(e) = conn.execute(
-            "INSERT INTO books (title, author, title_norm, author_norm, file_path, file_type, file_size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![title, author, title_norm, author_norm, file_path, file_type, file_size],
+            "INSERT INTO books (title, author, title_norm, author_norm, title_bigram, author_bigram, file_path, file_type, file_size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![title, author, title_norm, author_norm, title_bigram, author_bigram, file_path, file_type, file_size],
         ) {
             error!("Failed to insert book {}: {}", file_path, e);
             continue;
@@ -402,7 +451,7 @@ fn search_books_internal(
     }
 }
 
-/// FTS5 keyword search with optional Chinese normalization
+/// FTS5 keyword search with bi-gram tokenization
 fn fts_search(
     config: &IndexConfig,
     query: &str,
@@ -414,6 +463,8 @@ fn fts_search(
     let sql = if query.is_empty() {
         "SELECT id, title, author, file_path, file_type, file_size FROM books ORDER BY title LIMIT ?1"
     } else {
+        // 搜索 bigram 列，使用 rank 排序
+        // 注意：FTS5 的 rank 值越小表示匹配度越高（负数）
         "SELECT b.id, b.title, b.author, b.file_path, b.file_type, b.file_size
          FROM books b
          INNER JOIN books_fts f ON b.id = f.rowid
@@ -439,19 +490,52 @@ fn fts_search(
         .filter_map(|r| r.ok())
         .collect()
     } else {
-        // 处理搜索查询
+        // 处理搜索查询：对查询词做 bi-gram 分词后搜索
         let fts_query = if normalize_chinese {
-            // Generate query with both original and normalized forms
-            let query_norm = chinese_norm::normalize(query);
-            let query_trad = chinese_norm::to_traditional(query);
-            format!(
-                "({}* OR {}* OR {}*)",
-                query.replace('"', "\"\""),
-                query_norm.replace('"', "\"\""),
-                query_trad.replace('"', "\"\"")
-            )
+            // 对中文查询进行 bi-gram 分词
+            let tokens = chinese_norm::tokenize_for_search(query);
+            let tokens_norm = chinese_norm::tokenize_for_search(&chinese_norm::normalize(query));
+            let tokens_trad =
+                chinese_norm::tokenize_for_search(&chinese_norm::to_traditional(query));
+
+            // 构建 FTS5 查询：搜索 bigram 列
+            let build_fts_query = |tokens: Vec<String>| -> String {
+                if tokens.is_empty() {
+                    return String::new();
+                }
+
+                // 精确匹配整个短语（权重更高）
+                let full_query = tokens.join("");
+                let full_query_escaped = full_query.replace('"', "\"\"");
+                let exact_match = format!("title_bigram:\"{}\"*", full_query_escaped);
+
+                // bi-gram 分词匹配（提高召回率）
+                let bigram_matches: String = tokens
+                    .iter()
+                    .map(|t| {
+                        let t_escaped = t.replace('"', "\"\"");
+                        format!("title_bigram:{}*", t_escaped)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+
+                // 精确匹配优先，OR 分词匹配
+                format!("{} OR {}", exact_match, bigram_matches)
+            };
+
+            let query1 = build_fts_query(tokens);
+            let query2 = build_fts_query(tokens_norm);
+            let query3 = build_fts_query(tokens_trad);
+
+            // 三种形式用 OR 连接（简繁都匹配）
+            format!("({}) OR ({}) OR ({})", query1, query2, query3)
         } else {
-            format!("{}*", query.replace('"', "\"\""))
+            // 不使用中文规范化：直接搜索
+            let query_escaped = query.replace('"', "\"\"");
+            format!(
+                "title_bigram:\"{}\"* OR author_bigram:\"{}\"* OR title_bigram:{0}* OR author_bigram:{0}*",
+                query_escaped, query_escaped
+            )
         };
 
         stmt.query_map(params![fts_query.as_str(), limit_i32], |row| {

@@ -42,14 +42,25 @@ fn full_in_one(output_path: &str) -> Result<(), E> {
 }
 
 fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
+    info!("start get page datas {}", output_path);
     let mut page_datas: Vec<String> = Vec::new();
     let re =
         Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
 
     let mut last_label = String::new();
 
-    for entry in glob(&format!("{}/[0-9]*_page.txt", output_path))? {
-        let path = entry?;
+    // Collect all matching paths and sort them by numeric prefix
+    let mut paths: Vec<_> =
+        glob(&format!("{}/[0-9]*_page.txt", output_path))?.collect::<Result<Vec<_>, _>>()?;
+    paths.sort_by_key(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.split('_').next())
+            .and_then(|num| num.parse::<u32>().ok())
+            .unwrap_or(0)
+    });
+
+    for path in paths {
         // 读取文件内容
         let content = fs::read_to_string(&path)?;
         let mut i_index = 0;
@@ -91,4 +102,28 @@ fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
     }
 
     Ok(page_datas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use aphelios_core::init_logging;
+    use tracing::{error, info};
+
+    #[test]
+    fn dolphin_all_in_one_test() -> Result<()> {
+        init_logging();
+        let output_dir =
+            "/Volumes/sw/ocr_result/专制权力与中国社会 (刘泽华) (z-library.sk, 1lib.sk, z-lib.sk)";
+
+        let result = full_in_one(output_dir);
+        match result {
+            Ok(_) => {
+                info!("test success ");
+            }
+            Err(e) => error!("{:?}", e),
+        }
+        Ok(())
+    }
 }

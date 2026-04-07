@@ -56,7 +56,7 @@ fn train() -> Result<()> {
     let loss = logits.sub(&y)?.sqr()?.mean_all()?;
     opt.backward_step(&loss)?;
 
-    println!("Initial Loss: {:?}", loss.to_vec0::<f32>()?);
+    println!("Initial Loss: {:?}", loss.to_dtype(DType::F32)??);
     vm.save(MODEL_FILE)?;
     println!("model saved {}", MODEL_FILE);
 

@@ -6,6 +6,8 @@ use aphelios_core::utils::progress::AppProgressBar;
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_search as search;
 use aphelios_tts::qwen_tts::qwen_tts::generate_voice;
+use aphelios_tts::qwen_tts::qwen_tts::generate_voice_batch_from_txt;
+use tracing::info;
 
 /// OCR 服务的 Dolphin 实现
 pub struct DolphinOcrClient;
@@ -45,6 +47,27 @@ impl TtsEngine for QwenTtsClient {
             ref_text,
             input_text,
             output_path,
+            progress,
+        )
+    }
+
+    fn generate_batch(
+        &self,
+        model_path: &str,
+        ref_audio_path: &str,
+        ref_text: &str,
+        txt_file_path: &str,
+        output_dir: &str,
+        batch_size: usize,
+        progress: Option<AppProgressBar>,
+    ) -> Result<Vec<String>> {
+        generate_voice_batch_from_txt(
+            model_path,
+            ref_audio_path,
+            ref_text,
+            txt_file_path,
+            output_dir,
+            batch_size,
             progress,
         )
     }

@@ -82,12 +82,14 @@
 //! Output audio is always 24kHz mono. Use [`audio::resample()`] if you need
 //! a different sample rate.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use aphelios_core::utils::base;
 use candle_core::{DType, Device, IndexOp, Tensor};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Instant;
 use tracing::info;
 
@@ -2949,4 +2951,100 @@ pub fn generate_voice_batch(
     }
 
     Ok(())
+}
+
+/// Batch TTS from a TXT file. Each non-empty line becomes one audio segment.
+///
+/// Output directory is `output_dir`, files are named `<txt_stem>_1.wav`, `<txt_stem>_2.wav`, …
+/// Processes `batch_size` lines per `synthesize_voice_clone_batch` call.
+pub fn generate_voice_batch_from_txt(
+    model_path: &str,
+    ref_audio_path: &str,
+    ref_text: &str,
+    txt_file_path: &str,
+    output_dir: &str,
+    batch_size: usize,
+    progress_bar: Option<AppProgressBar>,
+) -> Result<Vec<String>> {
+    let content = fs::read_to_string(txt_file_path)
+        .with_context(|| format!("failed to read txt file: {}", txt_file_path))?;
+
+    let lines: Vec<String> = content
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        anyhow::bail!("no non-empty lines found in {}", txt_file_path);
+    }
+
+    let txt_path = std::path::PathBuf::from(txt_file_path);
+    let stem = txt_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let output_dir_path = PathBuf::from(output_dir);
+
+    fs::create_dir_all(&output_dir_path)
+        .with_context(|| format!("failed to create output dir: {}", output_dir_path.display()))?;
+
+    let total = lines.len();
+    info!(
+        "batch TTS: {} lines to synthesize, batch_size={}",
+        total, batch_size
+    );
+
+    if let Some(ref pb) = progress_bar {
+        pb.set_length(total as u64);
+        pb.set_position(0);
+    }
+
+    let device = base::get_default_device(false)?;
+    let model = Qwen3TTS::from_pretrained(model_path, device)?;
+    let ref_audio = AudioBuffer::load(ref_audio_path)?;
+    let prompt = model.create_voice_clone_prompt(&ref_audio, Some(ref_text))?;
+
+    let mut output_paths = Vec::with_capacity(total);
+    let mut done: usize = 0;
+
+    for chunk_start in (0..total).step_by(batch_size) {
+        let chunk_end = (chunk_start + batch_size).min(total);
+        let chunk: Vec<String> = lines[chunk_start..chunk_end].to_vec();
+
+        let audios = model.synthesize_voice_clone_batch(
+            &chunk,
+            &prompt,
+            Language::Chinese,
+            Some(SynthesisOptions {
+                seed: Some(42),
+                max_length: 320,
+                ..Default::default()
+            }),
+        )?;
+
+        for (i, audio) in audios.into_iter().enumerate() {
+            let global_idx = chunk_start + i;
+            let filename = format!("{}_{}.wav", stem, global_idx + 1);
+            let full_path = output_dir_path.join(&filename);
+            audio
+                .save(&full_path)
+                .with_context(|| format!("failed to save {}", full_path.display()))?;
+            output_paths.push(full_path.to_string_lossy().to_string());
+            info!("saved batch TTS output: {}", full_path.display());
+        }
+
+        done = chunk_end;
+        if let Some(ref pb) = progress_bar {
+            pb.set_position(done as u64);
+        }
+    }
+
+    info!("batch TTS completed: {} files saved", output_paths.len());
+
+    if let Some(ref pb) = progress_bar {
+        pb.finish_with_message("Batch TTS complete!");
+    }
+
+    Ok(output_paths)
 }

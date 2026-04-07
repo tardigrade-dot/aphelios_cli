@@ -53,7 +53,7 @@ fn train() -> Result<()> {
         opt.backward_step(&loss)?;
 
         if epoch % 20 == 0 {
-            println!("Epoch: {}, Loss: {:?}", epoch, loss.to_vec0::<f32>()?);
+            println!("Epoch: {}, Loss: {:?}", epoch, loss.to_dtype(DType::F32)??);
         }
     }
 

@@ -35,10 +35,17 @@ export component BookSearchWindow inherits Window {
     in-out property <bool> has_index: false; // Whether index exists
     in-out property <bool> has_semantic_index: false; // Whether semantic index exists
 
+    // Context menu state (global)
+    in-out property <bool> show_context_menu: false;
+    in-out property <length> context_menu_x: 0px;
+    in-out property <length> context_menu_y: 0px;
+    in-out property <string> context_menu_file_path: "";
+
     callback go_back();
     callback build_index();
     callback search_books(string);
     callback open_book(string);
+    callback reveal_in_finder(string);
 
     VerticalLayout {
         padding: 16px;
@@ -285,12 +292,123 @@ export component BookSearchWindow inherits Window {
                         }
                     }
 
+                    // Handle right-click to show context menu
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right {
+                                root.show_context_menu = true;
+                                // 居中显示在窗口中间位置
+                                // Window is 800x600, menu is 160x68
+                                root.context_menu_x = 320px;
+                                root.context_menu_y = 260px;
+                                root.context_menu_file_path = item.file_path;
+                            }
+                        }
+                    }
+
                     // 每行底部细线
                     Rectangle {
                         y: parent.height - 1px;
                         height: 1px;
                         background: #d0d8e4;
                     }
+                }
+            }
+        }
+    }
+
+    // Global context menu overlay (renders on top of everything)
+    Rectangle {
+        visible: root.show_context_menu;
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        z: 1000;
+
+        // Context menu popup (must be before overlay TouchArea to handle clicks)
+        Rectangle {
+            x: root.context_menu_x;
+            y: root.context_menu_y;
+            width: 160px;
+            height: 68px;
+            background: #ffffff;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #d0d8e4;
+            z: 1002;
+
+            VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+                alignment: stretch;
+
+                // Open
+                Rectangle {
+                    height: 28px;
+                    border-radius: 4px;
+                    background: #e8edf3;
+
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {
+                            open_book(root.context_menu_file_path);
+                            root.show_context_menu = false;
+                        }
+
+                        Text {
+                            text: "打开";
+                            font-size: 12px;
+                            color: #1a2535;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Reveal in Finder/Explorer
+                Rectangle {
+                    height: 28px;
+                    border-radius: 4px;
+                    background: #e8edf3;
+
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {
+                            reveal_in_finder(root.context_menu_file_path);
+                            root.show_context_menu = false;
+                        }
+
+                        Text {
+                            text: "打开文件位置";
+                            font-size: 12px;
+                            color: #1a2535;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Semi-transparent background overlay (after context menu so it's behind)
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            background: #00000020; // Semi-transparent black
+            z: 1001;
+
+            // Close menu when clicking outside
+            TouchArea {
+                width: parent.width;
+                height: parent.height;
+                clicked => {
+                    root.show_context_menu = false;
                 }
             }
         }

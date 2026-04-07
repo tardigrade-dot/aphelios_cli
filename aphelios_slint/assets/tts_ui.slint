@@ -14,10 +14,13 @@ export component TtsWindow inherits Window {
 
     in-out property <string> input_text;
     in-out property <int> input_text_length: 0;
+    in-out property <string> txt_file_path;
+    in-out property <int> txt_line_count: 0;
     in-out property <string> model_path;
     in-out property <string> output_path;
     in-out property <string> ref_audio_path;
     in-out property <string> ref_text;
+    in-out property <bool> is_batch_mode: false;
     in-out property <string> status_message: "就绪";
     in-out property <bool> is_running: false;
     in-out property <bool> has_audio: false;
@@ -35,7 +38,9 @@ export component TtsWindow inherits Window {
     callback select_model_path();
     callback select_output_path();
     callback select_ref_audio();
+    callback select_txt_file();
     callback start_tts();
+    callback start_batch_tts();
     callback play_audio();
     callback go_back();
 
@@ -87,8 +92,99 @@ export component TtsWindow inherits Window {
             background: #d0d8e4;
         }
 
-        // ── 待合成文本
-        VerticalLayout {
+        // ── 模式切换
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "合成模式";
+                font-size: 11px;
+                font-weight: 600;
+                color: #6b7a8d;
+                vertical-alignment: center;
+            }
+
+            Button {
+                text: is_batch_mode ? "📄 批量TXT" : "✏️  单段文本";
+                width: 120px;
+                height: 24px;
+                clicked => {
+                    root.is_batch_mode = !root.is_batch_mode;
+                }
+            }
+        }
+
+        // ── 批量 TXT 模式
+        if is_batch_mode: VerticalLayout {
+            spacing: 6px;
+
+            HorizontalLayout {
+                alignment: space-between;
+                Text {
+                    text: "TXT 文件";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #6b7a8d;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: txt_line_count > 0 ? txt_line_count + " 行" : "";
+                    font-size: 11px;
+                    color: #8a9bb0;
+                    vertical-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+
+                LineEdit {
+                    text <=> txt_file_path;
+                    font-size: 12px;
+                    placeholder-text: "选择 TXT 文件（每行一段）";
+                    enabled: !is_running;
+                }
+
+                Button {
+                    text: "选择";
+                    width: 46px;
+                    clicked => {
+                        root.select_txt_file();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 10px;
+                Text {
+                    text: "输出目录";
+                    width: 52px;
+                    font-size: 12px;
+                    color: #1a2535;
+                    vertical-alignment: center;
+                }
+
+                LineEdit {
+                    text <=> output_path;
+                    font-size: 12px;
+                    placeholder-text: "选择输出目录";
+                    enabled: !is_running;
+                }
+
+                Button {
+                    text: "选择";
+                    width: 46px;
+                    clicked => {
+                        root.select_output_path();
+                    }
+                }
+            }
+        }
+
+        // ── 单段文本模式
+        if !is_batch_mode: VerticalLayout {
             spacing: 6px;
 
             HorizontalLayout {
@@ -316,7 +412,8 @@ export component TtsWindow inherits Window {
             spacing: 12px;
             height: 34px;
 
-            Button {
+            // 单段模式按钮
+            if !is_batch_mode: Button {
                 text: is_running ? "合成中…" : "▶  开始合成";
                 primary: true;
                 width: 136px;
@@ -324,6 +421,18 @@ export component TtsWindow inherits Window {
                 enabled: input_text != "" && !is_running;
                 clicked => {
                     root.start_tts();
+                }
+            }
+
+            // 批量模式按钮
+            if is_batch_mode: Button {
+                text: is_running ? "合成中…" : "▶  批量合成";
+                primary: true;
+                width: 136px;
+                height: 32px;
+                enabled: txt_file_path != "" && !is_running;
+                clicked => {
+                    root.start_batch_tts();
                 }
             }
 

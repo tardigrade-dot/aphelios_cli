@@ -957,6 +957,30 @@ fn run_tts_ui(ctx: Arc<AppContext>) -> Result<()> {
         }
     });
 
+    window.on_select_txt_file({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .add_filter("文本文件", &["txt"])
+                    .pick_file()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                if !path.is_empty() {
+                    let line_count = if let Ok(content) = std::fs::read_to_string(&path) {
+                        content.lines().filter(|l| !l.trim().is_empty()).count()
+                    } else {
+                        0
+                    };
+
+                    win.set_txt_file_path(path.into());
+                    win.set_txt_line_count(line_count as i32);
+                }
+            }
+        }
+    });
+
     let log_model: Rc<VecModel<SharedString>> = Rc::new(VecModel::default());
     window.set_log_messages(ModelRc::from(log_model.clone()));
 
@@ -1064,6 +1088,105 @@ fn run_tts_ui(ctx: Arc<AppContext>) -> Result<()> {
                                     log_model.as_any().downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push(format!("❌ TTS 失败：{}", e).into());
+                                    win.invoke_scroll_to_bottom();
+                                }
+                            }
+                        }
+                    });
+                },
+            );
+        }
+    });
+
+    window.on_start_batch_tts({
+        let w = window_weak.clone();
+        let lm = log_model.clone();
+        let logic = logic.clone();
+        move || {
+            let Some(win) = w.upgrade() else { return };
+            let txt_file_path: String = win.get_txt_file_path().to_string();
+            let model_path: String = win.get_model_path().to_string();
+            let ref_audio_path: String = win.get_ref_audio_path().to_string();
+            let ref_text: String = win.get_ref_text().to_string();
+
+            win.set_is_running(true);
+            win.set_status_message("批量 TTS 合成中...".into());
+            win.set_has_audio(false);
+            win.set_progress(0.0);
+            lm.push(format!("📄 开始批量 TTS 合成：{}", txt_file_path).into());
+            lm.push(format!("🤖 模型路径：{}", model_path).into());
+            lm.push("⚙️  批次大小：3，每行一个音频文件".into());
+            win.invoke_scroll_to_bottom();
+
+            let w2 = w.clone();
+            let logic_inner = logic.clone();
+            logic.start_batch_tts(
+                txt_file_path.clone(),
+                model_path,
+                ref_audio_path,
+                ref_text,
+                {
+                    let w_progress = w2.clone();
+                    move |p| {
+                        let _ = slint::invoke_from_event_loop({
+                            let w = w_progress.clone();
+                            move || {
+                                if let Some(win) = w.upgrade() {
+                                    win.set_progress(p);
+                                }
+                            }
+                        });
+                    }
+                },
+                move |result| {
+                    let w3 = w2.clone();
+                    let logic_final = logic_inner.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(win) = w3.upgrade() else { return };
+                        win.set_is_running(false);
+                        match result {
+                            Ok(output_paths) => {
+                                info!("Batch TTS completed: {} files", output_paths.len());
+                                win.set_status_message("批量 TTS 完成!".into());
+                                win.set_has_audio(true);
+                                let log_model = win.get_log_messages();
+                                if let Some(vm) =
+                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                {
+                                    vm.push(
+                                        format!(
+                                            "✅ 批量 TTS 合成完成！共 {} 个音频文件",
+                                            output_paths.len()
+                                        )
+                                        .into(),
+                                    );
+                                    // Log first few and last output paths
+                                    for (i, path) in output_paths.iter().take(5).enumerate() {
+                                        vm.push(format!("  [{}] {}", i + 1, path).into());
+                                    }
+                                    if output_paths.len() > 5 {
+                                        vm.push(
+                                            format!("  ... 还有 {} 个文件", output_paths.len() - 5)
+                                                .into(),
+                                        );
+                                    }
+                                    win.invoke_scroll_to_bottom();
+                                }
+                                if let Ok(mut path) = logic_final.ctx().audio_output_path.lock() {
+                                    // Store the first output path for playback
+                                    if !output_paths.is_empty() {
+                                        *path = Some(output_paths[0].clone());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("Batch TTS failed: {}", e);
+                                win.set_status_message("批量 TTS 失败".into());
+                                let log_model = win.get_log_messages();
+                                if let Some(vm) =
+                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                {
+                                    vm.push(format!("❌ 批量 TTS 失败：{}", e).into());
                                     win.invoke_scroll_to_bottom();
                                 }
                             }
@@ -1228,6 +1351,54 @@ fn run_book_search_ui(ctx: Arc<AppContext>) -> Result<()> {
             if !path.is_empty() {
                 // 使用 open 命令打开文件
                 std::process::Command::new("open").arg(&path).spawn().ok();
+            }
+        }
+    });
+
+    window.on_reveal_in_finder({
+        move |file_path: slint::SharedString| {
+            let path: String = file_path.into();
+            if !path.is_empty() {
+                #[cfg(target_os = "macos")]
+                {
+                    // macOS: open -R 在 Finder 中显示文件
+                    std::process::Command::new("open")
+                        .arg("-R")
+                        .arg(&path)
+                        .spawn()
+                        .ok();
+                }
+
+                #[cfg(target_os = "windows")]
+                {
+                    // Windows: explorer /select, 在资源管理器中显示文件
+                    std::process::Command::new("explorer")
+                        .arg(format!("/select,{}", path))
+                        .spawn()
+                        .ok();
+                }
+
+                #[cfg(target_os = "linux")]
+                {
+                    // Linux: 打开文件所在目录
+                    if let Some(parent_dir) = std::path::Path::new(&path).parent() {
+                        std::process::Command::new("xdg-open")
+                            .arg(parent_dir)
+                            .spawn()
+                            .ok();
+                    }
+                }
+
+                #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+                {
+                    // 其他平台: 尝试打开文件所在目录
+                    if let Some(parent_dir) = std::path::Path::new(&path).parent() {
+                        std::process::Command::new("xdg-open")
+                            .arg(parent_dir)
+                            .spawn()
+                            .ok();
+                    }
+                }
             }
         }
     });

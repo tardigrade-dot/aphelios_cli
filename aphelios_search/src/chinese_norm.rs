@@ -1,11 +1,18 @@
-//! Chinese text normalization utilities for search.
+//! Chinese text normalization and tokenization utilities for search.
 //!
-//! Provides Simplified-Traditional Chinese conversion and text normalization
-//! to enable cross-variant searching (e.g., searching "书籍" finds "書籍").
+//! Provides Simplified-Traditional Chinese conversion, text normalization,
+//! and intelligent Chinese word segmentation using `jieba-rs`.
 //!
 //! Uses `zhconv` for pure-Rust Chinese conversion without external dependencies.
+//! Uses `jieba-rs` for accurate Chinese word segmentation.
 
+use jieba_rs::Jieba;
+use lazy_static::lazy_static;
 use zhconv::{zhconv, Variant};
+
+lazy_static! {
+    static ref JIEBA: Jieba = Jieba::new();
+}
 
 /// Convert simplified Chinese to traditional Chinese
 ///
@@ -64,6 +71,46 @@ pub fn extract_search_terms(text: &str) -> Vec<String> {
     terms
 }
 
+/// Tokenize Chinese text for FTS5 search using Jieba word segmentation.
+///
+/// This function provides intelligent Chinese word segmentation:
+/// - For texts with spaces: split by spaces (user-provided tokenization)
+/// - For texts without spaces: use Jieba for semantic word segmentation
+///
+/// # Examples
+/// ```
+/// // User provides spaces: "文化 权力与国家" → ["文化", "权力与国家"]
+/// let tokens = tokenize_for_search("文化 权力与国家");
+/// assert_eq!(tokens, vec!["文化", "权力与国家"]);
+///
+/// // No spaces: Jieba segmentation
+/// let tokens = tokenize_for_search("共产世界大历史");
+/// // Expected: ["共产", "世界", "大", "历史"] or similar semantic words
+/// ```
+pub fn tokenize_for_search(text: &str) -> Vec<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    // If text contains spaces, use user-provided word-level tokenization
+    if text.contains(char::is_whitespace) {
+        text.split_whitespace()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    } else {
+        // Use Jieba for intelligent Chinese word segmentation
+        // `cut` method with `false` means not using HMM model for better precision
+        JIEBA
+            .cut(text, false)
+            .iter()
+            .map(|s: &&str| s.to_string())
+            .filter(|s: &String| !s.is_empty())
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +139,53 @@ mod tests {
         let terms = extract_search_terms("计算机");
         assert!(terms.contains(&"计算机".to_string()));
         assert!(terms.contains(&"計算機".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_with_spaces() {
+        // User provides explicit spaces
+        let tokens = tokenize_for_search("文化 权力与国家");
+        assert_eq!(tokens, vec!["文化", "权力与国家"]);
+    }
+
+    #[test]
+    fn test_tokenize_no_spaces() {
+        // No spaces: Jieba word segmentation
+        let tokens = tokenize_for_search("共产世界大历史");
+        // Jieba should segment this into meaningful words
+        assert!(tokens.contains(&"共产".to_string()));
+        assert!(tokens.contains(&"世界".to_string()));
+        assert!(tokens.contains(&"历史".to_string()) || tokens.contains(&"大".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_short() {
+        // Short text
+        let tokens = tokenize_for_search("文化");
+        assert_eq!(tokens, vec!["文化"]);
+    }
+
+    #[test]
+    fn test_tokenize_jieba_quality() {
+        // Test Jieba segmentation quality
+        let tokens = tokenize_for_search("文化权力与国家");
+        // Should contain meaningful words, not nonsense like "化权"
+        assert!(tokens.contains(&"文化".to_string()));
+        assert!(tokens.contains(&"权力".to_string()) || tokens.contains(&"国家".to_string()));
+        // Should NOT contain meaningless cross-word combinations
+        assert!(!tokens.contains(&"化权".to_string()));
+        assert!(!tokens.contains(&"力与".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_empty() {
+        let tokens = tokenize_for_search("");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_whitespace_only() {
+        let tokens = tokenize_for_search("   ");
+        assert!(tokens.is_empty());
     }
 }

@@ -55,12 +55,16 @@ imara-diff = { workspace = true }
 jieba-rs = { workspace = true }
 hf-hub = { workspace = true }
 zhconv = "0.4"
+lazy_static = { workspace = true }
 
 
 [dev-dependencies]
 tokenizers = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
+profiling = []
 metal = [
     "candle-core/metal",
     "candle-nn/metal",
