@@ -339,9 +339,9 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
     }
     #[cfg(feature = "metal")]
     {
-        use candle_core::{backend::BackendDevice, MetalDevice};
-        let device = Device::Metal(MetalDevice::new(0)?);
-        return Ok(device);
+        return try_metal_device().with_context(|| {
+            "Metal support is compiled in, but the current process could not initialize a Metal device"
+        });
     }
     #[cfg(not(feature = "metal"))]
     #[cfg(feature = "cuda")]
@@ -379,7 +379,9 @@ fn try_metal_device() -> Result<Device> {
     match result {
         Ok(Ok(device)) => Ok(device),
         Ok(Err(err)) => Err(anyhow!("Metal device init failed: {err}")),
-        Err(_) => Err(anyhow!("Metal device init panicked")),
+        Err(_) => Err(anyhow!(
+            "Metal device init panicked, likely because no default Metal device was exposed to this process"
+        )),
     }
 }
 

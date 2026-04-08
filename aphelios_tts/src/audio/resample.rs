@@ -136,11 +136,9 @@ impl Resampler {
                 .process(&input, None)
                 .context("Resampling failed")?;
 
-            // result is Vec<Vec<f32>> - one vec per channel
             if let Some(channel_data) = result.first() {
                 output.extend(channel_data.iter().cloned());
             }
-
             pos += chunk_size;
         }
 

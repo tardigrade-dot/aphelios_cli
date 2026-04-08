@@ -27,13 +27,10 @@ impl DiffusionScheduler {
         if self.steps == 0 {
             return vec![0.0];
         }
-        // Match Python: torch.linspace(0, 1, steps, device=device)
-        // Produces exactly `steps` values: [0.0, 1/(steps-1), 2/(steps-1), ..., 1.0]
-        if self.steps == 1 {
-            return vec![0.0];
-        }
-        (0..self.steps)
-            .map(|idx| idx as f32 / (self.steps - 1) as f32)
+        // For Euler integration with N steps, we need N+1 points if we use the interval [t_i, t_i+1]
+        // Python equivalent: dt = 1.0/steps; for i in range(steps): t = i/steps; ...
+        (0..=self.steps)
+            .map(|idx| idx as f32 / self.steps as f32)
             .collect()
     }
 }

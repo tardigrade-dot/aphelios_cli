@@ -5,7 +5,6 @@ use candle_nn::{ops, Embedding, Module, VarBuilder};
 use candle_transformers::models::t5::{Config as T5Config, T5EncoderModel};
 use std::{
     cell::RefCell,
-    fs,
     path::{Path, PathBuf},
 };
 use tokenizers::Tokenizer;
@@ -34,6 +33,15 @@ pub struct EncodedTextBatch {
     pub lengths: Tensor,
 }
 
+#[derive(Debug)]
+pub struct EncodedTextDebugBatch {
+    pub batch: EncodedTextBatch,
+    pub embedding_output: Tensor,
+    pub first_block_hidden: Tensor,
+    pub second_block_hidden: Tensor,
+    pub raw_last_hidden: Tensor,
+}
+
 impl LongCatTextEncoder {
     pub fn load(
         config: &AudioDiTConfig,
@@ -52,7 +60,7 @@ impl LongCatTextEncoder {
 
         let t5_cfg = to_t5_config(config);
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[model_weights.as_ref()], dtype, device)
+            VarBuilder::from_mmaped_safetensors(&[model_weights.as_ref()], DType::F32, device)
                 .context("failed to open LongCat safetensors for text encoder")?
         };
         let text_vb = vb.pp("text_encoder");
@@ -135,6 +143,14 @@ impl LongCatTextEncoder {
     }
 
     pub fn encode_batch(&self, texts: &[String], device: &Device) -> Result<EncodedTextBatch> {
+        Ok(self.encode_batch_debug(texts, device)?.batch)
+    }
+
+    pub fn encode_batch_debug(
+        &self,
+        texts: &[String],
+        device: &Device,
+    ) -> Result<EncodedTextDebugBatch> {
         let (input_ids, attention_mask, lengths) = self.tokenize(texts, device)?;
         let encoder_dtype = if device.is_metal() || device.is_cuda() {
             DType::BF16
@@ -142,15 +158,15 @@ impl LongCatTextEncoder {
             DType::F32
         };
 
-        let embedding_output = self
-            .token_embedding
-            .forward(&input_ids)?
-            .to_dtype(DType::F32)?;
-        let mut hidden_states = self
+        let (embedding_output, first_block_hidden, second_block_hidden, raw_last_hidden) = self
             .model
             .borrow_mut()
-            .forward_dt(&input_ids, Some(encoder_dtype))?
-            .to_dtype(DType::F32)?;
+            .forward_debug_with_mask_dt(&input_ids, &attention_mask, Some(encoder_dtype))?;
+        let embedding_output = embedding_output.to_dtype(DType::F32)?;
+        let first_block_hidden = first_block_hidden.to_dtype(DType::F32)?;
+        let second_block_hidden = second_block_hidden.to_dtype(DType::F32)?;
+        let raw_last_hidden = raw_last_hidden.to_dtype(DType::F32)?;
+        let mut hidden_states = raw_last_hidden.clone();
 
         if self.text_norm_feat {
             hidden_states = ops::layer_norm(&hidden_states, &self.ln_weight, &self.ln_bias, 1e-6)?;
@@ -159,16 +175,22 @@ impl LongCatTextEncoder {
             let first_hidden = if self.text_norm_feat {
                 ops::layer_norm(&embedding_output, &self.ln_weight, &self.ln_bias, 1e-6)?
             } else {
-                embedding_output
+                embedding_output.clone()
             };
             hidden_states = hidden_states.add(&first_hidden)?;
         }
 
-        Ok(EncodedTextBatch {
-            input_ids,
-            attention_mask,
-            hidden_states,
-            lengths,
+        Ok(EncodedTextDebugBatch {
+            batch: EncodedTextBatch {
+                input_ids,
+                attention_mask,
+                hidden_states,
+                lengths,
+            },
+            embedding_output,
+            first_block_hidden,
+            second_block_hidden,
+            raw_last_hidden,
         })
     }
 }
@@ -214,11 +236,12 @@ fn to_t5_config(config: &AudioDiTConfig) -> T5Config {
         layer_norm_epsilon: config.text_encoder_config.layer_norm_epsilon,
         initializer_factor: 1.0,
         feed_forward_proj: candle_transformers::models::t5::ActivationWithOptionalGating {
-            gated: config.text_encoder_config.dense_act_fn.contains("gated")
-                || config.text_encoder_config.model_type == "umt5",
+            gated: config.text_encoder_config.is_gated_act,
             activation: candle_nn::Activation::NewGelu,
         },
         tie_word_embeddings: config.text_encoder_config.tie_word_embeddings,
+        reuse_position_bias: config.text_encoder_config.model_type != "umt5",
+        relative_attention_bias_each_block: config.text_encoder_config.model_type == "umt5",
         is_decoder: false,
         is_encoder_decoder: config.text_encoder_config.is_encoder_decoder,
         use_cache: config.text_encoder_config.use_cache,
@@ -230,6 +253,8 @@ fn to_t5_config(config: &AudioDiTConfig) -> T5Config {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]

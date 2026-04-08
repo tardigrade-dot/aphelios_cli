@@ -32,19 +32,19 @@ struct Args {
     #[arg(
         long = "prompt_text",
         alias = "prompt-text",
-        default_value = "贝克莱的努力并未产生有形的结果"
+        default_value = "写这本书的目的在于通过我的走访和观察"
     )]
     prompt_text: Option<String>,
     #[arg(
         long = "prompt_audio",
         alias = "prompt-audio",
-        default_value = "/Volumes/sw/video/youyi-5s.wav"
+        default_value = "/Users/larry/Documents/resources/qinsheng-4s.wav"
     )]
     prompt_audio: Option<PathBuf>,
     #[arg(
         long = "output_audio",
         alias = "output-audio",
-        default_value = "/Users/larry/coderesp/aphelios_cli/output/longcat-output-rust.wav"
+        default_value = "/Users/larry/coderesp/aphelios_cli/output/longcat-output-rust-qs.wav"
     )]
     output_audio: PathBuf,
     #[arg(

@@ -1,6 +1,7 @@
 use crate::longcat_audiodit::{
     config::{AudioDiTConfig, AudioDiTVaeConfig},
     loader::WeightIndex,
+    rng::LongCatRng,
 };
 use anyhow::{ensure, Context, Result};
 use candle_core::{DType, Device, Tensor, D};
@@ -499,7 +500,7 @@ impl AudioVae {
         // Use F32 for VAE to avoid numerical issues with F16/BF16
         let dtype = DType::F32;
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[wp.as_ref()], dtype, dev)
+            VarBuilder::from_mmaped_safetensors(&[wp.as_ref()], DType::F32, dev)
                 .context("failed to open LongCat safetensors for VAE")?
         };
         let enc = Encoder::load(cfg, vb.pp("vae.encoder")).context("failed to load VAE encoder")?;
@@ -512,7 +513,7 @@ impl AudioVae {
         })
     }
 
-    pub fn encode(&self, audio: &Tensor) -> Result<Tensor> {
+    pub fn encode(&self, audio: &Tensor, rng: &mut LongCatRng) -> Result<Tensor> {
         let inp = audio.to_dtype(self.dtype)?;
         let lat = self.enc.forward(&inp)?;
         let chunks = lat.chunk(2, D::Minus2)?;
@@ -525,8 +526,7 @@ impl AudioVae {
         let neg_abs_x = abs_x.neg()?;
         let stable_softplus = scale_p.relu()?.add(&neg_abs_x.exp()?.add(&Tensor::ones(scale_p.shape(), scale_p.dtype(), scale_p.device())?)?.log()?)?;
         let stdev = stable_softplus.add(&Tensor::full(1e-4f32, scale_p.shape(), scale_p.device())?.to_dtype(scale_p.dtype())?)?;
-        let noise =
-            Tensor::randn(0.0f32, 1.0f32, mean.shape(), mean.device())?.to_dtype(stdev.dtype())?;
+        let noise = rng.standard_normal_tensor(mean.shape().dims(), stdev.dtype(), mean.device())?;
         let lat = noise.broadcast_mul(&stdev)?.add(mean)?;
         let scale_tensor =
             Tensor::full(self.scale as f32, lat.shape(), lat.device())?.to_dtype(lat.dtype())?;

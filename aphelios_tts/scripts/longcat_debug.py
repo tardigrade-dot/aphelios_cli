@@ -48,11 +48,14 @@ def main() -> None:
 
     from audiodit import AudioDiTModel
     from utils import approx_duration_from_text, load_audio, normalize_text
+    from longcat_rng import LongCatRng
 
     device = torch.device("mps" if torch.mps.is_available() else "cpu")
-    torch.manual_seed(args.seed)
+    # torch.manual_seed(args.seed) # We'll use LongCatRng for y0 instead
     if torch.mps.is_available():
         torch.mps.manual_seed(args.seed)
+
+    root_rng = LongCatRng(args.seed)
 
     model = AudioDiTModel.from_pretrained(args.model_dir).to(device)
     model.vae.to_half()
@@ -104,7 +107,7 @@ def main() -> None:
     text_condition = model.encode_text(input_ids.to(device), attention_mask.to(device))
     tensors["text_condition"] = text_condition.detach().cpu().numpy()
 
-    # 2. VAE Encoder output (prompt)
+    # 2. VAE Encoding (if prompt)
     if not no_prompt:
         pw = load_audio(args.prompt_audio, sr)
         off = 3
@@ -112,12 +115,20 @@ def main() -> None:
             pw = F.pad(pw, (0, full_hop - pw.shape[-1] % full_hop))
         pw = F.pad(pw, (0, full_hop * off))
         with torch.no_grad():
-            prompt_latent_vae = model.vae.encode(pw.unsqueeze(0).to(device))
+            # In LongCat, vae.encode returns a LatentOutput with .latent_dist
+            vae_out = model.vae.encode(pw.unsqueeze(0).to(device))
+            prompt_latent_vae = vae_out.latent_dist.mode()
+        
+        # Scale and permute to match model.forward
+        latent_cond = prompt_latent_vae / model.config.scale
         if off:
-            prompt_latent_vae = prompt_latent_vae[..., :-off]
-        prompt_dur = prompt_latent_vae.shape[-1]
-        prompt_latent = prompt_latent_vae.permute(0, 2, 1)
+            latent_cond = latent_cond[..., :-off]
+        latent_cond = latent_cond.permute(0, 2, 1)
+        
+        prompt_dur = latent_cond.shape[1]
+        prompt_latent = latent_cond.clone()
         tensors["prompt_latent"] = prompt_latent.detach().cpu().numpy()
+        tensors["latent_cond"] = latent_cond.detach().cpu().numpy()
     else:
         prompt_latent = None
         prompt_dur = 0
@@ -134,29 +145,37 @@ def main() -> None:
     tensors["duration"] = np.array([duration])
 
     # 3. Initial Noise y0
-    y0 = torch.randn(1, duration, model.config.latent_dim, device=device)
+    y0_rng = root_rng.fork(0x5930_5F4E_4F49_5345)
+    y0 = y0_rng.standard_normal_tensor((1, duration, model.config.latent_dim), device=device)
     tensors["y0"] = y0.detach().cpu().numpy()
 
-    # 4. Transformer Velocity at t=0
-    t_zero = torch.tensor(0.0, device=device)
-    total_duration = duration
-    duration_tensor = torch.tensor([total_duration], device=device)
+    # Hook for modulation parameters
+    modulation_params = {}
+    def hook(m, i, o):
+        # adaln_out
+        adaln_out = i[0]
+        gate_sa, scale_sa, shift_sa, gate_ffn, scale_ffn, shift_ffn = torch.chunk(adaln_out, 6, dim=-1)
+        modulation_params["scale_sa"] = scale_sa.detach().cpu().numpy()
+        modulation_params["shift_sa"] = shift_sa.detach().cpu().numpy()
+
+    handle = model.transformer.blocks[0].register_forward_hook(hook)
+# 4. Transformer Velocity at t=0
+t_zero = torch.tensor(0.0, device=device)
+total_duration = duration
+
+if not no_prompt:
+    gen_len = total_duration - latent_len
+    latent_cond = F.pad(prompt_latent, (0, 0, 0, gen_len))
+    empty_latent_cond = torch.zeros_like(latent_cond)
+    prompt_noise = y0[:, :latent_len].clone()
+else:
+    latent_cond = torch.zeros(1, total_duration, model.config.latent_dim, device=device)
+    empty_latent_cond = latent_cond
+    prompt_noise = None
+
     
-    # Masking logic matching forward()
-    from audiodit.modeling_audiodit import lens_to_mask
-    mask = lens_to_mask(duration_tensor)
-    text_mask = lens_to_mask(attention_mask.sum(dim=1).to(device), length=text_condition.shape[1])
-    
-    latent_len = prompt_dur
-    if not no_prompt:
-        gen_len = total_duration - latent_len
-        latent_cond = F.pad(prompt_latent, (0, 0, 0, gen_len))
-        empty_latent_cond = torch.zeros_like(latent_cond)
-        prompt_noise = y0[:, :latent_len].clone()
-    else:
-        latent_cond = torch.zeros(1, total_duration, model.config.latent_dim, device=device)
-        empty_latent_cond = latent_cond
-        prompt_noise = None
+    tensors["latent_cond"] = latent_cond.detach().cpu().numpy()
+    tensors["empty_latent_cond"] = empty_latent_cond.detach().cpu().numpy()
 
     # Capture intermediate transformer states
     with torch.no_grad():
@@ -193,6 +212,7 @@ def main() -> None:
             return_ith_layer=model.config.repa_dit_layer, latent_cond=latent_cond,
         )
         pred = output["last_hidden_state"]
+        tensors["py_pred_t0"] = pred.detach().cpu().numpy()
         
         # Unconditional
         x_uncond = x.clone()
@@ -201,6 +221,8 @@ def main() -> None:
         
         neg_text = torch.zeros_like(text_condition)
         neg_text_len = attention_mask.sum(dim=1).to(device)
+        tensors["neg_text"] = neg_text.detach().cpu().numpy()
+        tensors["neg_text_len"] = neg_text_len.detach().cpu().numpy()
         
         null_output = model.transformer(
             x=x_uncond, text=neg_text, text_len=neg_text_len, time=t,
@@ -208,9 +230,12 @@ def main() -> None:
             return_ith_layer=model.config.repa_dit_layer, latent_cond=empty_latent_cond,
         )
         null_pred = null_output["last_hidden_state"]
+        tensors["py_null_pred_t0"] = null_pred.detach().cpu().numpy()
         
         if args.guidance_method == "cfg":
-            return pred + (pred - null_pred) * args.guidance_strength
+            vel = pred + (pred - null_pred) * args.guidance_strength
+            tensors["py_velocity"] = vel.detach().cpu().numpy()
+            return vel
         # APG ... (skipped for now or add if needed)
         return pred
 

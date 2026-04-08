@@ -55,7 +55,6 @@ pdfium-render = { version = "0.9.0", features = ["bindings"] }
 
 dirs = "5"
 md5 = "0.7"
-misaki-rs = "0.3.0"
 
 [features]
 profiling = []

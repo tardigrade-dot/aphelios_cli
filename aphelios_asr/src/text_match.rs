@@ -379,11 +379,15 @@ pub fn generate_srt_with_sensevoice(
 pub fn audio_text_match_with_params(
     model_path: &str,
     input_audio: &str,
-    target_txt_file: &str,
+    target_txt_file: Option<&str>,
     output_path: Option<&str>,
     min_segment_len: Option<usize>,
     max_segment_len: Option<usize>,
 ) -> Result<String> {
+    let target_txt_path = target_txt_file
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(input_audio).with_extension("txt"));
+
     let sv_result = sensevoice_asr(
         model_path,
         input_audio,
@@ -393,7 +397,7 @@ pub fn audio_text_match_with_params(
         },
     )?;
 
-    let target_text = std::fs::read_to_string(target_txt_file)?;
+    let target_text = std::fs::read_to_string(target_txt_path)?;
 
     info!("asr_result.text: {}", sv_result.text);
     info!("target_text: {}", target_text);
@@ -405,7 +409,7 @@ pub fn audio_text_match_with_params(
     let srt_path = if let Some(path) = output_path {
         PathBuf::from(path)
     } else {
-        PathBuf::from(target_txt_file).with_extension("srt")
+        PathBuf::from(input_audio).with_extension("srt")
     };
 
     let mut file = std::fs::File::create(&srt_path)?;
@@ -415,7 +419,7 @@ pub fn audio_text_match_with_params(
 }
 
 /// 音频和文本对齐生成 SRT 字幕文件（简化版本，使用默认参数）
-pub fn audio_text_match(input_audio: &str, target_txt_file: &str) -> Result<String> {
+pub fn audio_text_match(input_audio: &str, target_txt_file: Option<&str>) -> Result<String> {
     audio_text_match_with_params(
         "/Volumes/sw/onnx_models/sensevoice",
         input_audio,

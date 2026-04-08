@@ -2,12 +2,13 @@ use crate::longcat_audiodit::{
     config::AudioDiTConfig,
     device::{default_dtype, select_device},
     loader::{ModelPaths, WeightIndex, WeightSummary},
+    python::LongCatPythonAudioLoader,
     scheduler::DiffusionScheduler,
+    rng::LongCatRng,
     text_encoder::{ensure_tokenizer_path, EncodedTextBatch, LongCatTextEncoder},
     transformer::{AudioDiTTransformer, TransformerForwardInput},
     vae::AudioVae,
 };
-use crate::audio::resample::{ResampleQuality, Resampler};
 use anyhow::{ensure, Context, Result};
 use aphelios_core::audio::loader::AudioLoader;
 use candle_core::{DType, Device, Tensor, D};
@@ -89,6 +90,40 @@ pub struct InferencePlan {
     pub target_frames: usize,
     pub total_frames: usize,
     pub scheduler: DiffusionScheduler,
+}
+
+#[derive(Debug, Default)]
+pub struct LongCatDebugOverrides {
+    pub text_condition: Option<Tensor>,
+    pub prompt_latent: Option<Tensor>,
+    pub y0: Option<Tensor>,
+    pub total_frames: Option<usize>,
+}
+
+#[derive(Debug)]
+pub struct LongCatDebugOutputs {
+    pub input_ids: Tensor,
+    pub attention_mask: Tensor,
+    pub text_condition: Tensor,
+    pub prompt_audio_padded: Tensor,
+    pub prompt_latent_vae_output: Tensor,
+    pub prompt_latent: Tensor,
+    pub duration: usize,
+    pub y0: Tensor,
+    pub latent_cond: Tensor,
+    pub prompt_noise: Tensor,
+    pub transformer_out_t0: Tensor,
+    pub null_pred_t0: Tensor,
+    pub velocity_zero: Tensor,
+    pub output_latent: Tensor,
+    pub output_waveform: Tensor,
+}
+
+#[derive(Debug)]
+pub struct LongCatPromptDebugOutputs {
+    pub prompt_audio_padded: Tensor,
+    pub prompt_latent_vae_output: Tensor,
+    pub prompt_latent: Tensor,
 }
 
 #[derive(Debug)]
@@ -236,64 +271,51 @@ impl LongCatAudioDiT {
     }
 
     pub fn synthesize(&self, request: &LongCatSynthesisRequest) -> Result<Vec<f32>> {
+        let debug = self.collect_debug_tensors(request, None)?;
+        let waveform_vec: Vec<f32> = debug.output_waveform.flatten_all()?.to_vec1()?;
+        Ok(waveform_vec)
+    }
+
+    pub fn collect_prompt_debug_tensors(
+        &self,
+        request: &LongCatSynthesisRequest,
+        overrides: Option<&LongCatDebugOverrides>,
+    ) -> Result<LongCatPromptDebugOutputs> {
+        let root_rng = LongCatRng::new(request.seed);
+        let (_, prompt_audio_padded, prompt_latent_vae_output, prompt_latent) =
+            self.prepare_prompt_latent(request, overrides, &root_rng)?;
+        Ok(LongCatPromptDebugOutputs {
+            prompt_audio_padded,
+            prompt_latent_vae_output,
+            prompt_latent,
+        })
+    }
+
+    pub fn collect_debug_tensors(
+        &self,
+        request: &LongCatSynthesisRequest,
+        overrides: Option<&LongCatDebugOverrides>,
+    ) -> Result<LongCatDebugOutputs> {
+        let root_rng = LongCatRng::new(request.seed);
         let mut plan = self.plan_inference(request)?;
-        let encoded_text = self.prepare_text_batch(request)?;
+        let mut encoded_text = self.prepare_text_batch(request)?;
+        if let Some(text_condition) = overrides.and_then(|value| value.text_condition.as_ref()) {
+            encoded_text.hidden_states = text_condition
+                .to_device(&self.device)?
+                .to_dtype(self.dtype)?;
+        }
 
         // Load prompt audio and VAE encode if present
-        let (_prompt_audio_samples, prompt_latent) = if let Some(audio_path) = &request.prompt_audio
-        {
-            let audio = AudioLoader::new().load(audio_path).with_context(|| {
-                format!(
-                    "failed to load LongCat prompt audio: {}",
-                    audio_path.display()
-                )
-            })?;
-            let mut mono = audio.into_mono();
+        let (_prompt_audio_samples, prompt_audio_padded, prompt_latent_vae_output, prompt_latent) =
+            self.prepare_prompt_latent(request, overrides, &root_rng)?;
 
-            // Resample to target sample rate if needed
-            if mono.sample_rate != self.config.sampling_rate {
-                let audio_buf = crate::audio::AudioBuffer::new(mono.samples.clone(), mono.sample_rate);
-                let resampler = Resampler::new(ResampleQuality::High);
-                let resampled = resampler.resample(&audio_buf, self.config.sampling_rate)?;
-                mono.samples = resampled.samples;
-                mono.sample_rate = resampled.sample_rate;
-            }
-
-            // Match Python padding: pad to multiple of latent_hop, then add 3*latent_hop zeros
-            let hop = self.config.latent_hop;
-            let off = 3;
-            if mono.samples.len() % hop != 0 {
-                let pad_len = hop - (mono.samples.len() % hop);
-                mono.samples.extend(std::iter::repeat_n(0.0, pad_len));
-            }
-            mono.samples.extend(std::iter::repeat_n(0.0, hop * off));
-
-            let samples_len = mono.samples.len();
-            // Convert to [1, 1, T] tensor for VAE
-            let audio_tensor = Tensor::from_vec(mono.samples.clone(), (1, 1, samples_len), &self.device)?;
-
-            // VAE encode: [1, 1, T] -> [1, latent_dim, frames]
-            let latent_2d = self.vae.encode(&audio_tensor)?;
-            // Remove padding frames (off=3, like Python code)
-            let latent_no_pad = if latent_2d.dim(D::Minus1)? > off {
-                latent_2d.narrow(D::Minus1, 0, latent_2d.dim(D::Minus1)? - off)?
-            } else {
-                latent_2d
-            };
-            // Permute to [1, frames, latent_dim] for transformer
-            let prompt_latent_t = latent_no_pad.permute([0, 2, 1])?.to_dtype(self.dtype)?;
-
-            (samples_len, prompt_latent_t)
-        } else {
-            (
-                0,
-                Tensor::zeros((1, 0, self.config.latent_dim), self.dtype, &self.device)?,
-            )
-        };
-
-        // Re-sync plan with actual encoded prompt frames
         let prompt_frames = prompt_latent.dim(1)?;
-        if prompt_frames != plan.prompt_audio_frames {
+        if let Some(total_frames) = overrides.and_then(|value| value.total_frames) {
+            plan.prompt_audio_frames = prompt_frames;
+            plan.total_frames = total_frames;
+            plan.target_frames = total_frames.saturating_sub(prompt_frames);
+        } else {
+            // Re-sync plan with actual encoded prompt frames
             // Re-calculate target frames based on actual prompt frames
             // Use the same duration estimation logic
             let sr = self.config.sampling_rate as f64;
@@ -331,13 +353,22 @@ impl LongCatAudioDiT {
         let neg_text_len = text_len.clone();
 
         // Initial noise (y0) - use Candle's built-in randn
-        let y0 = Tensor::randn(
-            0.0f32,
-            1.0f32,
-            (1, total_frames, self.config.latent_dim),
-            &self.device,
-        )?
-        .to_dtype(self.dtype)?;
+        let y0 = if let Some(y0) = overrides.and_then(|value| value.y0.as_ref()) {
+            y0.to_device(&self.device)?.to_dtype(self.dtype)?
+        } else {
+            let mut y0_rng = root_rng.fork(0x5930_5f4e_4f49_5345);
+            y0_rng.standard_normal_tensor(
+                &[1, total_frames, self.config.latent_dim],
+                self.dtype,
+                &self.device,
+            )?
+        };
+        ensure!(
+            y0.dims3()? == (1, total_frames, self.config.latent_dim),
+            "debug y0 shape mismatch, expected [1, {total_frames}, {}], got {:?}",
+            self.config.latent_dim,
+            y0.shape().dims()
+        );
 
         // Extract prompt noise for conditioning
         let prompt_noise = if prompt_frames > 0 {
@@ -366,6 +397,78 @@ impl LongCatAudioDiT {
 
         // APG momentum buffer
         let mut apg_momentum = ApgMomentumBuffer::new(-0.3);
+
+        let t_zero = Tensor::new(&[0.0f32], &self.device)?.to_dtype(self.dtype)?;
+        let mut x_t0 = y0.clone();
+        if prompt_frames > 0 {
+            let prompt_part = prompt_noise.clone();
+            let remaining = x_t0.narrow(
+                D::Minus2,
+                prompt_frames,
+                x_t0.dim(D::Minus2)? - prompt_frames,
+            )?;
+            x_t0 = Tensor::cat(&[&prompt_part, &remaining], D::Minus2)?;
+        }
+        let transformer_out_t0 = self
+            .transformer
+            .forward(TransformerForwardInput {
+                x: &x_t0,
+                text: &encoded_text.hidden_states,
+                text_len,
+                time: &t_zero,
+                mask: Some(&latent_mask),
+                cond_mask: Some(text_mask),
+                latent_cond: Some(&latent_cond),
+            })?
+            .last_hidden_state;
+
+        // Unconditional forward pass at t=0
+        let mut x_uncond_t0 = y0.clone();
+        if prompt_frames > 0 {
+            let zeros = Tensor::zeros(
+                (1, prompt_frames, x_uncond_t0.dim(D::Minus1)?),
+                self.dtype,
+                &self.device,
+            )?;
+            let remaining = x_uncond_t0.narrow(
+                D::Minus2,
+                prompt_frames,
+                x_uncond_t0.dim(D::Minus2)? - prompt_frames,
+            )?;
+            x_uncond_t0 = Tensor::cat(&[&zeros, &remaining], D::Minus2)?;
+        }
+
+        let null_pred_t0 = self
+            .transformer
+            .forward(TransformerForwardInput {
+                x: &x_uncond_t0,
+                text: &neg_text,
+                text_len: &neg_text_len,
+                time: &t_zero,
+                mask: Some(&latent_mask),
+                cond_mask: Some(&crate::longcat_audiodit::transformer::lens_to_mask(&neg_text_len)?),
+                latent_cond: Some(&empty_latent_cond),
+            })?
+            .last_hidden_state;
+
+        let velocity_zero = self.evaluate_velocity(
+            &y0,
+            &encoded_text.hidden_states,
+            text_len,
+            0.0,
+            &latent_mask,
+            text_mask,
+            &latent_cond,
+            &empty_latent_cond,
+            &prompt_noise,
+            prompt_frames,
+            gen_frames,
+            &neg_text,
+            &neg_text_len,
+            plan.scheduler.cfg_strength,
+            plan.scheduler.guidance_method,
+            &mut apg_momentum,
+        )?;
 
         // Euler ODE integration
         let timesteps = plan.scheduler.timesteps();
@@ -415,10 +518,89 @@ impl LongCatAudioDiT {
 
         // VAE decode to waveform: [1, latent_dim, frames] -> [1, 1, T]
         let waveform_2d = self.vae.decode(&pred_latent)?;
+        let waveform = waveform_2d.squeeze(1)?;
 
-        // Flatten to mono audio samples
-        let waveform_vec: Vec<f32> = waveform_2d.flatten_all()?.to_vec1()?;
-        Ok(waveform_vec)
+        Ok(LongCatDebugOutputs {
+            input_ids: encoded_text.input_ids,
+            attention_mask: encoded_text.attention_mask,
+            text_condition: encoded_text.hidden_states.to_dtype(DType::F32)?,
+            prompt_audio_padded,
+            prompt_latent_vae_output,
+            prompt_latent: prompt_latent.to_dtype(DType::F32)?,
+            duration: total_frames,
+            y0: y0.to_dtype(DType::F32)?,
+            latent_cond: latent_cond.to_dtype(DType::F32)?,
+            prompt_noise: prompt_noise.to_dtype(DType::F32)?,
+            transformer_out_t0: transformer_out_t0.to_dtype(DType::F32)?,
+            null_pred_t0: null_pred_t0.to_dtype(DType::F32)?,
+            velocity_zero: velocity_zero.to_dtype(DType::F32)?,
+            output_latent: pred_latent,
+            output_waveform: waveform.to_dtype(DType::F32)?,
+        })
+    }
+
+    fn prepare_prompt_latent(
+        &self,
+        request: &LongCatSynthesisRequest,
+        overrides: Option<&LongCatDebugOverrides>,
+        root_rng: &LongCatRng,
+    ) -> Result<(usize, Tensor, Tensor, Tensor)> {
+        if let Some(prompt_latent) = overrides.and_then(|value| value.prompt_latent.as_ref()) {
+            return Ok((
+                0,
+                Tensor::zeros((1, 1, 0), DType::F32, &self.device)?,
+                Tensor::zeros((1, self.config.latent_dim, 0), DType::F32, &self.device)?,
+                prompt_latent.to_device(&self.device)?.to_dtype(self.dtype)?,
+            ));
+        }
+
+        if let Some(audio_path) = &request.prompt_audio {
+            let loader = LongCatPythonAudioLoader::default_for_local_repo();
+            let mut mono_samples = loader
+                .load_audio_f32(audio_path, self.config.sampling_rate)
+                .with_context(|| {
+                    format!(
+                        "failed to load LongCat prompt audio with Python-equivalent preprocessing: {}",
+                        audio_path.display()
+                    )
+                })?;
+
+            let hop = self.config.latent_hop;
+            let off = 3;
+            if mono_samples.len() % hop != 0 {
+                let pad_len = hop - (mono_samples.len() % hop);
+                mono_samples.extend(std::iter::repeat_n(0.0, pad_len));
+            }
+            mono_samples.extend(std::iter::repeat_n(0.0, hop * off));
+
+            let samples_len = mono_samples.len();
+            let audio_tensor =
+                Tensor::from_vec(mono_samples, (1, 1, samples_len), &self.device)?;
+
+            let mut vae_rng = root_rng.fork(0x5641_455f_4e4f_4953);
+            let latent_2d = self.vae.encode(&audio_tensor, &mut vae_rng)?;
+            let latent_2d_frames = latent_2d.dim(D::Minus1)?;
+            let latent_no_pad = if latent_2d_frames > off {
+                latent_2d.narrow(D::Minus1, 0, latent_2d_frames - off)?
+            } else {
+                latent_2d.clone()
+            };
+            let prompt_latent_t = latent_no_pad.permute([0, 2, 1])?.to_dtype(self.dtype)?;
+
+            return Ok((
+                samples_len,
+                audio_tensor.to_dtype(DType::F32)?,
+                latent_2d.to_dtype(DType::F32)?,
+                prompt_latent_t,
+            ));
+        }
+
+        Ok((
+            0,
+            Tensor::zeros((1, 1, 0), DType::F32, &self.device)?,
+            Tensor::zeros((1, self.config.latent_dim, 0), DType::F32, &self.device)?,
+            Tensor::zeros((1, 0, self.config.latent_dim), self.dtype, &self.device)?,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -434,7 +616,7 @@ impl LongCatAudioDiT {
         empty_latent_cond: &Tensor,
         prompt_noise: &Tensor,
         prompt_frames: usize,
-        gen_frames: usize,
+        _gen_frames: usize,
         neg_text: &Tensor,
         neg_text_len: &Tensor,
         cfg_strength: f64,
@@ -448,13 +630,11 @@ impl LongCatAudioDiT {
         if prompt_frames > 0 {
             let one_minus_t = Tensor::new(&[1.0 - t], &self.device)?.to_dtype(self.dtype)?;
             let t_scalar = Tensor::new(&[t], &self.device)?.to_dtype(self.dtype)?;
-            let prompt_part = prompt_noise
-                .broadcast_mul(&one_minus_t)?
-                .add(
-                    &latent_cond
-                        .narrow(D::Minus2, 0, prompt_frames)?
-                        .broadcast_mul(&t_scalar)?,
-                )?;
+            let prompt_part = prompt_noise.broadcast_mul(&one_minus_t)?.add(
+                &latent_cond
+                    .narrow(D::Minus2, 0, prompt_frames)?
+                    .broadcast_mul(&t_scalar)?,
+            )?;
             let remaining = x_cond.narrow(
                 D::Minus2,
                 prompt_frames,
@@ -508,7 +688,8 @@ impl LongCatAudioDiT {
 
         match guidance_method {
             GuidanceMethod::Cfg => {
-                let cfg_scale = Tensor::new(&[cfg_strength as f32], &self.device)?.to_dtype(self.dtype)?;
+                let cfg_scale =
+                    Tensor::new(&[cfg_strength as f32], &self.device)?.to_dtype(self.dtype)?;
                 Ok(pred.add(&pred.sub(&null_pred)?.broadcast_mul(&cfg_scale)?)?)
             }
             GuidanceMethod::Apg => {
@@ -557,7 +738,8 @@ impl ApgMomentumBuffer {
 
     fn update(&mut self, update_value: &Tensor) -> Result<()> {
         let new_avg = if let Some(ref running) = self.running_average {
-            let momentum_tensor = Tensor::new(&[self.momentum], update_value.device())?.to_dtype(update_value.dtype())?;
+            let momentum_tensor = Tensor::new(&[self.momentum], update_value.device())?
+                .to_dtype(update_value.dtype())?;
             update_value.add(&running.broadcast_mul(&momentum_tensor)?)?
         } else {
             update_value.clone()
@@ -590,10 +772,10 @@ fn apg_forward(
     // eta = 0.5 (from Python code)
     let eta = 0.5;
     let eta_tensor = Tensor::new(&[eta as f32], pred_cond.device())?.to_dtype(pred_cond.dtype())?;
-    let normalized_update = diff_orthogonal
-        .add(&diff_parallel.broadcast_mul(&eta_tensor)?)?;
+    let normalized_update = diff_orthogonal.add(&diff_parallel.broadcast_mul(&eta_tensor)?)?;
 
-    let guidance_scale_tensor = Tensor::new(&[guidance_scale as f32], pred_cond.device())?.to_dtype(pred_cond.dtype())?;
+    let guidance_scale_tensor =
+        Tensor::new(&[guidance_scale as f32], pred_cond.device())?.to_dtype(pred_cond.dtype())?;
     Ok(pred_cond.add(&normalized_update.broadcast_mul(&guidance_scale_tensor)?)?)
 }
 

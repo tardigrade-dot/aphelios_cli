@@ -1625,7 +1625,7 @@ fn run_text_align_ui(ctx: Arc<AppContext>) -> Result<()> {
                 let result = aphelios_asr::text_match::audio_text_match_with_params(
                     &model_path,
                     &audio_file,
-                    &target_text,
+                    Some(target_text.as_str()),
                     if output_path_clone.is_empty() {
                         None
                     } else {

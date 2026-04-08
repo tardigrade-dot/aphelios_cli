@@ -1,25 +1,23 @@
+use std::path::Path;
+
 use anyhow::{Error as E, Result};
 
 use aphelios_core::utils::base::get_device;
 use aphelios_core::utils::token_output_stream::TokenOutputStream;
-use candle_transformers::models::qwen3::{Config as Config3, ModelForCausalLM as Model3};
-use candle_transformers::models::qwen3_moe::ModelForCausalLM as ModelMoe3;
-
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
+use candle_transformers::models::qwen3::{Config as Config3, ModelForCausalLM as Model3};
 use tokenizers::Tokenizer;
 
 enum Model {
     Base3(Model3),
-    Moe3(ModelMoe3),
 }
 
 impl Model {
     fn forward(&mut self, xs: &Tensor, s: usize) -> candle_core::Result<Tensor> {
         match self {
             Self::Base3(ref mut m) => m.forward(xs, s),
-            Self::Moe3(ref mut m) => m.forward(xs, s),
         }
     }
 }
@@ -137,10 +135,12 @@ pub fn qwen3_llm(prompt: &str, model_dir: &str) -> Result<()> {
     let use_chat_template = true;
     let thinking = false;
 
-    let tokenizer_filename = std::path::Path::new(model_dir).join("tokenizer.json");
-    let config_file = std::path::Path::new(model_dir).join("config.json");
+    let model_path = Path::new(model_dir);
+    assert!(model_path.exists(), "model_dir not found: {}", model_dir);
+    let tokenizer_filename = model_path.join("tokenizer.json");
+    let config_file = model_path.join("config.json");
 
-    let filenames = vec![std::path::Path::new(model_dir).join("model.safetensors")];
+    let filenames = vec![model_path.join("model.safetensors")];
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
     let start = std::time::Instant::now();

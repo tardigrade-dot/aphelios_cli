@@ -52,7 +52,7 @@ impl AudioDiTTransformer {
         device: &Device,
     ) -> Result<Self> {
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[model_weights.as_ref()], dtype, device)
+            VarBuilder::from_mmaped_safetensors(&[model_weights.as_ref()], DType::F32, device)
                 .context("failed to open LongCat safetensors for transformer")?
         };
         let vb = vb.pp("transformer");
@@ -206,7 +206,7 @@ impl AudioDiTTransformer {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum AdaLnType {
     Local,
     Global,
@@ -246,9 +246,13 @@ impl RotaryEmbedding {
             .to_dtype(DType::F32)?
             .reshape((max_seq_len, 1))?;
         let freqs = positions.matmul(&inv_freq)?;
+        let cos = freqs.cos()?.to_dtype(dtype)?;
+        let sin = freqs.sin()?.to_dtype(dtype)?;
+        println!("Rs cos mean: {:?}", cos.mean_all()?.to_scalar::<f32>()?);
+        println!("Rs sin mean: {:?}", sin.mean_all()?.to_scalar::<f32>()?);
         Ok(Self {
-            cos: freqs.cos()?.to_dtype(dtype)?,
-            sin: freqs.sin()?.to_dtype(dtype)?,
+            cos,
+            sin,
         })
     }
 
@@ -417,8 +421,8 @@ impl AudioDiTSelfAttention {
         let v = reshape_heads(&v, batch, seq_len, self.heads, self.head_dim)?;
         let (q, k) = match rope {
             Some(rope) => (
-                rotary_emb::rope(&q.contiguous()?, &rope.cos, &rope.sin)?,
-                rotary_emb::rope(&k.contiguous()?, &rope.cos, &rope.sin)?,
+                apply_qwen_rope(&q.contiguous()?, &rope.cos, &rope.sin)?,
+                apply_qwen_rope(&k.contiguous()?, &rope.cos, &rope.sin)?,
             ),
             None => (q, k),
         };
@@ -496,11 +500,11 @@ impl AudioDiTCrossAttention {
         let k = reshape_heads(&k, batch, cond_len, self.heads, self.head_dim)?;
         let v = reshape_heads(&v, batch, cond_len, self.heads, self.head_dim)?;
         let q = match rope {
-            Some(rope) => rotary_emb::rope(&q.contiguous()?, &rope.cos, &rope.sin)?,
+            Some(rope) => apply_qwen_rope(&q.contiguous()?, &rope.cos, &rope.sin)?,
             None => q,
         };
         let k = match cond_rope {
-            Some(rope) => rotary_emb::rope(&k.contiguous()?, &rope.cos, &rope.sin)?,
+            Some(rope) => apply_qwen_rope(&k.contiguous()?, &rope.cos, &rope.sin)?,
             None => k,
         };
         let context = attention(&q, &k, &v, mask, cond_mask, self.head_dim)?;
@@ -864,4 +868,41 @@ fn split_last_dim(x: &Tensor, chunks: usize) -> Result<Vec<Tensor>> {
     (0..chunks)
         .map(|idx| Ok(x.narrow(D::Minus1, idx * chunk, chunk)?))
         .collect()
+}
+
+pub fn lens_to_mask(lengths: &Tensor) -> Result<Tensor> {
+    let bsz = lengths.dim(0)?;
+    let max_len = lengths.max(0)?.to_scalar::<u32>()? as usize;
+    let device = lengths.device();
+    let seq = Tensor::arange(0u32, max_len as u32, device)?
+        .reshape((1, max_len))?
+        .expand((bsz, max_len))?;
+    let lens = lengths
+        .to_dtype(DType::U32)?
+        .reshape((bsz, 1))?
+        .expand((bsz, max_len))?;
+    Ok(seq.lt(&lens)?)
+}
+
+fn rotate_half(x: &Tensor) -> Result<Tensor> {
+    let dim = x.dim(D::Minus1)?;
+    let x1 = x.narrow(D::Minus1, 0, dim / 2)?;
+    let x2 = x.narrow(D::Minus1, dim / 2, dim / 2)?;
+    Ok(Tensor::cat(&[&x2.neg()?, &x1], D::Minus1)?)
+}
+
+fn apply_qwen_rope(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor> {
+    // x: [1, heads, seq, head_dim]
+    // cos, sin: [seq, head_dim/2]
+    let (b, h, s, d) = x.dims4()?;
+    let cos = cos.reshape((1, 1, s, d / 2))?.broadcast_as((b, h, s, d / 2))?;
+    let sin = sin.reshape((1, 1, s, d / 2))?.broadcast_as((b, h, s, d / 2))?;
+    
+    let x1 = x.narrow(D::Minus1, 0, d / 2)?;
+    let x2 = x.narrow(D::Minus1, d / 2, d / 2)?;
+    
+    let x1_rotated = (x1.broadcast_mul(&cos)? - x2.broadcast_mul(&sin)?)?;
+    let x2_rotated = (x1.broadcast_mul(&sin)? + x2.broadcast_mul(&cos)?)?;
+    
+    Ok(Tensor::cat(&[&x1_rotated, &x2_rotated], D::Minus1)?)
 }
