@@ -20,9 +20,9 @@ jobs:
             features: "metal"
             arch: "arm64"
             suffix: "macos-arm64" # Apple Silicon
-          # - os: ubuntu-latest
-          #   features: "cuda"
-          #   suffix: "linux-x64"
+          - os: ubuntu-latest
+            features: "cuda"
+            suffix: "linux-x64"
           # - os: windows-latest
           #   features: "cuda"
           #   suffix: "windows-x64"
