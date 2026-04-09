@@ -20,12 +20,13 @@ jobs:
             features: "metal"
             arch: "arm64"
             suffix: "macos-arm64" # Apple Silicon
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             features: "cpu"
             suffix: "linux-x64"
-          - os: windows-latest
-            features: "cpu"
-            suffix: "windows-x64"
+          # - os: windows-latest
+          #   features: "cpu"
+          #   suffix: "windows-x64"
+          # Windows 暂时禁用：usearch crate MSVC 编译不兼容 (MAP_FAILED 未定义)
 
     steps:
       - name: Checkout code
@@ -36,7 +37,7 @@ jobs:
 
       # 安装依赖 (针对 Linux/Windows 的 CUDA 构建可能需要额外的库)
       - name: Install Dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
 
       - name: Install UPX (macOS)
@@ -44,15 +45,15 @@ jobs:
         run: brew install upx
 
       - name: Install UPX (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y upx-ucl
 
-      - name: Install UPX (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install upx
+      # - name: Install UPX (Windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     choco install upx
 
       - name: Use UPX
         run: upx --version
@@ -70,14 +71,14 @@ jobs:
           cd release_bin && zip -rq ../aphelios-${{ matrix.suffix }}.zip Aphelios.app
 
       - name: Package Assets (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           tar -czf aphelios-tool-${{ matrix.suffix }}.tar.gz -C release_bin aphelios_tool
 
-      - name: Package Assets (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          Compress-Archive -Path release_bin\aphelios_tool.exe -DestinationPath aphelios-tool-${{ matrix.suffix }}.zip
+      # - name: Package Assets (Windows)
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     Compress-Archive -Path release_bin\aphelios_tool.exe -DestinationPath aphelios-tool-${{ matrix.suffix }}.zip
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
