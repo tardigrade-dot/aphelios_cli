@@ -21,11 +21,11 @@ jobs:
             arch: "arm64"
             suffix: "macos-arm64" # Apple Silicon
           - os: ubuntu-latest
-            features: "cuda"
+            features: "cpu"
             suffix: "linux-x64"
-          # - os: windows-latest
-          #   features: "cuda"
-          #   suffix: "windows-x64"
+          - os: windows-latest
+            features: "cpu"
+            suffix: "windows-x64"
 
     steps:
       - name: Checkout code

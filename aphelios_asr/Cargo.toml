@@ -46,6 +46,7 @@ test-log = { workspace = true }
 
 [features]
 profiling = []
+cpu = ["aphelios_core/cpu"]
 metal = [
     "aphelios_core/metal",
     "aphelios_core/profiling",

@@ -58,6 +58,7 @@ md5 = "0.7"
 
 [features]
 profiling = []
+cpu = ["aphelios_core/cpu"]
 metal = [
     "candle-core/metal",
     "candle-core/accelerate",

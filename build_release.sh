@@ -13,18 +13,20 @@ echo "   - Release 版本（.app）：日志输出到 ~/Library/Logs/aphelios/"
 echo "   - Release 版本（CLI）：日志输出到可执行文件同级的 logs/ 目录"
 echo ""
 
-# 安装 cargo-bundle (如果未安装)
-if ! command -v cargo-bundle >/dev/null 2>&1; then
-    echo "📦 安装 cargo-bundle..."
-    cargo install cargo-bundle
-fi
-
 # 编译指定子项目 (包含 bundle 生成)
-cargo build --release -p aphelios_slint -p aphelios_tool --features "$FEATURES"
+cargo build --release -p aphelios_tool --features "$FEATURES"
 
-# 使用 cargo-bundle 生成 .app bundle
-echo "📦 生成 macOS App Bundle..."
-cargo bundle --release -p aphelios_slint --features "$FEATURES"
+# 使用 cargo-bundle 生成 .app bundle (仅 macOS)
+if [[ "$OSTYPE" == darwin* ]]; then
+    # 安装 cargo-bundle (如果未安装)
+    if ! command -v cargo-bundle >/dev/null 2>&1; then
+        echo "📦 安装 cargo-bundle..."
+        cargo install cargo-bundle
+    fi
+
+    echo "📦 生成 macOS App Bundle..."
+    cargo bundle --release -p aphelios_slint --features "$FEATURES"
+fi
 
 OUTPUT_DIR="$PROJECT_ROOT/release_bin"
 mkdir -p "$OUTPUT_DIR"

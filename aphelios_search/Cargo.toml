@@ -65,6 +65,7 @@ tracing-subscriber = { workspace = true }
 
 [features]
 profiling = []
+cpu = ["aphelios_ocr/cpu", "aphelios_core/cpu"]
 metal = [
     "candle-core/metal",
     "candle-nn/metal",

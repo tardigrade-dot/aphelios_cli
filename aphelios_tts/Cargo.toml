@@ -65,6 +65,7 @@ strum_macros = { workspace = true }
 
 
 [features]
+cpu = ["aphelios_core/cpu"]
 metal = [
     "aphelios_core/metal",
     "candle-core/metal",
