@@ -367,20 +367,17 @@ impl CodePredictor {
 
         let mut hidden = input;
         for (i, layer) in self.layers.iter().enumerate() {
-            hidden = layer.forward(
-                &hidden,
-                &self.rope,
-                mask,
-                Some(&mut cp_kv_caches[i]),
-                0,
-            )?;
+            hidden = layer.forward(&hidden, &self.rope, mask, Some(&mut cp_kv_caches[i]), 0)?;
         }
         hidden = self.norm.forward(&hidden)?;
 
         // Step 2: Predict first acoustic code from last position
         let last_hidden = hidden.i((.., seq_len - 1..seq_len, ..))?;
-        let logits = self.lm_heads[0].forward(&last_hidden)?
-            .broadcast_as((batch, 1, self.config.vocab_size))?; // Ensure [batch, 1, vocab]
+        let logits = self.lm_heads[0].forward(&last_hidden)?.broadcast_as((
+            batch,
+            1,
+            self.config.vocab_size,
+        ))?; // Ensure [batch, 1, vocab]
         let first_code = logits.argmax(D::Minus1)?.reshape((batch, 1))?; // [batch, 1] tensor on GPU
 
         let mut all_codes = Tensor::zeros((batch, num_acoustic), candle_core::DType::U32, device)?;
@@ -412,7 +409,8 @@ impl CodePredictor {
             // Predict next code (stays on GPU)
             let logits = self.lm_heads[group_idx].forward(&h)?;
             let next_code = logits.argmax(D::Minus1)?.reshape((batch, 1))?; // [batch, 1] tensor on GPU
-            all_codes = all_codes.slice_assign(&[0..batch, group_idx..group_idx + 1], &next_code)?;
+            all_codes =
+                all_codes.slice_assign(&[0..batch, group_idx..group_idx + 1], &next_code)?;
             prev_code = next_code;
             offset += 1;
         }

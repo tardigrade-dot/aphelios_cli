@@ -43,7 +43,11 @@ fn test_usearch_with_embeddings() {
     println!("Embedding shape: {:?}", embedding.shape());
 
     // Convert to F32 and get as Vec
-    let embedding_f32 = embedding.to_dtype(DType::F32).unwrap().contiguous().unwrap();
+    let embedding_f32 = embedding
+        .to_dtype(DType::F32)
+        .unwrap()
+        .contiguous()
+        .unwrap();
     let embedding_vec = embedding_f32.to_vec2::<f32>().unwrap().remove(0);
     println!("Embedding vec len: {}", embedding_vec.len());
 

@@ -3,7 +3,7 @@
 //! 提供函数执行时间测量和性能分析功能
 
 use std::time::Instant;
-use tracing::{Level, info};
+use tracing::{info, Level};
 
 /// 简单计时器，用于测量代码执行时间
 #[derive(Debug)]

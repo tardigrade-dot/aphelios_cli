@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-use rustfft::{FftPlanner, num_complex::Complex};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
+use rustfft::{num_complex::Complex, FftPlanner};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -84,7 +86,11 @@ pub fn load_wav(path: &Path, cfg: &AudioConfig) -> Result<Vec<f32>, AudioError> 
 
 fn resample(samples: &[f32], from_hz: u32, to_hz: u32) -> Result<Vec<f32>, AudioError> {
     if from_hz == 0 || to_hz == 0 {
-        return Err(AudioError::InvalidSampleRate(if from_hz == 0 { from_hz } else { to_hz }));
+        return Err(AudioError::InvalidSampleRate(if from_hz == 0 {
+            from_hz
+        } else {
+            to_hz
+        }));
     }
 
     if samples.is_empty() {
@@ -179,7 +185,11 @@ fn build_mel_filters(cfg: &AudioConfig) -> Vec<f32> {
     let filter_diff: Vec<f32> = (0..=n_mel)
         .map(|i| {
             let d = filter_freqs[i + 1] - filter_freqs[i];
-            if d == 0.0 { 1e-6 } else { d }
+            if d == 0.0 {
+                1e-6
+            } else {
+                d
+            }
         })
         .collect();
 
@@ -222,7 +232,11 @@ pub fn mel_spectrogram(samples: &[f32], cfg: &AudioConfig) -> (Vec<f32>, usize) 
 
     let padded_len = padded.len();
     let n_frames_total = (padded_len - n_fft) / hop + 1;
-    let n_frames = if n_frames_total > 1 { n_frames_total - 1 } else { 0 };
+    let n_frames = if n_frames_total > 1 {
+        n_frames_total - 1
+    } else {
+        0
+    };
 
     if n_frames == 0 {
         return (vec![], 0);
@@ -249,7 +263,11 @@ pub fn mel_spectrogram(samples: &[f32], cfg: &AudioConfig) -> (Vec<f32>, usize) 
     for t in 0..n_frames {
         let start = t * hop;
         for i in 0..n_fft {
-            let s = if i < win_len { padded[start + i] * window[i] } else { 0.0 };
+            let s = if i < win_len {
+                padded[start + i] * window[i]
+            } else {
+                0.0
+            };
             buf[i] = Complex::new(s, 0.0);
         }
         fft.process_with_scratch(&mut buf, &mut scratch);

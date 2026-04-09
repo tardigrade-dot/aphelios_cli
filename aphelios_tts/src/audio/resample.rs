@@ -4,8 +4,8 @@
 
 use anyhow::{Context, Result};
 use rubato::{
-    FastFixedIn, PolynomialDegree, Resampler as RubatoResampler, SincInterpolationParameters,
-    SincInterpolationType, SincFixedIn, WindowFunction,
+    FastFixedIn, PolynomialDegree, Resampler as RubatoResampler, SincFixedIn,
+    SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
 use super::AudioBuffer;
@@ -96,11 +96,7 @@ impl Resampler {
         };
 
         let mut resampler = SincFixedIn::<f32>::new(
-            ratio,
-            1.0,
-            params,
-            chunk_size,
-            1, // mono
+            ratio, 1.0, params, chunk_size, 1, // mono
         )
         .context("Failed to create sinc resampler")?;
 

@@ -262,7 +262,11 @@ pub fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
         return samples_per_channel.into_iter().next().unwrap();
     }
     let num_channels = samples_per_channel.len();
-    let num_samples = samples_per_channel.iter().map(|c| c.len()).max().unwrap_or(0);
+    let num_samples = samples_per_channel
+        .iter()
+        .map(|c| c.len())
+        .max()
+        .unwrap_or(0);
     let mut mono = vec![0.0f32; num_samples];
     for ch in &samples_per_channel {
         for (i, sample) in ch.iter().enumerate() {
@@ -275,7 +279,6 @@ pub fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
     }
     mono
 }
-
 
 pub fn resample_channels(
     samples_per_channel: Vec<Vec<f32>>,

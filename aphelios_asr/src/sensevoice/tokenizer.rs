@@ -70,7 +70,11 @@ impl TokenDecoder {
         text.trim().to_string()
     }
 
-    pub fn decode_with_timestamps(&self, ids: &[(i32, usize, usize)], ts_max: usize) -> (String, Vec<TokenTimestamp>) {
+    pub fn decode_with_timestamps(
+        &self,
+        ids: &[(i32, usize, usize)],
+        ts_max: usize,
+    ) -> (String, Vec<TokenTimestamp>) {
         let mut text = String::new();
         let mut timestamps = Vec::new();
 

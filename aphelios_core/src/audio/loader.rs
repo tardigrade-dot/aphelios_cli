@@ -1,9 +1,9 @@
 //! 音频文件加载器
-//! 
+//!
 //! 支持多种音频格式和位深的加载
 
-use anyhow::{Result, bail};
-use hound::{WavReader, SampleFormat};
+use anyhow::{bail, Result};
+use hound::{SampleFormat, WavReader};
 use std::path::Path;
 
 use super::types::{AudioBuffer, MonoBuffer, StereoBuffer};
@@ -37,36 +37,44 @@ impl AudioLoader {
     /// 从文件加载音频
     pub fn load(&self, path: impl AsRef<Path>) -> Result<AudioBuffer> {
         let path = path.as_ref();
-        
+
         if !path.exists() {
             bail!("Audio file not found: {}", path.display());
         }
 
-        let extension = path.extension()
+        let extension = path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
 
         match extension.as_str() {
             "wav" => self.load_wav(path),
-            "mp4" | "mkv" | "mov" | "avi" | "flv" | "mp3" | "m4a" | "flac" => self.load_from_ffmpeg(path),
+            "mp4" | "mkv" | "mov" | "avi" | "flv" | "mp3" | "m4a" | "flac" => {
+                self.load_from_ffmpeg(path)
+            }
             _ => bail!("Unsupported audio format: {}", extension),
         }
     }
 
     /// 使用 FFmpeg 加载视频或音频文件
     fn load_from_ffmpeg(&self, path: &Path) -> Result<AudioBuffer> {
-        use std::process::Command;
         use std::io::Read;
+        use std::process::Command;
 
         let output = Command::new("ffmpeg")
             .args([
-                "-i", path.to_str().unwrap(),
-                "-f", "s16le",
-                "-ac", "1",
-                "-ar", "16000",
-                "-acodec", "pcm_s16le",
-                "-"
+                "-i",
+                path.to_str().unwrap(),
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-acodec",
+                "pcm_s16le",
+                "-",
             ])
             .output()?;
 
@@ -94,17 +102,28 @@ impl AudioLoader {
         let samples = self.read_samples(&mut reader, spec)?;
 
         if spec.channels == 1 {
-            Ok(AudioBuffer::Mono(MonoBuffer::new(samples, spec.sample_rate)))
+            Ok(AudioBuffer::Mono(MonoBuffer::new(
+                samples,
+                spec.sample_rate,
+            )))
         } else {
             // 分离左右声道
             let left: Vec<f32> = samples.iter().step_by(2).copied().collect();
             let right: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
-            Ok(AudioBuffer::Stereo(StereoBuffer::new(left, right, spec.sample_rate)))
+            Ok(AudioBuffer::Stereo(StereoBuffer::new(
+                left,
+                right,
+                spec.sample_rate,
+            )))
         }
     }
 
     /// 读取音频样本
-    fn read_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>, spec: hound::WavSpec) -> Result<Vec<f32>> {
+    fn read_samples<R: std::io::Read>(
+        &self,
+        reader: &mut WavReader<R>,
+        spec: hound::WavSpec,
+    ) -> Result<Vec<f32>> {
         match spec.sample_format {
             SampleFormat::Int => self.read_int_samples(reader, spec.bits_per_sample),
             SampleFormat::Float => self.read_float_samples(reader),
@@ -112,17 +131,24 @@ impl AudioLoader {
     }
 
     /// 读取整数样本
-    fn read_int_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>, bits: u16) -> Result<Vec<f32>> {
+    fn read_int_samples<R: std::io::Read>(
+        &self,
+        reader: &mut WavReader<R>,
+        bits: u16,
+    ) -> Result<Vec<f32>> {
         match bits {
-            8 => Ok(reader.samples::<i8>()
+            8 => Ok(reader
+                .samples::<i8>()
                 .filter_map(|s| s.ok())
                 .map(|s| s as f32 / i8::MAX as f32)
                 .collect()),
-            16 => Ok(reader.samples::<i16>()
+            16 => Ok(reader
+                .samples::<i16>()
                 .filter_map(|s| s.ok())
                 .map(|s| s as f32 / i16::MAX as f32)
                 .collect()),
-            24 | 32 => Ok(reader.samples::<i32>()
+            24 | 32 => Ok(reader
+                .samples::<i32>()
                 .filter_map(|s| s.ok())
                 .map(|s| match bits {
                     24 => s as f32 / 8_388_607.0, // 2^23 - 1
@@ -135,9 +161,7 @@ impl AudioLoader {
 
     /// 读取浮点样本
     fn read_float_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>) -> Result<Vec<f32>> {
-        Ok(reader.samples::<f32>()
-            .filter_map(|s| s.ok())
-            .collect())
+        Ok(reader.samples::<f32>().filter_map(|s| s.ok()).collect())
     }
 
     /// 获取音频格式信息

@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use indicatif::ProgressBar;
+use std::sync::Arc;
 
 /// A wrapper around `indicatif::ProgressBar` that also updates a UI callback.
 #[derive(Clone)]

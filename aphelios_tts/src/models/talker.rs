@@ -446,7 +446,7 @@ impl TalkerModel {
         speaker: Speaker,
         language: Language,
         kv_caches: &mut [AnyKVCache],
-        batch: usize, // New parameter
+        batch: usize,                    // New parameter
         attention_mask: Option<&Tensor>, // New parameter
     ) -> Result<(Tensor, Tensor)> {
         use codec_tokens::*;
@@ -466,7 +466,9 @@ impl TalkerModel {
             ],
             &self.device,
         )?;
-        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+        let codec_embed = self
+            .codec_embedding
+            .forward(&codec_ids)?
             .unsqueeze(0)?
             .broadcast_as((batch, 7, self.config.hidden_size))?;
 
@@ -479,7 +481,9 @@ impl TalkerModel {
 
         // First text token + codec_bos
         let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
+        if let Some(combined) =
+            self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
+        {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
@@ -512,7 +516,9 @@ impl TalkerModel {
             ],
             &self.device,
         )?;
-        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+        let codec_embed = self
+            .codec_embedding
+            .forward(&codec_ids)?
             .unsqueeze(0)?
             .broadcast_as((batch, 7, self.config.hidden_size))?;
 
@@ -580,7 +586,8 @@ impl TalkerModel {
             .unsqueeze(0)?
             .broadcast_as((batch, 4, self.config.hidden_size))?;
 
-        let speaker = speaker_embed.reshape((1, 1, self.config.hidden_size))?
+        let speaker = speaker_embed
+            .reshape((1, 1, self.config.hidden_size))?
             .broadcast_as((batch, 1, self.config.hidden_size))?;
 
         let codec_suffix_ids = Tensor::new(&[CODEC_PAD, CODEC_BOS], &self.device)?;
@@ -602,7 +609,9 @@ impl TalkerModel {
         // First text token + codec_bos (skipped in ICL mode)
         if !icl_mode {
             let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-            if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
+            if let Some(combined) =
+                self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
+            {
                 hidden = Tensor::cat(&[&hidden, &combined], 1)?;
             }
         }
@@ -640,7 +649,8 @@ impl TalkerModel {
             .unsqueeze(0)?
             .broadcast_as((batch, 4, self.config.hidden_size))?;
 
-        let speaker = speaker_embed.reshape((1, 1, self.config.hidden_size))?
+        let speaker = speaker_embed
+            .reshape((1, 1, self.config.hidden_size))?
             .broadcast_as((batch, 1, self.config.hidden_size))?;
 
         let codec_suffix_ids = Tensor::new(&[CODEC_PAD, CODEC_BOS], &self.device)?;
@@ -701,7 +711,8 @@ impl TalkerModel {
         use codec_tokens::*;
 
         // Instruct text prefix
-        let instruct_embed = self.get_projected_text_embeddings(instruct_tokens)?
+        let instruct_embed = self
+            .get_projected_text_embeddings(instruct_tokens)?
             .broadcast_as((batch, instruct_tokens.len(), self.config.hidden_size))?;
 
         let role_prefix_hidden = self.build_role_prefix(batch)?;
@@ -718,7 +729,9 @@ impl TalkerModel {
             ],
             &self.device,
         )?;
-        let codec_embed = self.codec_embedding.forward(&codec_ids)?
+        let codec_embed = self
+            .codec_embedding
+            .forward(&codec_ids)?
             .unsqueeze(0)?
             .broadcast_as((batch, 6, self.config.hidden_size))?;
 
@@ -731,7 +744,9 @@ impl TalkerModel {
 
         // First text token + codec_bos (index 5)
         let codec_bos_embed = codec_embed.i((.., 5..6, ..))?;
-        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
+        if let Some(combined) =
+            self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
+        {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
@@ -834,8 +849,12 @@ impl TalkerModel {
         let mut max_trailing_len = 0;
 
         for target_text_ids in target_text_ids_batch {
-            let (icl_embed, trailing_embed) =
-                self.build_icl_prompt(target_text_ids, ref_text_ids, ref_codec_embeds, non_streaming)?;
+            let (icl_embed, trailing_embed) = self.build_icl_prompt(
+                target_text_ids,
+                ref_text_ids,
+                ref_codec_embeds,
+                non_streaming,
+            )?;
             max_trailing_len = max_trailing_len.max(trailing_embed.dim(1)?);
             icl_embeds.push(icl_embed);
             trailing_embeds.push(trailing_embed);
@@ -917,8 +936,7 @@ impl TalkerModel {
 
         let tts_pad_expanded =
             tts_pad_proj.broadcast_as((batch, pad_count, self.config.hidden_size))?;
-        let tts_bos_expanded =
-            tts_bos_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
+        let tts_bos_expanded = tts_bos_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
         Ok(Tensor::cat(&[&tts_pad_expanded, &tts_bos_expanded], 1)?)
     }
 
@@ -958,7 +976,10 @@ impl TalkerModel {
             .collect();
         let first_text_ids = Tensor::new(first_text_ids.as_slice(), &self.device)?;
         let first_text_embed = self.text_embedding.forward(&first_text_ids)?;
-        let first_text_proj = self.text_projection.forward(&first_text_embed)?.unsqueeze(1)?;
+        let first_text_proj = self
+            .text_projection
+            .forward(&first_text_embed)?
+            .unsqueeze(1)?;
         Ok(Some(first_text_proj.add(codec_bos_embed)?))
     }
 

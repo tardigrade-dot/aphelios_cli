@@ -4,8 +4,8 @@
 //! and `DecoderLayer` — used by both `TalkerModel` and `CodePredictor`.
 
 use anyhow::Result;
-use candle_core::{D, Device, IndexOp, Module, Tensor};
-use candle_nn::{Linear, RmsNorm, VarBuilder, linear_no_bias, rms_norm};
+use candle_core::{Device, IndexOp, Module, Tensor, D};
+use candle_nn::{linear_no_bias, rms_norm, Linear, RmsNorm, VarBuilder};
 use std::cell::RefCell;
 
 use super::fused_ops::FusedRmsNorm;
@@ -40,17 +40,21 @@ pub fn create_causal_mask(seq_len: usize, offset: usize, device: &Device) -> Res
 ///
 /// `padding_mask` should be `[batch, total_len]` where `1.0` is valid and `0.0` is padding.
 /// Returns a `[batch, 1, seq_len, total_len]` mask.
-pub fn create_combined_mask(padding_mask: &Tensor, offset: usize, device: &Device) -> Result<Tensor> {
+pub fn create_combined_mask(
+    padding_mask: &Tensor,
+    offset: usize,
+    device: &Device,
+) -> Result<Tensor> {
     let (_batch, total_len) = padding_mask.dims2()?;
     let seq_len = total_len - offset;
-    
+
     // 1. Base causal mask: [1, 1, seq_len, total_len]
     let causal = create_causal_mask(seq_len, offset, device)?;
-    
+
     // 2. Padding mask: [batch, 1, 1, total_len] -> [batch, 1, seq_len, total_len]
     // Values: 1.0 -> 0.0, 0.0 -> NEG_INFINITY
     let pad = (padding_mask.unsqueeze(1)?.unsqueeze(1)? - 1.0)? * 1e9;
-    
+
     // 3. Combined
     Ok(causal.broadcast_add(&pad?.to_dtype(causal.dtype())?)?)
 }
@@ -83,14 +87,8 @@ fn apply_rope_rotation(x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor>
     // Standard RoPE: [x1*cos - x2*sin, x2*cos + x1*sin]
     let part1 = (x1.mul(&cos_b)? - x2.mul(&sin_b)?)?;
     let part2 = (x2.mul(&cos_b)? + x1.mul(&sin_b)?)?;
-    
-    let rotated = Tensor::cat(
-        &[
-            &part1,
-            &part2,
-        ],
-        D::Minus1,
-    )?;
+
+    let rotated = Tensor::cat(&[&part1, &part2], D::Minus1)?;
 
     Ok(rotated)
 }
@@ -372,7 +370,7 @@ impl Attention {
         } else {
             let k = self.repeat_kv(&k)?;
             let v = self.repeat_kv(&v)?;
-            
+
             if *self.use_sdpa.borrow() && q.device().is_metal() && attention_mask.is_none() {
                 // Metal SDPA for decode steps (seq_len=1, no mask needed).
                 // Fused tiled kernel with native GQA; 2-pass for k_seq >= 1024.
@@ -398,23 +396,24 @@ impl Attention {
                 // CPU/CUDA-without-flash fallback: manual scaled dot-product attention
                 let q = q.contiguous()?;
                 let k = k.contiguous()?;
-                let attn_weights = (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * self.scale)?;
-            let attn_weights = if let Some(mask) = attention_mask {
-                let mask = mask.to_dtype(attn_weights.dtype())?;
-                let mask = mask.broadcast_as(attn_weights.shape())?;
-                attn_weights.add(&mask)?
-            } else {
-                attn_weights
-            };
-            let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
-            let attn_output = attn_weights.matmul(&v)?;
-            attn_output.transpose(1, 2)?.reshape((
-                batch,
-                seq_len,
-                self.num_heads * self.head_dim,
-            ))?
-        }
-    };
+                let attn_weights =
+                    (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * self.scale)?;
+                let attn_weights = if let Some(mask) = attention_mask {
+                    let mask = mask.to_dtype(attn_weights.dtype())?;
+                    let mask = mask.broadcast_as(attn_weights.shape())?;
+                    attn_weights.add(&mask)?
+                } else {
+                    attn_weights
+                };
+                let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
+                let attn_output = attn_weights.matmul(&v)?;
+                attn_output.transpose(1, 2)?.reshape((
+                    batch,
+                    seq_len,
+                    self.num_heads * self.head_dim,
+                ))?
+            }
+        };
 
         Ok(self.o_proj.forward(&attn_output)?)
     }

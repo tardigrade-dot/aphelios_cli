@@ -252,8 +252,8 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
 
     for item in items {
         let is_punctuation = item.text.chars().any(|c| SENTENCE_ENDINGS.contains(&c));
-        let too_long =
-            !current_sentence.is_empty() && current_sentence.chars().count() + item.text.chars().count() > MAX_CHARS;
+        let too_long = !current_sentence.is_empty()
+            && current_sentence.chars().count() + item.text.chars().count() > MAX_CHARS;
         let too_much_time = if let Some(start) = sentence_start {
             item.end_time - start > MAX_DURATION
         } else {

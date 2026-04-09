@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 use thiserror::Error;
 use tokenizers::decoders::byte_level::ByteLevel as BLDecoder;
@@ -18,14 +18,14 @@ pub enum TokenizerError {
 }
 
 // ── Special token IDs (from qwen_asr.h) ──────────────────────────────────────
-pub const TOKEN_IM_START:    u32 = 151644; // <|im_start|>
-pub const TOKEN_IM_END:      u32 = 151645; // <|im_end|>
-pub const TOKEN_ENDOFTEXT:   u32 = 151643; // <|endoftext|>
+pub const TOKEN_IM_START: u32 = 151644; // <|im_start|>
+pub const TOKEN_IM_END: u32 = 151645; // <|im_end|>
+pub const TOKEN_ENDOFTEXT: u32 = 151643; // <|endoftext|>
 pub const TOKEN_AUDIO_START: u32 = 151669; // <|audio_start|>
-pub const TOKEN_AUDIO_END:   u32 = 151670; // <|audio_end|>
-pub const TOKEN_AUDIO_PAD:   u32 = 151676; // <|AUDIO|> padding token
-pub const TOKEN_ASR_TEXT:    u32 = 151704; // <asr_text> — gates text accumulation
-pub const TOKEN_TIMESTAMP:   u32 = 151705; // <timestamp> — forced-aligner slot token
+pub const TOKEN_AUDIO_END: u32 = 151670; // <|audio_end|>
+pub const TOKEN_AUDIO_PAD: u32 = 151676; // <|AUDIO|> padding token
+pub const TOKEN_ASR_TEXT: u32 = 151704; // <asr_text> — gates text accumulation
+pub const TOKEN_TIMESTAMP: u32 = 151705; // <timestamp> — forced-aligner slot token
 
 // ── Prompt template sequences (from qwen_asr.c) ──────────────────────────────
 //
@@ -38,8 +38,22 @@ pub const TOKEN_TIMESTAMP:   u32 = 151705; // <timestamp> — forced-aligner slo
 //   [optional language tokens + TOKEN_ASR_TEXT]
 
 pub const PROMPT_PREFIX_HEAD: &[u32] = &[TOKEN_IM_START, 8948, 198];
-pub const PROMPT_PREFIX_TAIL: &[u32] = &[TOKEN_IM_END, 198, TOKEN_IM_START, 872, 198, TOKEN_AUDIO_START];
-pub const PROMPT_SUFFIX_BASE: &[u32] = &[TOKEN_AUDIO_END, TOKEN_IM_END, 198, TOKEN_IM_START, 77091, 198];
+pub const PROMPT_PREFIX_TAIL: &[u32] = &[
+    TOKEN_IM_END,
+    198,
+    TOKEN_IM_START,
+    872,
+    198,
+    TOKEN_AUDIO_START,
+];
+pub const PROMPT_SUFFIX_BASE: &[u32] = &[
+    TOKEN_AUDIO_END,
+    TOKEN_IM_END,
+    198,
+    TOKEN_IM_START,
+    77091,
+    198,
+];
 
 // ── Tokenizer ─────────────────────────────────────────────────────────────────
 
@@ -51,14 +65,20 @@ pub struct Tokenizer {
 impl Tokenizer {
     /// Load from `<model_dir>/vocab.json` + `merges.txt`.
     pub fn load(model_dir: &Path) -> Result<Self, TokenizerError> {
-        let vocab  = model_dir.join("vocab.json");
+        let vocab = model_dir.join("vocab.json");
         let merges = model_dir.join("merges.txt");
 
         if !vocab.exists() {
-            return Err(TokenizerError::Load(format!("vocab.json not found in {:?}", model_dir)));
+            return Err(TokenizerError::Load(format!(
+                "vocab.json not found in {:?}",
+                model_dir
+            )));
         }
         if !merges.exists() {
-            return Err(TokenizerError::Load(format!("merges.txt not found in {:?}", model_dir)));
+            return Err(TokenizerError::Load(format!(
+                "merges.txt not found in {:?}",
+                model_dir
+            )));
         }
 
         let bpe = BPE::from_file(vocab.to_str().unwrap(), merges.to_str().unwrap())
@@ -80,7 +100,10 @@ impl Tokenizer {
             (TOKEN_ASR_TEXT, "<asr_text>"),
         ]);
 
-        Ok(Tokenizer { inner, special_tokens })
+        Ok(Tokenizer {
+            inner,
+            special_tokens,
+        })
     }
 
     /// Decode token IDs to a UTF-8 string.
@@ -93,7 +116,8 @@ impl Tokenizer {
 
     /// Encode text to token IDs (used for prompt/language injection).
     pub fn encode(&self, text: &str) -> Result<Vec<u32>, TokenizerError> {
-        let encoding = self.inner
+        let encoding = self
+            .inner
             .encode(text, false)
             .map_err(|e| TokenizerError::Encode(e.to_string()))?;
         Ok(encoding.get_ids().to_vec())
@@ -122,7 +146,11 @@ mod tests {
     fn model_dir() -> PathBuf {
         if let Ok(p) = env::var("QWEN_ASR_MODEL_DIR") {
             let p = PathBuf::from(p);
-            return if p.is_file() { p.parent().unwrap().to_path_buf() } else { p };
+            return if p.is_file() {
+                p.parent().unwrap().to_path_buf()
+            } else {
+                p
+            };
         }
         if let Ok(root) = env::var("QWEN_ASR_ROOT") {
             return PathBuf::from(root).join("qwen3-asr-0.6b");
@@ -142,10 +170,13 @@ mod tests {
     #[ignore]
     fn decode_known_ids() {
         let tok = Tokenizer::load(&model_dir()).expect("load failed");
-        assert_eq!(tok.decode(&[323, 8679, 5086], true).unwrap(), " and fear itself");
-        assert_eq!(tok.decode(&[8948],  true).unwrap(), "system");
-        assert_eq!(tok.decode(&[198],   true).unwrap(), "\n");
-        assert_eq!(tok.decode(&[872],   true).unwrap(), "user");
+        assert_eq!(
+            tok.decode(&[323, 8679, 5086], true).unwrap(),
+            " and fear itself"
+        );
+        assert_eq!(tok.decode(&[8948], true).unwrap(), "system");
+        assert_eq!(tok.decode(&[198], true).unwrap(), "\n");
+        assert_eq!(tok.decode(&[872], true).unwrap(), "user");
         assert_eq!(tok.decode(&[77091], true).unwrap(), "assistant");
     }
 
@@ -165,7 +196,10 @@ mod tests {
         let tok = Tokenizer::load(&model_dir()).expect("load failed");
         assert_eq!(tok.decode_token(TOKEN_IM_START).unwrap(), "<|im_start|>");
         assert_eq!(tok.decode_token(TOKEN_IM_END).unwrap(), "<|im_end|>");
-        assert_eq!(tok.decode_token(TOKEN_AUDIO_START).unwrap(), "<|audio_start|>");
+        assert_eq!(
+            tok.decode_token(TOKEN_AUDIO_START).unwrap(),
+            "<|audio_start|>"
+        );
         assert_eq!(tok.decode_token(TOKEN_AUDIO_END).unwrap(), "<|audio_end|>");
         assert_eq!(tok.decode_token(TOKEN_AUDIO_PAD).unwrap(), "<|AUDIO|>");
         assert_eq!(tok.decode_token(TOKEN_ASR_TEXT).unwrap(), "<asr_text>");

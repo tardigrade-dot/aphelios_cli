@@ -77,11 +77,12 @@ impl ModelPreset {
     }
 
     fn decoder_config(&self) -> Qwen3Config {
-        let (vocab_size, hidden_size, intermediate_size, num_hidden_layers, tie_word_embeddings) = match self {
-            ModelPreset::Qwen3Asr0_6b => (151936, 1024, 3072, 28, true),
-            ModelPreset::Qwen3Asr1_7b => (151936, 2048, 6144, 28, true),
-            ModelPreset::Qwen3ForcedAligner0_6b => (152064, 1024, 3072, 28, false),
-        };
+        let (vocab_size, hidden_size, intermediate_size, num_hidden_layers, tie_word_embeddings) =
+            match self {
+                ModelPreset::Qwen3Asr0_6b => (151936, 1024, 3072, 28, true),
+                ModelPreset::Qwen3Asr1_7b => (151936, 2048, 6144, 28, true),
+                ModelPreset::Qwen3ForcedAligner0_6b => (152064, 1024, 3072, 28, false),
+            };
         Qwen3Config {
             vocab_size,
             hidden_size,

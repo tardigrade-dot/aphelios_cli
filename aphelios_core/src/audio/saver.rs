@@ -1,7 +1,7 @@
 //! 音频文件保存器
 
 use anyhow::Result;
-use hound::{WavSpec, WavWriter, SampleFormat};
+use hound::{SampleFormat, WavSpec, WavWriter};
 use std::path::Path;
 
 use super::types::{MonoBuffer, StereoBuffer};
@@ -26,7 +26,7 @@ impl AudioSaver {
     /// 保存单声道音频到 WAV 文件
     pub fn save_mono(&self, audio: &MonoBuffer, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
-        
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -52,7 +52,7 @@ impl AudioSaver {
     /// 保存立体声音频到 WAV 文件
     pub fn save_stereo(&self, audio: &StereoBuffer, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
-        
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -91,7 +91,7 @@ impl AudioSaver {
             prefix,
             base_path.file_name().unwrap().to_str().unwrap()
         ));
-        
+
         self.save_stereo(audio, &path)?;
         Ok(path.to_string_lossy().into_owned())
     }
@@ -113,10 +113,10 @@ mod tests {
         let saver = AudioSaver::new();
         let audio = MonoBuffer::new(vec![0.5, 0.0, -0.5], 16000);
         let temp_path = "/tmp/test_save_mono.wav";
-        
+
         let result = saver.save_mono(&audio, temp_path);
         assert!(result.is_ok());
-        
+
         // Cleanup
         let _ = fs::remove_file(temp_path);
     }
@@ -124,16 +124,12 @@ mod tests {
     #[test]
     fn test_save_stereo() {
         let saver = AudioSaver::new();
-        let audio = StereoBuffer::new(
-            vec![0.5, 0.0, -0.5],
-            vec![0.3, 0.0, -0.3],
-            16000,
-        );
+        let audio = StereoBuffer::new(vec![0.5, 0.0, -0.5], vec![0.3, 0.0, -0.3], 16000);
         let temp_path = "/tmp/test_save_stereo.wav";
-        
+
         let result = saver.save_stereo(&audio, temp_path);
         assert!(result.is_ok());
-        
+
         // Cleanup
         let _ = fs::remove_file(temp_path);
     }

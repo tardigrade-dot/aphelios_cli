@@ -1,11 +1,11 @@
 use anyhow::{Ok, Result};
 use async_openai::{
-    Client,
     config::OpenAIConfig,
     types::chat::{
         ChatCompletionRequestMessage, ChatCompletionRequestUserMessage,
         CreateChatCompletionRequestArgs,
     },
+    Client,
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
@@ -110,14 +110,13 @@ where
                 format!("{}{}", MSG_PREFIX, input.as_ref().to_string())
             );
 
-            let messages: Vec<ChatCompletionRequestMessage> = vec![
-                ChatCompletionRequestUserMessage::from(format!(
+            let messages: Vec<ChatCompletionRequestMessage> =
+                vec![ChatCompletionRequestUserMessage::from(format!(
                     "{}{}",
                     MSG_PREFIX,
                     input.as_ref().to_string()
                 ))
-                .into(),
-            ];
+                .into()];
             let request = CreateChatCompletionRequestArgs::default()
                 .max_tokens(4096u32)
                 .model(model_id)
