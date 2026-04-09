@@ -39,8 +39,20 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev # Slint 编译常用依赖
 
-      - name: Install UPX via Brew
+      - name: Install UPX (macOS)
+        if: matrix.os == 'macos-latest'
         run: brew install upx
+
+      - name: Install UPX (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl
+
+      - name: Install UPX (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install upx
 
       - name: Use UPX
         run: upx --version
@@ -49,13 +61,18 @@ jobs:
         # macOS/Linux 使用 sh, Windows 使用 bash (GitHub Actions 自带)
         run: bash ./build_release.sh "${{ matrix.features }}"
 
-      - name: Package Assets (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Package Assets (macOS)
+        if: matrix.os == 'macos-latest'
         run: |
           # 打包 CLI 工具
           tar -czf aphelios-tool-${{ matrix.suffix }}.tar.gz -C release_bin aphelios_tool
           # 打包 .app bundle (压缩为 zip 以保持 .app 结构)
           cd release_bin && zip -rq ../aphelios-${{ matrix.suffix }}.zip Aphelios.app
+
+      - name: Package Assets (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          tar -czf aphelios-tool-${{ matrix.suffix }}.tar.gz -C release_bin aphelios_tool
 
       - name: Package Assets (Windows)
         if: matrix.os == 'windows-latest'
