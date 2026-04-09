@@ -21,3 +21,4 @@ trace*.json
 .claude
 .qwen
 /roadmap.txt
+__pycache__

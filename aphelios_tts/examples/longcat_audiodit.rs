@@ -1,17 +1,9 @@
 use anyhow::{Context, Result};
 use aphelios_tts::longcat_audiodit::{
-    run_python_reference, GuidanceMethod, LongCatAudioDiT, LongCatInferenceConfig,
-    LongCatPythonReference, LongCatSynthesisRequest,
+    GuidanceMethod, LongCatAudioDiT, LongCatInferenceConfig, LongCatSynthesisRequest,
 };
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use std::path::PathBuf;
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum Backend {
-    Auto,
-    Candle,
-    Python,
-}
 
 ///! long text candle 24s/114s 音频/执行
 ///! long text python 24s/41s 音频/执行
@@ -32,19 +24,19 @@ struct Args {
     #[arg(
         long = "prompt_text",
         alias = "prompt-text",
-        default_value = "写这本书的目的在于通过我的走访和观察"
+        default_value = "贝克莱的努力并未产生有形的结果"
     )]
     prompt_text: Option<String>,
     #[arg(
         long = "prompt_audio",
         alias = "prompt-audio",
-        default_value = "/Users/larry/Documents/resources/qinsheng-4s.wav"
+        default_value = "/Volumes/sw/video/youyi-5s.wav"
     )]
     prompt_audio: Option<PathBuf>,
     #[arg(
         long = "output_audio",
         alias = "output-audio",
-        default_value = "/Users/larry/coderesp/aphelios_cli/output/longcat-output-rust-qs.wav"
+        default_value = "/Users/larry/coderesp/aphelios_cli/output/longcat-output-rust-youyi.wav"
     )]
     output_audio: PathBuf,
     #[arg(
@@ -79,8 +71,6 @@ struct Args {
         default_value = "/Volumes/sw/pretrained_models/umt5-base/tokenizer.json"
     )]
     tokenizer_path: Option<PathBuf>,
-    #[arg(long, value_enum, default_value_t = Backend::Candle)]
-    backend: Backend,
     #[arg(
         long = "python_bin",
         alias = "python-bin",
@@ -120,102 +110,38 @@ fn main() -> Result<()> {
         seed: args.seed,
     };
 
-    match args.backend {
-        Backend::Candle => {
-            let waveform = model.synthesize(&request)?;
-            // Write WAV file using hound
-            let spec = hound::WavSpec {
-                channels: 1,
-                sample_rate: 24000,
-                bits_per_sample: 32,
-                sample_format: hound::SampleFormat::Float,
-            };
-            let mut writer =
-                hound::WavWriter::create(&args.output_audio, spec).with_context(|| {
-                    format!(
-                        "failed to create output WAV file: {}",
-                        args.output_audio.display()
-                    )
-                })?;
-            for sample in &waveform {
-                writer.write_sample(*sample).with_context(|| {
-                    format!("failed to write sample to {}", args.output_audio.display())
-                })?;
-            }
-            writer.finalize().with_context(|| {
-                format!(
-                    "failed to finalize WAV file: {}",
-                    args.output_audio.display()
-                )
-            })?;
-            let duration_sec = waveform.len() as f64 / 24000.0;
-            println!(
-                "Saved: {} ({:.2}s, {} samples)",
-                args.output_audio.display(),
-                duration_sec,
-                waveform.len()
-            );
-            println!("Time: {:.2}s", start.elapsed().as_secs_f64());
-            Ok(())
-        }
-        Backend::Python => run_python_reference(
-            &LongCatPythonReference::new(args.python_bin, args.python_script, args.model_dir),
-            &request,
-            &args.output_audio,
-        ),
-        Backend::Auto => match model.synthesize(&request) {
-            Ok(waveform) => {
-                let spec = hound::WavSpec {
-                    channels: 1,
-                    sample_rate: 24000,
-                    bits_per_sample: 32,
-                    sample_format: hound::SampleFormat::Float,
-                };
-                let mut writer =
-                    hound::WavWriter::create(&args.output_audio, spec).with_context(|| {
-                        format!(
-                            "failed to create output WAV file: {}",
-                            args.output_audio.display()
-                        )
-                    })?;
-                for sample in &waveform {
-                    writer.write_sample(*sample).with_context(|| {
-                        format!("failed to write sample to {}", args.output_audio.display())
-                    })?;
-                }
-                writer.finalize().with_context(|| {
-                    format!(
-                        "failed to finalize WAV file: {}",
-                        args.output_audio.display()
-                    )
-                })?;
-                let duration_sec = waveform.len() as f64 / 24000.0;
-                println!(
-                    "Candle backend saved: {} ({:.2}s, {} samples)",
-                    args.output_audio.display(),
-                    duration_sec,
-                    waveform.len()
-                );
-                Ok(())
-            }
-            Err(err) => {
-                eprintln!("Candle path unavailable, falling back to python reference: {err}");
-                run_python_reference(
-                    &LongCatPythonReference::new(
-                        args.python_bin,
-                        args.python_script,
-                        &model.paths.model_dir,
-                    ),
-                    &request,
-                    &args.output_audio,
-                )
-                .with_context(|| {
-                    format!(
-                        "auto backend failed after candle fallback for {}",
-                        args.output_audio.display()
-                    )
-                })
-            }
-        },
+    let waveform = model.synthesize(&request)?;
+    // Write WAV file using hound
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 24000,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(&args.output_audio, spec).with_context(|| {
+        format!(
+            "failed to create output WAV file: {}",
+            args.output_audio.display()
+        )
+    })?;
+    for sample in &waveform {
+        writer.write_sample(*sample).with_context(|| {
+            format!("failed to write sample to {}", args.output_audio.display())
+        })?;
     }
+    writer.finalize().with_context(|| {
+        format!(
+            "failed to finalize WAV file: {}",
+            args.output_audio.display()
+        )
+    })?;
+    let duration_sec = waveform.len() as f64 / 24000.0;
+    println!(
+        "Saved: {} ({:.2}s, {} samples)",
+        args.output_audio.display(),
+        duration_sec,
+        waveform.len()
+    );
+    println!("Time: {:.2}s", start.elapsed().as_secs_f64());
+    Ok(())
 }

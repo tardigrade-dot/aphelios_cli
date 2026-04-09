@@ -2,9 +2,8 @@ use crate::longcat_audiodit::{
     config::AudioDiTConfig,
     device::{default_dtype, select_device},
     loader::{ModelPaths, WeightIndex, WeightSummary},
-    python::LongCatPythonAudioLoader,
-    scheduler::DiffusionScheduler,
     rng::LongCatRng,
+    scheduler::DiffusionScheduler,
     text_encoder::{ensure_tokenizer_path, EncodedTextBatch, LongCatTextEncoder},
     transformer::{AudioDiTTransformer, TransformerForwardInput},
     vae::AudioVae,
@@ -446,7 +445,9 @@ impl LongCatAudioDiT {
                 text_len: &neg_text_len,
                 time: &t_zero,
                 mask: Some(&latent_mask),
-                cond_mask: Some(&crate::longcat_audiodit::transformer::lens_to_mask(&neg_text_len)?),
+                cond_mask: Some(&crate::longcat_audiodit::transformer::lens_to_mask(
+                    &neg_text_len,
+                )?),
                 latent_cond: Some(&empty_latent_cond),
             })?
             .last_hidden_state;
@@ -550,33 +551,43 @@ impl LongCatAudioDiT {
                 0,
                 Tensor::zeros((1, 1, 0), DType::F32, &self.device)?,
                 Tensor::zeros((1, self.config.latent_dim, 0), DType::F32, &self.device)?,
-                prompt_latent.to_device(&self.device)?.to_dtype(self.dtype)?,
+                prompt_latent
+                    .to_device(&self.device)?
+                    .to_dtype(self.dtype)?,
             ));
         }
 
         if let Some(audio_path) = &request.prompt_audio {
-            let loader = LongCatPythonAudioLoader::default_for_local_repo();
-            let mut mono_samples = loader
-                .load_audio_f32(audio_path, self.config.sampling_rate)
-                .with_context(|| {
-                    format!(
-                        "failed to load LongCat prompt audio with Python-equivalent preprocessing: {}",
-                        audio_path.display()
-                    )
-                })?;
+            let audio = AudioLoader::new().load(audio_path).with_context(|| {
+                format!(
+                    "failed to load LongCat prompt audio: {}",
+                    audio_path.display()
+                )
+            })?;
+            let mono = audio.into_mono();
+
+            let target_sr = self.config.sampling_rate;
+            let mut samples = if mono.sample_rate == target_sr {
+                mono.samples
+            } else {
+                let ratio = mono.sample_rate as f64 / target_sr as f64;
+                (0..((mono.samples.len() as f64 / ratio) as usize))
+                    .map(|i| mono.samples[(i as f64 * ratio) as usize])
+                    .collect()
+            };
 
             let hop = self.config.latent_hop;
             let off = 3;
-            if mono_samples.len() % hop != 0 {
-                let pad_len = hop - (mono_samples.len() % hop);
-                mono_samples.extend(std::iter::repeat_n(0.0, pad_len));
+            samples.extend(std::iter::repeat_n(0.0, hop * off));
+
+            let samples_len = samples.len();
+            if samples_len % hop != 0 {
+                let pad_len = hop - (samples_len % hop);
+                samples.extend(std::iter::repeat_n(0.0, pad_len));
             }
-            mono_samples.extend(std::iter::repeat_n(0.0, hop * off));
 
-            let samples_len = mono_samples.len();
-            let audio_tensor =
-                Tensor::from_vec(mono_samples, (1, 1, samples_len), &self.device)?;
-
+            let len = samples.len();
+            let audio_tensor = Tensor::from_vec(samples, (1, 1, len), &self.device)?;
             let mut vae_rng = root_rng.fork(0x5641_455f_4e4f_4953);
             let latent_2d = self.vae.encode(&audio_tensor, &mut vae_rng)?;
             let latent_2d_frames = latent_2d.dim(D::Minus1)?;

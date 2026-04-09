@@ -2,8 +2,8 @@ pub mod config;
 pub mod device;
 pub mod loader;
 pub mod model;
-pub mod python;
 pub mod rng;
+pub mod rope;
 pub mod scheduler;
 pub mod text_encoder;
 pub mod transformer;
@@ -18,4 +18,3 @@ pub use model::{
     GuidanceMethod, InferencePlan, LongCatAudioDiT, LongCatDebugOutputs, LongCatDebugOverrides,
     LongCatInferenceConfig, LongCatPromptDebugOutputs, LongCatSynthesisRequest,
 };
-pub use python::{run_python_reference, LongCatPythonAudioLoader, LongCatPythonReference};
