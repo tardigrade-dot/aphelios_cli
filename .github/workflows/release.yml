@@ -37,7 +37,7 @@ jobs:
       # 安装依赖 (针对 Linux/Windows 的 CUDA 构建可能需要额外的库)
       - name: Install Dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev # Slint 编译常用依赖
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
 
       - name: Install UPX (macOS)
         if: matrix.os == 'macos-latest'
