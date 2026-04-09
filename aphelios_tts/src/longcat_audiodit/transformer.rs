@@ -534,7 +534,9 @@ impl AudioDiTFeedForward {
     }
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        Ok(x.apply(&self.fc1)?.gelu()?.apply(&self.fc2)?)
+        let x = x.apply(&self.fc1)?;
+        let x = candle_nn::Activation::NewGelu.forward(&x)?;
+        Ok(x.apply(&self.fc2)?)
     }
 }
 

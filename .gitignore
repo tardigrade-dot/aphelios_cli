@@ -22,3 +22,4 @@ trace*.json
 .qwen
 /roadmap.txt
 __pycache__
+/debug_outputs_python

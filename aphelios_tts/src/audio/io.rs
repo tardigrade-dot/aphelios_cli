@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn test_save_and_load_wav() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("test.wav");
+        let path = dir.path().join("test_data/test.wav");
 
         let original = AudioBuffer::new(vec![0.1, 0.2, -0.3, 0.4, -0.5], 24000);
         original.save(&path).unwrap();

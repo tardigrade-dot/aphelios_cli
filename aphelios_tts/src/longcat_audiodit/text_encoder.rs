@@ -240,14 +240,15 @@ fn to_t5_config(config: &AudioDiTConfig) -> T5Config {
             activation: candle_nn::Activation::NewGelu,
         },
         tie_word_embeddings: config.text_encoder_config.tie_word_embeddings,
-        reuse_position_bias: config.text_encoder_config.model_type != "umt5",
-        relative_attention_bias_each_block: config.text_encoder_config.model_type == "umt5",
+        // reuse_position_bias: config.text_encoder_config.model_type != "umt5",
+        // relative_attention_bias_each_block: config.text_encoder_config.model_type == "umt5",
         is_decoder: false,
         is_encoder_decoder: config.text_encoder_config.is_encoder_decoder,
         use_cache: config.text_encoder_config.use_cache,
         pad_token_id: config.text_encoder_config.pad_token_id,
         eos_token_id: config.text_encoder_config.eos_token_id,
         decoder_start_token_id: Some(config.text_encoder_config.pad_token_id),
+        scalable_attention: config.text_encoder_config.scalable_attention,
     }
 }
 

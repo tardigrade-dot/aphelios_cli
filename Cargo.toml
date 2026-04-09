@@ -125,10 +125,15 @@ license = "MIT"
 # 强制统一 tokenizers 版本
 tokenizers = { git = "https://github.com/huggingface/tokenizers", tag = "v0.21.4" }
 
-candle-core = { path = "../../github.com/candle/candle-core" }
-candle-nn = { path = "../../github.com/candle/candle-nn" }
-candle-transformers = { path = "../../github.com/candle/candle-transformers" }
-candle-metal-kernels = { path = "../../github.com/candle/candle-metal-kernels" }
+# candle-core = { path = "../../github.com/candle/candle-core" }
+# candle-nn = { path = "../../github.com/candle/candle-nn" }
+# candle-transformers = { path = "../../github.com/candle/candle-transformers" }
+# candle-metal-kernels = { path = "../../github.com/candle/candle-metal-kernels" }
+
+candle-core = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-nn = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-transformers = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
+candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 
 #candle-examples = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
 #candle-onnx = { git = "https://github.com/tardigrade-dot/candle.git", version = "0.9.2", rev = "468fe66" }
