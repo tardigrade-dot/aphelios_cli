@@ -38,7 +38,19 @@ jobs:
       # 安装依赖 (针对 Linux/Windows 的 CUDA 构建可能需要额外的库)
       - name: Install Dependencies (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
+          # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
+          sudo apt-get install -y gcc-13 g++-13
+
+      - name: Run Build Script (Linux with GCC 13)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          # Use GCC 13 to support avx512fp16 while keeping GLIBC 2.35 compatibility
+          export CC=gcc-13
+          export CXX=g++-13
+          bash ./build_release.sh "${{ matrix.features }}"
 
       - name: Install UPX (macOS)
         if: matrix.os == 'macos-latest'
@@ -59,6 +71,7 @@ jobs:
         run: upx --version
 
       - name: Run Build Script
+        if: "!startsWith(matrix.os, 'ubuntu')"
         # macOS/Linux 使用 sh, Windows 使用 bash (GitHub Actions 自带)
         run: bash ./build_release.sh "${{ matrix.features }}"
 
