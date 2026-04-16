@@ -8,7 +8,6 @@ members = [
     "aphelios_search",
     "aphelios_tts",
     "aphelios_asr",
-    "aphelios_mlx",
     # "aphelios_models",
     #"aphelios_wasm", 
     # "aphelios_device",
