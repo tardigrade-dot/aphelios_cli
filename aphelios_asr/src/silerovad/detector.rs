@@ -1,288 +1,254 @@
-//! Silero VAD 检测器实现
+//! Full VAD detection pipeline: audio loading → resampling → inference → segments.
 
 use anyhow::Result;
 use aphelios_core::{
     audio::{MonoBuffer, ResampleQuality},
-    AudioLoader, Resampler, ScopedTimer,
+    AudioLoader, Resampler,
 };
-use ndarray::Array;
-use ndarray::{Array2, Array3};
-use ort::{
-    ep::CoreML,
-    inputs,
-    session::{builder::GraphOptimizationLevel, Session},
-    value::Value,
-};
-use tracing::{debug, info};
+use tracing::info;
 
-use super::types::VadResult;
-use crate::base::VadSegment;
+use crate::{AudioBatch, VadSegment};
 
-/// VAD 配置
-#[derive(Debug, Clone)]
-pub struct VadConfig {
-    /// 模型路径
-    pub model_path: String,
-    /// 采样率（Silero VAD 需要 16000Hz）
-    pub sample_rate: u32,
-    /// 分块大小（采样点数）
-    pub chunk_size: usize,
-    /// 语音检测阈值
-    pub threshold: f32,
-    /// 最小片段时长（秒）
-    pub min_segment_duration: f64,
-    /// 合并相邻片段的最大间隔（秒）
-    pub merge_gap: f64,
-}
+use super::engine::{SileroVadEngine, VadConfig};
 
-impl Default for VadConfig {
-    fn default() -> Self {
-        Self {
-            model_path: "/Volumes/sw/onnx_models/silero-vad/onnx/model.onnx".to_string(),
-            sample_rate: 16000,
-            chunk_size: 512, // 32ms @ 16kHz
-            threshold: 0.5,
-            min_segment_duration: 0.1,
-            merge_gap: 0.3,
-        }
-    }
-}
-
-/// VAD 检测器
+/// VAD detector with full audio file processing pipeline.
 pub struct VadDetector {
-    config: VadConfig,
-    session: Session,
+    engine: SileroVadEngine,
+    sample_rate: usize,
 }
 
 impl VadDetector {
-    /// 创建新的 VAD 检测器
-    pub fn new(config: VadConfig) -> Result<Self> {
-        let _timer = ScopedTimer::new("VadDetector::new");
+    /// Create a new VAD detector.
+    pub fn new(model_path: &str, config: VadConfig) -> Result<Self> {
+        // Silero VAD works best at 16kHz
+        let sample_rate = 16000usize;
 
-        info!("Loading VAD model from: {}", config.model_path);
-
-        let coreml_options = CoreML::default().with_subgraphs(true);
-        let session = Session::builder()?
-            .with_execution_providers([coreml_options.build()])?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(1)?
-            .commit_from_file(&config.model_path)?;
-
+        info!("Loading VAD model from: {}", model_path);
+        let engine = SileroVadEngine::new(model_path, sample_rate, 1, config)?;
         info!("VAD model loaded successfully");
 
-        Ok(Self { config, session })
+        Ok(Self {
+            engine,
+            sample_rate,
+        })
     }
 
-    /// 从文件检测语音活动
-    pub fn detect_from_file(&mut self, audio_path: &str) -> Result<VadResult> {
-        let _timer = ScopedTimer::new("VadDetector::detect_from_file");
+    /// Create a new VAD detector with default config.
+    pub fn new_default(model_path: &str) -> Result<Self> {
+        Self::new(model_path, VadConfig::default())
+    }
 
-        // 加载音频
+    /// Detect speech activity from an audio file.
+    /// Returns segments in seconds. Audio is loaded at 16kHz mono.
+    pub fn detect_from_file(&mut self, audio_path: &str) -> Result<Vec<VadSegment>> {
+        // AudioLoader now always returns 16kHz mono AudioBuffer
         let audio = AudioLoader::new().load(audio_path)?;
-        let mono = audio.to_stereo().to_mono();
+        let mono = audio.into_mono();
 
-        self.detect(mono)
+        let samples_segments = self.engine.collect_segments(mono.samples.as_slice())?;
+        // Convert sample indices to milliseconds
+        Ok(samples_segments
+            .into_iter()
+            .map(|s| VadSegment {
+                start: (s.start as i64 * 1000) / self.sample_rate as i64,
+                end: (s.end as i64 * 1000) / self.sample_rate as i64,
+                avg_prob: 0.0, // Not tracked in this mode
+            })
+            .collect())
     }
 
-    /// 检测语音活动
-    pub fn detect(&mut self, audio: MonoBuffer) -> Result<VadResult> {
-        let _timer = ScopedTimer::new("VadDetector::detect");
+    /// Detect speech activity from raw PCM samples.
+    /// Returns segments in seconds.
+    pub fn detect(&mut self, samples: &[f32]) -> Result<Vec<VadSegment>> {
+        let samples_segments = self.engine.collect_segments(samples)?;
+        Ok(samples_segments
+            .into_iter()
+            .map(|s| VadSegment {
+                start: (s.start as i64 * 1000) / self.sample_rate as i64,
+                end: (s.end as i64 * 1000) / self.sample_rate as i64,
+                avg_prob: 0.0,
+            })
+            .collect())
+    }
 
-        info!(
-            "Starting VAD detection: {} samples @ {}Hz ({:.2}s)",
-            audio.samples.len(),
-            audio.sample_rate,
-            audio.duration_secs()
-        );
-
-        // 重采样到目标采样率
-        let audio = if audio.sample_rate != self.config.sample_rate {
+    /// Detect from raw MonoBuffer.
+    pub fn detect_mono(&mut self, audio: MonoBuffer) -> Result<Vec<VadSegment>> {
+        let audio = if audio.sample_rate != self.sample_rate as u32 {
             let resampler = Resampler::new().with_quality(ResampleQuality::Fast);
-            resampler.resample_mono(&audio, self.config.sample_rate)?
+            resampler.resample_mono(&audio, self.sample_rate as u32)?
         } else {
             audio
         };
-
-        // 分块处理
-        let probabilities = self.process_audio(&audio.samples)?;
-
-        // 检测片段边界
-        let mut segments = self.detect_segments(&probabilities);
-
-        info!("Detected {} speech segments", segments.len());
-
-        // 合并相邻片段
-        if self.config.merge_gap > 0.0 {
-            let mut result = VadResult::new(audio.duration_secs(), segments);
-            result.merge_adjacent(self.config.merge_gap);
-            segments = result.segments;
-        }
-
-        let result = VadResult::new(audio.duration_secs(), segments);
-
-        info!(
-            "VAD completed: {:.2}s total audio, {:.2}s speech ({:.1}%)",
-            result.audio_duration,
-            result.total_speech_duration,
-            result.speech_ratio * 100.0
-        );
-
-        Ok(result)
+        self.detect(&audio.samples)
     }
 
-    /// 处理音频并返回每帧的语音概率
-    fn process_audio(&mut self, samples: &[f32]) -> Result<Vec<f32>> {
-        let chunk_size = self.config.chunk_size;
-        let sample_rate = self.config.sample_rate as i64;
+    pub fn config(&self) -> VadConfig {
+        self.engine.config()
+    }
+}
 
-        // 1. 预创建静态输入：采样率 Tensor 只需要创建一次
-        let sr_tensor = Array::from_elem((1,), sample_rate);
-        let sr_value = Value::from_array(sr_tensor)?;
+/// VAD processor for the qwenasr pipeline: supports segment aggregation into batches.
+pub struct VadProcessor {
+    engine: SileroVadEngine,
+    sample_rate: usize,
+}
 
-        // 2. 初始化状态：直接使用 ndarray 维持
-        let mut state = Array3::<f32>::zeros((2, 1, 128));
-
-        // 3. 预分配结果空间
-        let num_chunks = (samples.len() + chunk_size - 1) / chunk_size;
-        let mut probabilities = Vec::with_capacity(num_chunks);
-
-        // 4. 用于处理最后一个不足 chunk 的缓冲区
-        let mut padding_buffer = vec![0.0f32; chunk_size];
-
-        debug!("Processing {} audio chunks", num_chunks);
-
-        for (i, chunk) in samples.chunks(chunk_size).enumerate() {
-            // 处理输入数据：如果是最后一帧且长度不足，复制到 padding_buffer
-            let input_tensor = if chunk.len() == chunk_size {
-                // 直接从 slice 创建 View，避免 to_vec() 拷贝
-                Array2::from_shape_vec((1, chunk_size), chunk.to_vec())?
-                // 注意：ort 1.x 某些版本可能需要具体所有权的 Array，
-                // 如果支持 View，推荐使用 ArrayView2::from_shape((1, chunk_size), chunk)?
-            } else {
-                padding_buffer[..chunk.len()].copy_from_slice(chunk);
-                padding_buffer[chunk.len()..].fill(0.0);
-                Array2::from_shape_vec((1, chunk_size), padding_buffer.clone())?
-            };
-
-            // 5. 运行推理：注意 state 不需要 clone，传入引用即可
-            let input_value = Value::from_array(input_tensor)?;
-            let state_value = Value::from_array(state.clone())?;
-            let outputs = self.session.run(inputs![
-                "input" => input_value,
-                "sr" => &sr_value,
-                "state" => state_value,
-            ])?;
-
-            // 6. 提取概率
-            let (output_shape, output_data) = outputs["output"].try_extract_tensor::<f32>()?;
-            probabilities.push(output_data[0]);
-
-            // 7. 高效更新状态：直接将输出的 Tensor 转换为 ndarray 并赋值给 state
-            let (state_shape, state_data) = outputs["stateN"].try_extract_tensor::<f32>()?;
-            // 从 slice 数据重建 Array3
-            let shape = state_shape.to_vec();
-            state = Array3::from_shape_vec(
-                (shape[0] as usize, shape[1] as usize, shape[2] as usize),
-                state_data.to_vec(),
-            )?;
-
-            if (i + 1) % 200 == 0 {
-                debug!(
-                    "VAD progress: {}/{} chunks ({:.1}%)",
-                    i + 1,
-                    num_chunks,
-                    (i + 1) as f32 / num_chunks as f32 * 100.0
-                );
-            }
-        }
-
-        Ok(probabilities)
+impl VadProcessor {
+    pub fn new_default(model_dir: &str) -> Result<Self> {
+        let model_path = format!("{}/vad-model.onnx", model_dir);
+        let config = VadConfig::for_pipeline();
+        Self::new(&model_path, config)
     }
 
-    /// 从概率序列中检测语音片段
-    fn detect_segments(&self, probabilities: &[f32]) -> Vec<VadSegment> {
-        let seconds_per_frame = self.config.chunk_size as f64 / self.config.sample_rate as f64;
-        let threshold = self.config.threshold;
-        let min_speech_duration = self.config.min_segment_duration; // 最小语音长度
-
-        // 新增配置：最小静音长度（建议 0.3s - 1.0s），只有静音超过这个时间才切断
-        let min_silence_duration = 0.5;
-        // 新增配置：首尾缓冲时间（建议 0.1s），防止切掉辅音
-        let speech_pad_ms = 0.1;
-
-        let mut segments = Vec::new();
-        let mut in_speech = false;
-        let mut start_frame = 0;
-        let mut silence_frames = 0;
-        let max_silence_frames = (min_silence_duration / seconds_per_frame) as usize;
-
-        for (i, &prob) in probabilities.iter().enumerate() {
-            if prob >= threshold {
-                if !in_speech {
-                    in_speech = true;
-                    start_frame = i;
-                }
-                silence_frames = 0; // 重置静音计数
-            } else {
-                if in_speech {
-                    silence_frames += 1;
-                    // 只有当静音持续帧数超过阈值，才认为这段说话结束了
-                    if silence_frames >= max_silence_frames {
-                        in_speech = false;
-
-                        // 计算时间戳，减去多算的静音帧
-                        let end_frame = i - silence_frames + 1;
-                        self.push_segment(
-                            &mut segments,
-                            start_frame,
-                            end_frame,
-                            seconds_per_frame,
-                            speech_pad_ms,
-                            min_speech_duration,
-                            probabilities,
-                        );
-                    }
-                }
-            }
-        }
-
-        // 处理最后残留的片段
-        if in_speech {
-            self.push_segment(
-                &mut segments,
-                start_frame,
-                probabilities.len(),
-                seconds_per_frame,
-                speech_pad_ms,
-                min_speech_duration,
-                probabilities,
-            );
-        }
-
-        segments
+    pub fn new(model_path: &str, config: VadConfig) -> Result<Self> {
+        let sample_rate = 16000usize;
+        info!("Loading VAD model from: {}", model_path);
+        let engine = SileroVadEngine::new(model_path, sample_rate, 1, config)?;
+        info!("VAD model loaded successfully");
+        Ok(Self {
+            engine,
+            sample_rate,
+        })
     }
 
-    // 辅助函数：处理 Padding 和 长度校验
-    fn push_segment(
+    /// Process audio file and return VAD segments (in milliseconds).
+    /// Audio is loaded at 16kHz mono - no additional resampling needed.
+    pub fn process_from_file(&mut self, audio_path: &str) -> Result<Vec<VadSegment>> {
+        // AudioLoader always returns 16kHz mono, no resampling needed
+        let audio = AudioLoader::new().load(audio_path)?;
+        let mono = audio.into_mono();
+
+        let segments = self.engine.collect_segments(&mono.samples)?;
+        // Convert sample indices to milliseconds
+        let ms_segments: Vec<VadSegment> = segments
+            .into_iter()
+            .map(|s| VadSegment {
+                start: (s.start as i64 * 1000) / self.sample_rate as i64,
+                end: (s.end as i64 * 1000) / self.sample_rate as i64,
+                avg_prob: 0.0,
+            })
+            .collect();
+
+        Ok(ms_segments)
+    }
+
+    /// Process raw samples and return VAD segments (in milliseconds).
+    pub fn process(&mut self, samples: &[f32]) -> Result<Vec<VadSegment>> {
+        let segments = self.engine.collect_segments(samples)?;
+        let ms_segments: Vec<VadSegment> = segments
+            .into_iter()
+            .map(|s| VadSegment {
+                start: (s.start as i64 * 1000) / self.sample_rate as i64,
+                end: (s.end as i64 * 1000) / self.sample_rate as i64,
+                avg_prob: 0.0,
+            })
+            .collect();
+        Ok(ms_segments)
+    }
+
+    /// Aggregate VAD segments into batches of approximately `target_duration` seconds.
+    /// Segments are expected to be in milliseconds.
+    pub fn aggregate_segments(
         &self,
-        segments: &mut Vec<VadSegment>,
-        start_f: usize,
-        end_f: usize,
-        spf: f64,
-        pad: f64,
-        min_dur: f64,
-        probs: &[f32],
-    ) {
-        // 加上 Padding 并且防止越界
-        let start = (start_f as f64 * spf - pad).max(0.0);
-        let end = (end_f as f64 * spf + pad).min(probs.len() as f64 * spf);
-        let duration = end - start;
-
-        if duration >= min_dur {
-            let avg_prob = probs[start_f..end_f].iter().sum::<f32>() / (end_f - start_f) as f32;
-            segments.push(VadSegment::new(start, end, avg_prob));
+        segments: &[VadSegment],
+        target_duration: f64,
+        max_silence_merge: f64,
+    ) -> Vec<AudioBatch> {
+        if segments.is_empty() {
+            return Vec::new();
         }
+
+        // Convert to milliseconds for internal calculation
+        let target_duration_ms = (target_duration * 1000.0) as i64;
+        let max_silence_merge_ms = (max_silence_merge * 1000.0) as i64;
+
+        let mut batches = Vec::new();
+        let mut current_batch_start = segments[0].start;
+        let mut last_segment_end = segments[0].end;
+        let mut count = 0;
+
+        for i in 1..segments.len() {
+            let seg = &segments[i];
+            let gap = seg.start - last_segment_end;
+            let potential_duration = seg.end - current_batch_start;
+
+            if potential_duration <= target_duration_ms || gap < max_silence_merge_ms {
+                last_segment_end = seg.end;
+                count += 1;
+            } else {
+                batches.push(AudioBatch {
+                    start: current_batch_start as f64 / 1000.0,
+                    end: last_segment_end as f64 / 1000.0,
+                    duration: (last_segment_end - current_batch_start) as f64 / 1000.0,
+                    segments_count: count + 1,
+                });
+
+                current_batch_start = segments[i].start;
+                last_segment_end = segments[i].end;
+                count = 0;
+            }
+        }
+
+        // Last batch
+        batches.push(AudioBatch {
+            start: current_batch_start as f64 / 1000.0,
+            end: last_segment_end as f64 / 1000.0,
+            duration: (last_segment_end - current_batch_start) as f64 / 1000.0,
+            segments_count: count + 1,
+        });
+
+        batches
     }
+
+    pub fn config(&self) -> VadConfig {
+        self.engine.config()
+    }
+}
+
+/// Run VAD detection with path (for testing).
+pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
+    use aphelios_core::utils::init_logging;
+
+    info!("=== VAD Test: {} ===", label);
+    info!("Audio file: {}", audio_path);
+
+    let mut detector = VadDetector::new_default(audio_path)?;
+    let segments = detector.detect_from_file(audio_path)?;
+
+    // Compute audio duration (AudioLoader always returns 16kHz mono)
+    let audio = AudioLoader::new().load(audio_path)?;
+    let mono = audio.into_mono();
+    let duration = mono.samples.len() as f64 / 16000.0;
+
+    let total_speech: f64 = segments.iter().map(|s| (s.end - s.start) as f64 / 1000.0).sum();
+    let speech_ratio = if duration > 0.0 {
+        total_speech / duration
+    } else {
+        0.0
+    };
+
+    info!("Audio duration: {:.2}s", duration);
+    info!(
+        "Speech duration: {:.2}s ({:.1}%)",
+        total_speech,
+        speech_ratio * 100.0
+    );
+    info!("Segments detected: {}", segments.len());
+
+    for (i, segment) in segments.iter().enumerate() {
+        info!(
+            "  Segment {}: {:.2}s - {:.2}s",
+            i + 1,
+            segment.start,
+            segment.end
+        );
+    }
+
+    assert!(
+        !segments.is_empty(),
+        "Should detect at least one speech segment"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -290,10 +256,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vad_config_default() {
+    fn test_vad_detector_default() {
+        // Just verify the struct can be created (model path doesn't need to exist for compile check)
         let config = VadConfig::default();
-        assert_eq!(config.sample_rate, 16000);
-        assert_eq!(config.chunk_size, 512);
         assert_eq!(config.threshold, 0.5);
     }
 }

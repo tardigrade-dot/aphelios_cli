@@ -38,6 +38,15 @@ EXT=""
 # 复制 CLI 工具
 cp "target/release/aphelios_tool$EXT" "$OUTPUT_DIR/"
 
+#TODO 
+# download pdfium from https://github.com/bblanchon/pdfium-binaries/releases/latest 
+# https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/7789
+# 根据latest获取真实的地址, 然后拼接实际下载地址
+# https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7789/pdfium-mac-arm64.tgz
+# macOS : pdfium-mac-arm64.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/pdfium-mac-arm64.tgz
+# linux : pdfium-linux-x64.tgz 
+# windows : pdfium-win-x64.tgz
+
 # 复制 .app bundle (cargo-bundle 生成到 target/release/bundle/osx/)
 if [[ "$OSTYPE" == darwin* ]]; then
     BUNDLE_NAME="Aphelios.app"

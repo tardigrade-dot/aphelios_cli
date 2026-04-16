@@ -9,9 +9,10 @@ use crate::sensevoice::{
     frontend::{FeaturePipeline, FrontendConfig},
     language_id_from_code,
     sensevoice::SensevoiceEncoder,
-    vad::{SileroVad, VadConfig, VadSegment},
     SenseVoiceConfig, SenseVoiceResult, WordTimestamp,
 };
+use crate::silerovad::{SileroVadEngine, VadConfig};
+use crate::VadSegment;
 
 // Re-export for backward compatibility
 pub use crate::sensevoice::sensevoice_asr;
@@ -674,7 +675,7 @@ pub fn batch_process_wav_txt_dir(
     let target_sample_rate = fe_cfg.sample_rate as u32;
 
     let vad_config = VadConfig::default();
-    let mut silero_vad = SileroVad::new(&vad_model_path, fe_cfg.sample_rate, 1, vad_config)?;
+    let mut silero_vad = SileroVadEngine::new(&vad_model_path, fe_cfg.sample_rate, 1, vad_config)?;
 
     let lang_id = language_id_from_code("auto");
 
@@ -739,7 +740,7 @@ pub fn batch_process_wav_txt_dir(
 fn run_sensevoice_single(
     encoder: &mut SensevoiceEncoder,
     decoder: &crate::sensevoice::tokenizer::TokenDecoder,
-    silero_vad: &mut SileroVad,
+    silero_vad: &mut SileroVadEngine,
     audio_path: &PathBuf,
     lang_id: i32,
     target_sample_rate: u32,
@@ -771,7 +772,8 @@ fn run_sensevoice_single(
     if segments.is_empty() {
         segments.push(VadSegment {
             start: 0,
-            end: ch.len(),
+            end: ch.len() as i64,
+            avg_prob: 0.0,
         });
     }
 
@@ -780,8 +782,8 @@ fn run_sensevoice_single(
     let mut consolidated_words = Vec::new();
 
     for seg in segments {
-        let start = seg.start.min(ch.len());
-        let end = seg.end.min(ch.len());
+        let start = (seg.start as usize).min(ch.len());
+        let end = (seg.end as usize).min(ch.len());
         if end <= start {
             continue;
         }

@@ -24,6 +24,12 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info};
 
+use image::GenericImageView;
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem},
+    Icon,
+};
+
 // 日志最大行数限制
 const MAX_LOG_LINES: usize = 200;
 
@@ -119,15 +125,37 @@ fn main() -> Result<()> {
         }
     });
 
-    main_menu.on_quit_app({
-        let ctx = ctx.clone();
-        move || {
-            // 保存配置
-            let settings = ctx.get_settings();
-            let _ = settings.save();
+    // Setup system tray icon
+    let open_item = MenuItem::new("Open App", true, None);
+    let quit_item = MenuItem::new("Quit", true, None);
+    let tray_menu = Menu::with_items(&[&open_item, &quit_item])?;
+
+    // Load icon from assets
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    let icon_img = image::load_from_memory(icon_bytes)?;
+    let (width, height) = icon_img.dimensions();
+    let rgba = icon_img.to_rgba8();
+    let icon = Icon::from_rgba(rgba.into_raw(), width, height)?;
+
+    let main_menu_for_tray = main_menu.as_weak();
+
+    // Set up menu event handler
+    MenuEvent::set_event_handler(Some(move |event: tray_icon::menu::MenuEvent| {
+        let id = &event.id().0;
+        if id == "quit" {
             std::process::exit(0);
+        } else if id == "Open App" {
+            if let Some(win) = main_menu_for_tray.upgrade() {
+                let _ = win.show();
+            }
         }
-    });
+    }));
+
+    let _tray_icon = tray_icon::TrayIconBuilder::new()
+        .with_icon(icon)
+        .with_menu(Box::new(tray_menu))
+        .with_tooltip("Aphelios")
+        .build()?;
 
     main_menu.run()?;
     Ok(())
@@ -461,13 +489,14 @@ fn run_asr_ui(ctx: Arc<AppContext>) -> Result<()> {
                     audio_file, asr_model, aligner_model, vad_model
                 );
 
-                let result = aphelios_asr::qwenasr::qwen3asr_with_vad(
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let result = rt.block_on(aphelios_asr::qwenasr::qwen3asr_with_vad(
                     &asr_model,
                     &aligner_model,
                     &vad_model,
                     &audio_file,
                     &language,
-                );
+                ));
 
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(win) = w2.upgrade() else { return };

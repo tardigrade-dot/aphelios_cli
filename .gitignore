@@ -20,6 +20,7 @@ frame*
 trace*.json
 .claude
 .qwen
+.gemini
 /roadmap.txt
 __pycache__
 /debug_outputs_python

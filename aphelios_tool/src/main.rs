@@ -32,10 +32,16 @@ pub fn print_banner() {
 }
 
 async fn run_cli() {
-    let cli = Cli::try_parse().unwrap();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // Clap 会自动打印友好的错误提示信息，然后退出
+            e.exit();
+        }
+    };
 
     if let Err(err) = run(cli).await {
-        eprintln!("{err}");
+        eprintln!("Error: {err}");
         std::process::exit(1);
     }
 }

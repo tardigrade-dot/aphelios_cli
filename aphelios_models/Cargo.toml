@@ -60,6 +60,8 @@ tempfile = "3"
 # vibevoice = { workspace = true, optional = true }
 chromiumoxide = { workspace = true }
 parakeet-rs = { workspace = true }
+rbook = "0.7.5"
+boko = "0.2.0"
 
 [dev-dependencies]
 tempfile = "3"

@@ -13,7 +13,7 @@ use std::path::Path;
 use tokenizers::Tokenizer;
 use tracing::{debug, error, info};
 
-use crate::base::{AsrSegment, AudioBatch, DecodingResult, SubSegment, VadSegment};
+use crate::{AsrSegment, AudioBatch, DecodingResult, SubSegment, VadSegment};
 
 const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/distil-large-v3.5";
 // const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/whisper-large-v3-turbo";
@@ -848,9 +848,11 @@ pub async fn generate_vad(segments: &Vec<VadSegment>, save_file: &str) -> anyhow
         text_to_str.push(format!("{}", i + 1));
 
         // 2. 写入时间轴 (00:00:00,000 --> 00:00:00,000)
-        let start_time = format_srt_time(segment.start);
-        let end_time = format_srt_time(segment.end);
+        // VadSegment stores time in milliseconds, convert to seconds for SRT format
+        let start_time = format_srt_time(segment.start as f64 / 1000.0);
+        let end_time = format_srt_time(segment.end as f64 / 1000.0);
         text_to_str.push(format!("{} --> {}", start_time, end_time));
+        text_to_str.push(format!("{}", "\n"));
     }
     write_to_file(&text_to_str, save_file).await.unwrap();
     println!("SRT file saved to: {}", save_file);

@@ -8,7 +8,7 @@ async fn vad_and_qwenasr_test() -> Result<()> {
     init_logging();
     tracing::info!("Starting vad_and_qwenasr_test");
 
-    let audio_path = "/Volumes/sw/video/mQlxALUw3h4.wav";
+    let audio_path = "/Volumes/sw/video/How to Journal (Like a Philosopher).wav";
     let language = "English";
 
     // let audio_path = "/Volumes/sw/video/zh-voice-example.wav";
@@ -25,7 +25,8 @@ async fn vad_and_qwenasr_test() -> Result<()> {
         "/Volumes/sw/onnx_models/silero-vad/onnx",
         audio_path,
         language,
-    )?;
+    )
+    .await?;
 
     tracing::info!("vad_and_qwenasr_test completed successfully");
     Ok(())

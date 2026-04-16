@@ -11,6 +11,7 @@ use crate::{
         transcribe::Pipeline,
     },
     silerovad::VadProcessor,
+    whisper::generate_vad,
 };
 pub mod aligner;
 pub mod audio;
@@ -79,7 +80,7 @@ struct TranscribeBatch {
     text: String,
 }
 
-pub fn qwen3asr_with_vad(
+pub async fn qwen3asr_with_vad(
     qwen3asr_model: &str,
     aligner_model: &str,
     vad_model_dir: &str,
@@ -91,6 +92,18 @@ pub fn qwen3asr_with_vad(
     let mut vad = VadProcessor::new_default(vad_model_dir)?;
     info!("[Phase 1] Running VAD on {}", audio_path);
     let segments = vad.process_from_file(audio_path)?;
+
+    #[cfg(feature = "profiling")]
+    {
+        let output_path = Path::new(audio_path)
+            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_extension("vad.srt")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let _ = generate_vad(&segments, &output_path).await;
+        info!("[profiling] Generated VAD SRT at {}", output_path);
+    }
     info!("[Phase 1] Detected {} speech segments", segments.len());
 
     assert!(
@@ -99,6 +112,7 @@ pub fn qwen3asr_with_vad(
     );
     info!("[Phase 1] Aggregating segments...");
     let batches = vad.aggregate_segments(&segments, 30.0, 0.3);
+
     info!("[Phase 1] Aggregated {} batches", batches.len());
 
     let device = get_device();
@@ -118,6 +132,7 @@ pub fn qwen3asr_with_vad(
     let mut transcription_batches: Vec<TranscribeBatch> = Vec::new();
     let mut final_text = String::new();
 
+    let batch_size = batches.len();
     info!("[Phase 1] Transcribing all batches...");
     for (i, batch) in batches.iter().enumerate() {
         // Include padding context
@@ -138,17 +153,21 @@ pub fn qwen3asr_with_vad(
                 let mel = Tensor::from_vec(flat, (mel_bins, n_frames), &device)?;
 
                 info!(
-                    "[Phase 1] Batch {}: duration {:.2}s",
+                    "[Phase 1] Batch {}/{}: duration {:.2}s",
                     i + 1,
+                    batch_size,
                     audio_ms / 1000.0
                 );
 
                 let (text, timings) = pipeline.transcribe_mel(&mel, audio_ms)?;
+                let preview = &text[..text.len().min(20)];
                 info!(
-                    "[Phase 1] Batch {} Result: RT={:.2}x, text: {}",
+                    "[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...",
                     i + 1,
+                    batch_size,
                     (timings.encode_ms + timings.decode_ms) / audio_ms,
-                    text
+                    text.len(),
+                    preview,
                 );
 
                 let text_str = text.trim();
@@ -185,7 +204,7 @@ pub fn qwen3asr_with_vad(
     );
 
     for (i, batch) in transcription_batches.iter().enumerate() {
-        info!("[Phase 2] Batch {} alignment...", i + 1);
+        info!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size);
         let items = aligner.align_samples(&batch.pcm, &batch.text, language)?;
 
         // Convert to absolute timestamps by adding the segment start time

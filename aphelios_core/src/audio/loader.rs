@@ -1,12 +1,23 @@
 //! 音频文件加载器
 //!
-//! 支持多种音频格式和位深的加载
+//! 支持多种音频格式，使用 symphonia 进行解码
 
 use anyhow::{bail, Result};
 use hound::{SampleFormat, WavReader};
 use std::path::Path;
 
-use super::types::{AudioBuffer, MonoBuffer, StereoBuffer};
+use symphonia::core::audio::Signal;
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::errors::Error as SymphErr;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+
+use super::types::{AudioBuffer, MonoBuffer};
+
+/// 目标采样率（所有加载的音频都会 resample 到这个值）
+const TARGET_SAMPLE_RATE: u32 = 16000;
 
 /// 音频格式信息
 #[derive(Debug, Clone)]
@@ -34,7 +45,7 @@ impl AudioLoader {
         self
     }
 
-    /// 从文件加载音频
+    /// 从文件加载音频，统一返回 16kHz 单声道 AudioBuffer
     pub fn load(&self, path: impl AsRef<Path>) -> Result<AudioBuffer> {
         let path = path.as_ref();
 
@@ -50,72 +61,132 @@ impl AudioLoader {
 
         match extension.as_str() {
             "wav" => self.load_wav(path),
-            "mp4" | "mkv" | "mov" | "avi" | "flv" | "mp3" | "m4a" | "flac" => {
-                self.load_from_ffmpeg(path)
+            _ => self.load_with_symphonia(path),
+        }
+    }
+
+    /// 使用 symphonia 加载音频文件（支持 mp4, mp3, m4a, flac, mkv, mov 等）
+    fn load_with_symphonia(&self, path: &Path) -> Result<AudioBuffer> {
+        let file = std::fs::File::open(path)?;
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+        let mut hint = Hint::new();
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            hint.with_extension(ext);
+        }
+
+        let probed = symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )?;
+
+        let mut format = probed.format;
+
+        let track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no supported audio tracks"))?;
+
+        let src_rate = track
+            .codec_params
+            .sample_rate
+            .ok_or_else(|| anyhow::anyhow!("missing sample rate"))?;
+
+        let channels = track
+            .codec_params
+            .channels
+            .ok_or_else(|| anyhow::anyhow!("missing channels"))?
+            .count();
+
+        let mut decoder = symphonia::default::get_codecs().make(
+            &track.codec_params,
+            &DecoderOptions::default(),
+        )?;
+
+        let mut per_channel: Vec<Vec<f32>> = vec![Vec::new(); channels];
+
+        loop {
+            let packet = match format.next_packet() {
+                Ok(p) => p,
+                Err(SymphErr::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(e.into()),
+            };
+
+            if packet.track_id() != track.id {
+                continue;
             }
-            _ => bail!("Unsupported audio format: {}", extension),
+
+            let decoded = match decoder.decode(&packet) {
+                Ok(s) => s,
+                Err(SymphErr::DecodeError(_)) => continue,
+                Err(e) => return Err(e.into()),
+            };
+
+            let spec_val = *decoded.spec();
+
+            match decoded {
+                symphonia::core::audio::AudioBufferRef::F32(buf) => {
+                    let chans = buf.spec().channels.count();
+                    for ch in 0..chans {
+                        per_channel[ch].extend(buf.chan(ch));
+                    }
+                }
+                other => {
+                    let mut buf = symphonia::core::audio::AudioBuffer::<f32>::new(
+                        other.capacity() as u64,
+                        spec_val,
+                    );
+                    other.convert(&mut buf);
+                    let chans = buf.spec().channels.count();
+                    for ch in 0..chans {
+                        per_channel[ch].extend(buf.chan(ch));
+                    }
+                }
+            }
         }
+
+        // Downmix to mono
+        let mono = downmix_to_mono(per_channel);
+
+        // Resample to target rate (if needed)
+        let mono = if src_rate != TARGET_SAMPLE_RATE {
+            resample_linear(&mono, src_rate, TARGET_SAMPLE_RATE)?
+        } else {
+            mono
+        };
+
+        Ok(AudioBuffer::Mono(MonoBuffer::new(mono, TARGET_SAMPLE_RATE)))
     }
 
-    /// 使用 FFmpeg 加载视频或音频文件
-    fn load_from_ffmpeg(&self, path: &Path) -> Result<AudioBuffer> {
-        use std::io::Read;
-        use std::process::Command;
-
-        let output = Command::new("ffmpeg")
-            .args([
-                "-i",
-                path.to_str().unwrap(),
-                "-f",
-                "s16le",
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                "-acodec",
-                "pcm_s16le",
-                "-",
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            bail!("FFmpeg failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
-
-        let pcm_data = output.stdout;
-        let mut samples = Vec::with_capacity(pcm_data.len() / 2);
-        let mut cursor = std::io::Cursor::new(pcm_data);
-        let mut buf = [0u8; 2];
-        while cursor.read_exact(&mut buf).is_ok() {
-            let sample = i16::from_le_bytes(buf);
-            samples.push(sample as f32 / i16::MAX as f32);
-        }
-
-        Ok(AudioBuffer::Mono(MonoBuffer::new(samples, 16000)))
-    }
-
-    /// 加载 WAV 文件
+    /// 加载 WAV 文件（保持原有逻辑，添加 resample 支持）
     fn load_wav(&self, path: &Path) -> Result<AudioBuffer> {
         let mut reader = WavReader::open(path)?;
         let spec = reader.spec();
 
         let samples = self.read_samples(&mut reader, spec)?;
 
-        if spec.channels == 1 {
-            Ok(AudioBuffer::Mono(MonoBuffer::new(
-                samples,
-                spec.sample_rate,
-            )))
+        // 如果不是单声道，分离左右声道并 downmix
+        let mono = if spec.channels == 1 {
+            samples
         } else {
-            // 分离左右声道
+            // 分离并 downmix
             let left: Vec<f32> = samples.iter().step_by(2).copied().collect();
             let right: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
-            Ok(AudioBuffer::Stereo(StereoBuffer::new(
-                left,
-                right,
-                spec.sample_rate,
-            )))
-        }
+            downmix_two_channels(&left, &right)
+        };
+
+        // Resample if needed
+        let mono = if spec.sample_rate != TARGET_SAMPLE_RATE {
+            resample_linear(&mono, spec.sample_rate, TARGET_SAMPLE_RATE)?
+        } else {
+            mono
+        };
+
+        Ok(AudioBuffer::Mono(MonoBuffer::new(mono, TARGET_SAMPLE_RATE)))
     }
 
     /// 读取音频样本
@@ -164,7 +235,7 @@ impl AudioLoader {
         Ok(reader.samples::<f32>().filter_map(|s| s.ok()).collect())
     }
 
-    /// 获取音频格式信息
+    /// 获取音频格式信息（仅支持 WAV）
     pub fn get_format(path: impl AsRef<Path>) -> Result<AudioFormat> {
         let reader = WavReader::open(path.as_ref())?;
         let spec = reader.spec();
@@ -187,19 +258,91 @@ impl Default for AudioLoader {
     }
 }
 
+/// 将多声道 downmix 为单声道
+fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
+    if samples_per_channel.is_empty() {
+        return Vec::new();
+    }
+    if samples_per_channel.len() == 1 {
+        return samples_per_channel.into_iter().next().unwrap();
+    }
+    let num_channels = samples_per_channel.len();
+    let num_samples = samples_per_channel
+        .iter()
+        .map(|c| c.len())
+        .max()
+        .unwrap_or(0);
+    let mut mono = vec![0.0f32; num_samples];
+    for ch in &samples_per_channel {
+        for (i, sample) in ch.iter().enumerate() {
+            mono[i] += *sample;
+        }
+    }
+    let inv_channels = 1.0 / num_channels as f32;
+    for sample in mono.iter_mut() {
+        *sample *= inv_channels;
+    }
+    mono
+}
+
+/// 将两个声道 downmix 为单声道
+fn downmix_two_channels(left: &[f32], right: &[f32]) -> Vec<f32> {
+    let len = left.len().min(right.len());
+    let mut mono = Vec::with_capacity(len);
+    for i in 0..len {
+        mono.push((left[i] + right[i]) * 0.5);
+    }
+    mono
+}
+
+/// 线性插值重采样
+fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Result<Vec<f32>> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+    if src_rate == dst_rate {
+        return Ok(input.to_vec());
+    }
+
+    let ratio = dst_rate as f64 / src_rate as f64;
+    let output_len = ((input.len() as f64) * ratio).ceil().max(1.0) as usize;
+    let mut out = Vec::with_capacity(output_len);
+    let last = input.len() - 1;
+
+    for n in 0..output_len {
+        let pos = (n as f64) / ratio;
+        let idx = pos.floor() as usize;
+        let frac = (pos - idx as f64) as f32;
+        let i0 = idx.min(last);
+        let i1 = (idx + 1).min(last);
+        let s0 = input[i0];
+        let s1 = input[i1];
+        out.push(s0 + (s1 - s0) * frac);
+    }
+
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_get_format() {
-        // This test requires actual audio files
-        // Skip if file doesn't exist
         let test_file = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
         if std::path::Path::new(test_file).exists() {
             let format = AudioLoader::get_format(test_file).unwrap();
             assert_eq!(format.sample_rate, 16000);
             assert_eq!(format.channels, 1);
         }
+    }
+
+    #[test]
+    fn test_resample_linear() {
+        let input = vec![1.0f32, 0.5, 0.0, -0.5, -1.0];
+        // 16000 -> 8000 should halve the length approximately
+        let output = resample_linear(&input, 16000, 8000).unwrap();
+        assert!(output.len() > 0);
+        assert!(output.len() < input.len());
     }
 }

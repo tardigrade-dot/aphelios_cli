@@ -4,3 +4,4 @@ safetensors模型类型检测, 模型太多避免配置错误.
 tracing日志chrome tracing
 device fallback
 首页、配置页 ui上下距离不够
+整理一下 qwenasr, sensevoice, vad相关的读取音频的部分, 统一一下接口, 然后允许读取其他格式的包含音频的文件, 比如mp3. (现在只能够读取wav)

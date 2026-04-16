@@ -4,7 +4,6 @@ pub mod audio;
 pub mod frontend;
 pub mod sensevoice;
 pub mod tokenizer;
-pub mod vad;
 
 pub fn language_id_from_code(code: &str) -> i32 {
     // Python mapping: {"auto":0,"zh":3,"en":4,"yue":7,"ja":11,"ko":12,"nospeech":13}
@@ -104,12 +103,15 @@ use ndarray::Axis;
 use std::{path::PathBuf, time::Instant};
 use tracing::{debug, error, info, warn};
 
-use crate::sensevoice::{
-    audio::{decode_audio_multi, downmix_to_mono, resample_channels},
-    frontend::{FeaturePipeline, FrontendConfig},
-    sensevoice::SensevoiceEncoder,
-    tokenizer::TokenDecoder,
-    vad::{SileroVad, VadConfig, VadSegment},
+use crate::silerovad::{SileroVadEngine, VadConfig};
+use crate::{
+    sensevoice::{
+        audio::{decode_audio_multi, downmix_to_mono, resample_channels},
+        frontend::{FeaturePipeline, FrontendConfig},
+        sensevoice::SensevoiceEncoder,
+        tokenizer::TokenDecoder,
+    },
+    VadSegment,
 };
 
 pub struct SenseVoiceResult {
@@ -144,7 +146,7 @@ pub fn sensevoice_asr(
         sense_voice_config.vad_speech_pad_ms,
         sense_voice_config.vad_merge_gap_ms,
     );
-    let mut silero_vad = SileroVad::new(
+    let mut silero_vad = SileroVadEngine::new(
         &vad_model_path,
         fe_cfg.sample_rate,
         sense_voice_config.num_threads,
@@ -203,13 +205,14 @@ pub fn sensevoice_asr(
         warn!("no speech detected by VAD, falling back to full audio");
         segments.push(VadSegment {
             start: 0,
-            end: ch.len(),
+            end: ch.len() as i64,
+            avg_prob: 0.0,
         });
     }
 
     for seg in segments {
-        let start = seg.start.min(ch.len());
-        let end = seg.end.min(ch.len());
+        let start = (seg.start as usize).min(ch.len());
+        let end = (seg.end as usize).min(ch.len());
         if end <= start {
             continue;
         }

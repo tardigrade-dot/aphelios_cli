@@ -69,15 +69,14 @@ parakeet-rs = { workspace = true }
 symphonia = { workspace = true }
 rubato = { workspace = true }
 dirs = { workspace = true }
-tracing-appender = "0.2"
 
 async-openai = { workspace = true, features = ["chat-completion"] }
 minijinja = { workspace = true }
 usls = { workspace = true }
 chrono = { workspace = true }
 tempfile = { workspace = true }
-rbook = "0.7.5"
-tracing-tree = "0.4.1"
+tracing-appender = { workspace = true }
+tracing-tree = { workspace = true }
 
 [features]
 profiling = []
