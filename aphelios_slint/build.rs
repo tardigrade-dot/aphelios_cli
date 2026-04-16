@@ -13,5 +13,6 @@ fn main() {
     slint_build::compile_with_config("assets/settings_ui.slint", config.clone()).unwrap();
     slint_build::compile_with_config("assets/book_search_ui.slint", config.clone()).unwrap();
     slint_build::compile_with_config("assets/text_align_ui.slint", config.clone()).unwrap();
-    slint_build::compile_with_config("assets/demucs_ui.slint", config).unwrap();
+    slint_build::compile_with_config("assets/demucs_ui.slint", config.clone()).unwrap();
+    slint_build::compile_with_config("assets/epub_reader_ui.slint", config).unwrap();
 }

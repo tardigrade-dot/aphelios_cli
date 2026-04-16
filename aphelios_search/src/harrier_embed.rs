@@ -5,7 +5,7 @@
 //! last-token pooling + L2 normalization to produce embeddings.
 
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::base::get_device;
+use aphelios_core::utils::common;
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{kv_cache::ConcatKvCache, ops::softmax_last_dim, Activation, VarBuilder};
 use candle_transformers::{
@@ -44,12 +44,7 @@ impl HarrierEmbedModel {
             .copied()
             .unwrap_or(151643);
 
-        let device = get_device();
-        let dtype = if device.is_cuda() || device.is_metal() {
-            DType::BF16
-        } else {
-            DType::F32
-        };
+        let (device, dtype) = common::get_device_dtype();
 
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
         // Harrier model tensors lack the "model." prefix that candle's Qwen3 expects,

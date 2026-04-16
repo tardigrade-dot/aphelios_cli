@@ -2,7 +2,7 @@
 //!
 //! 合成和播放完全并行，播放几乎不等待合成
 
-use aphelios_core::utils::{base, logger};
+use aphelios_core::utils::{common, logger};
 use aphelios_tts::qwen_tts::qwen_tts::SynthesisOptions;
 use aphelios_tts::{
     audio::AudioBuffer, audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS,
@@ -13,7 +13,7 @@ use tracing::info;
 
 fn main() -> anyhow::Result<()> {
     logger::init_logging();
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
 
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();

@@ -3,7 +3,7 @@ use crate::dolphin::{dolphin_utils, full_in_one};
 use anyhow::Context;
 use anyhow::{Error as E, Result};
 use aphelios_core::measure_time;
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use candle_core::{safetensors, DType, Device, Tensor, D};
 use candle_transformers::models::donut::DonutConfig;
 use futures_util::{pin_mut, StreamExt};
@@ -103,13 +103,7 @@ pub struct DolphinModel {
 
 impl DolphinModel {
     pub fn load_model(model_id: &str) -> Result<Self> {
-        let device = base::get_default_device(false)?;
-
-        let dtype = if device.is_metal() {
-            DType::F32
-        } else {
-            DType::F32
-        };
+        let (device, dtype) = common::get_device_dtype();
 
         // 1. Determine model file paths
         let (tokenizer_path, safetensors_path, config_path) = if model_id.starts_with('/') {

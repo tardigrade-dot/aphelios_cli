@@ -7,6 +7,7 @@ include!(concat!(env!("OUT_DIR"), "/settings_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/book_search_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/text_align_ui.rs"));
 include!(concat!(env!("OUT_DIR"), "/demucs_ui.rs"));
+include!(concat!(env!("OUT_DIR"), "/epub_reader_ui.rs"));
 
 mod config;
 mod controllers;
@@ -17,9 +18,11 @@ use aphelios_core::traits::{OcrEngine, SearchEngine, SearchMode, TtsEngine};
 use aphelios_core::utils::logger;
 use config::AppSettings;
 use controllers::{
-    demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
+    demucs::DemucsLogic, epub, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
 };
-use slint::{ComponentHandle, Model, ModelRc, PlatformError, SharedString, VecModel};
+use slint::{
+    CloseRequestResponse, ComponentHandle, Model, ModelRc, PlatformError, SharedString, VecModel,
+};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info};
@@ -30,11 +33,19 @@ use tray_icon::{
     Icon,
 };
 
+#[cfg(target_os = "macos")]
+use objc2::{AnyThread, MainThreadMarker};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSImage};
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSString;
+
 // 日志最大行数限制
 const MAX_LOG_LINES: usize = 200;
 
 fn main() -> Result<()> {
     logger::init_slint_logging();
+    initialize_desktop_app();
 
     // 加载配置
     let settings = AppSettings::load().unwrap_or_default();
@@ -59,6 +70,9 @@ fn main() -> Result<()> {
     let main_menu = MainMenu::new()?;
     // 设置版本号（从 Cargo.toml 获取）
     main_menu.set_app_version(env!("CARGO_PKG_VERSION").into());
+    main_menu
+        .window()
+        .on_close_requested(|| CloseRequestResponse::HideWindow);
 
     let main_menu_weak = main_menu.as_weak();
 
@@ -116,6 +130,15 @@ fn main() -> Result<()> {
         }
     });
 
+    main_menu.on_open_epub_reader({
+        let w = main_menu_weak.clone();
+        let ctx = ctx.clone();
+        move || {
+            let _ = w.upgrade();
+            let _ = run_epub_reader_ui(ctx.clone());
+        }
+    });
+
     main_menu.on_open_settings({
         let w = main_menu_weak.clone();
         let ctx = ctx.clone();
@@ -126,8 +149,8 @@ fn main() -> Result<()> {
     });
 
     // Setup system tray icon
-    let open_item = MenuItem::new("Open App", true, None);
-    let quit_item = MenuItem::new("Quit", true, None);
+    let open_item = MenuItem::with_id("open-app", "Open App", true, None);
+    let quit_item = MenuItem::with_id("quit-app", "Quit", true, None);
     let tray_menu = Menu::with_items(&[&open_item, &quit_item])?;
 
     // Load icon from assets
@@ -138,15 +161,17 @@ fn main() -> Result<()> {
     let icon = Icon::from_rgba(rgba.into_raw(), width, height)?;
 
     let main_menu_for_tray = main_menu.as_weak();
+    let open_id = open_item.id().clone();
+    let quit_id = quit_item.id().clone();
 
     // Set up menu event handler
     MenuEvent::set_event_handler(Some(move |event: tray_icon::menu::MenuEvent| {
-        let id = &event.id().0;
-        if id == "quit" {
-            std::process::exit(0);
-        } else if id == "Open App" {
+        if event.id() == &quit_id {
+            let _ = slint::quit_event_loop();
+        } else if event.id() == &open_id {
             if let Some(win) = main_menu_for_tray.upgrade() {
                 let _ = win.show();
+                activate_desktop_app();
             }
         }
     }));
@@ -157,8 +182,53 @@ fn main() -> Result<()> {
         .with_tooltip("Aphelios")
         .build()?;
 
-    main_menu.run()?;
+    main_menu.show()?;
+    activate_desktop_app();
+    slint::run_event_loop_until_quit()?;
     Ok(())
+}
+
+fn initialize_desktop_app() {
+    #[cfg(target_os = "macos")]
+    {
+        configure_macos_app();
+    }
+}
+
+fn activate_desktop_app() {
+    #[cfg(target_os = "macos")]
+    {
+        activate_macos_app();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_app() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let app = NSApplication::sharedApplication(mtm);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+
+    let icon_path = format!("{}/assets/icon.icns", env!("CARGO_MANIFEST_DIR"));
+    let icon_path = NSString::from_str(&icon_path);
+    let icon_image = NSImage::initWithContentsOfFile(NSImage::alloc(), &icon_path);
+
+    if let Some(icon_image) = icon_image.as_deref() {
+        unsafe { app.setApplicationIconImage(Some(icon_image)) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn activate_macos_app() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let app = NSApplication::sharedApplication(mtm);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    app.activateIgnoringOtherApps(true);
 }
 
 // ----------------------------------------------------------------------------
@@ -1914,6 +1984,184 @@ fn run_demucs_ui(ctx: Arc<AppContext>) -> Result<()> {
                     });
                 },
             );
+        }
+    });
+
+    window.run()?;
+    Ok(())
+}
+
+fn run_epub_reader_ui(_ctx: Arc<AppContext>) -> Result<()> {
+    let window = EpubReaderWindow::new()?;
+    let window_weak = window.as_weak();
+    let logic = Arc::new(epub::EpubLogic::new());
+
+    window.on_go_back({
+        let w = window_weak.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let _: Result<(), PlatformError> = win.hide();
+            }
+        }
+    });
+
+    window.on_open_file({
+        let w = window_weak.clone();
+        let logic = logic.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let path = rfd::FileDialog::new()
+                    .add_filter("EPUB 文件", &["epub"])
+                    .pick_file()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+
+                if !path.is_empty() {
+                    win.set_epub_path(path.clone().into());
+                    win.set_is_loading(true);
+                    win.set_status_message("加载中...".into());
+
+                    let w2 = w.clone();
+                    let logic = logic.clone();
+                    std::thread::spawn(move || {
+                        match logic.load_book(&path) {
+                            Ok(book) => {
+                                let total = book.total_chapters();
+                                let chapters: Vec<slint_generatedEpubReaderWindow::ChapterItem> =
+                                    book.chapters
+                                        .iter()
+                                        .map(|c| slint_generatedEpubReaderWindow::ChapterItem {
+                                            title: c.title.clone().into(),
+                                            href: c.href.clone().into(),
+                                        })
+                                        .collect();
+
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    if let Some(win) = w2.upgrade() {
+                                        win.set_book_title(book.title.clone().into());
+                                        win.set_total_pages(total as i32);
+
+                                        let model: Rc<
+                                            VecModel<slint_generatedEpubReaderWindow::ChapterItem>,
+                                        > = Rc::new(VecModel::from(chapters));
+                                        win.set_chapters(ModelRc::from(model));
+
+                                        // 自动打开第一章
+                                        if total > 0 {
+                                            win.set_current_chapter_index(0);
+                                            if let Some(content) = logic.get_chapter_content(0) {
+                                                win.set_chapter_title(
+                                                    book.chapters[0].title.clone().into(),
+                                                );
+                                                win.set_chapter_content(content.into());
+                                            }
+                                            win.set_current_page(1);
+                                        }
+
+                                        win.set_is_loading(false);
+                                        win.set_status_message(format!("共 {} 章", total).into());
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                error!("EPUB 加载失败: {}", e);
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    if let Some(win) = w2.upgrade() {
+                                        win.set_is_loading(false);
+                                        win.set_status_message(format!("加载失败: {}", e).into());
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    });
+
+    window.on_select_chapter({
+        let w = window_weak.clone();
+        let logic = logic.clone();
+        move |index: i32| {
+            if let Some(win) = w.upgrade() {
+                if let Some(content) = logic.get_chapter_content(index as usize) {
+                    let chapters = win.get_chapters();
+                    if let Some(vm) = chapters
+                        .as_any()
+                        .downcast_ref::<VecModel<slint_generatedEpubReaderWindow::ChapterItem>>()
+                    {
+                        if index >= 0 && (index as usize) < vm.row_count() {
+                            let chapter = vm.row_data(index as usize).unwrap();
+                            win.set_chapter_title(chapter.title.clone());
+                            win.set_chapter_content(content.into());
+                            win.set_current_chapter_index(index);
+                            win.set_current_page(index + 1);
+                            win.set_status_message(format!("已加载: {}", chapter.title).into());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    window.on_prev_page({
+        let w = window_weak.clone();
+        let logic = logic.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let current = win.get_current_page();
+                if current > 1 {
+                    let new_idx = (current - 2) as usize;
+                    if let Some(content) = logic.get_chapter_content(new_idx) {
+                        win.set_current_page(current - 1);
+                        win.set_current_chapter_index(new_idx as i32);
+
+                        let chapters = win.get_chapters();
+                        if let Some(vm) = chapters
+                            .as_any()
+                            .downcast_ref::<VecModel<slint_generatedEpubReaderWindow::ChapterItem>>(
+                            )
+                        {
+                            if new_idx < vm.row_count() {
+                                let chapter = vm.row_data(new_idx).unwrap();
+                                win.set_chapter_title(chapter.title.clone());
+                                win.set_chapter_content(content.into());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    window.on_next_page({
+        let w = window_weak.clone();
+        let logic = logic.clone();
+        move || {
+            if let Some(win) = w.upgrade() {
+                let current = win.get_current_page();
+                let total = win.get_total_pages();
+                if current < total {
+                    let new_idx = current as usize;
+                    if let Some(content) = logic.get_chapter_content(new_idx) {
+                        win.set_current_page(current + 1);
+                        win.set_current_chapter_index(new_idx as i32);
+
+                        let chapters = win.get_chapters();
+                        if let Some(vm) = chapters
+                            .as_any()
+                            .downcast_ref::<VecModel<slint_generatedEpubReaderWindow::ChapterItem>>(
+                            )
+                        {
+                            if new_idx < vm.row_count() {
+                                let chapter = vm.row_data(new_idx).unwrap();
+                                win.set_chapter_title(chapter.title.clone());
+                                win.set_chapter_content(content.into());
+                            }
+                        }
+                    }
+                }
+            }
         }
     });
 

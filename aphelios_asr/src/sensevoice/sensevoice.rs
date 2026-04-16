@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use anyhow::{anyhow, ensure, Context, Result};
-use aphelios_core::utils::base::get_available_ep;
+use aphelios_core::utils::common::get_available_ep;
 use ndarray::{Array1, Array3, Axis};
 use ort::{
     session::{builder::GraphOptimizationLevel, Session},

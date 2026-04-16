@@ -83,7 +83,7 @@
 //! a different sample rate.
 
 use anyhow::{anyhow, Context, Result};
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use candle_core::{DType, Device, IndexOp, Tensor};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -2652,7 +2652,7 @@ pub fn auto_device() -> Result<Device> {
 /// Returns an error if the device string is unrecognized, the requested
 /// backend wasn't compiled in, or hardware initialization fails.
 pub fn parse_device(_device_str: &str) -> Result<Device> {
-    base::get_default_device(false)
+    common::get_default_device(false)
 }
 
 /// Human-readable label for a [`Device`].
@@ -2875,7 +2875,7 @@ pub fn generate_voice(
     output_path: &str,
     progress_bar: Option<AppProgressBar>,
 ) -> Result<()> {
-    let device = base::get_device();
+    let device = common::get_device();
 
     let model = Qwen3TTS::from_pretrained(model_path, device)?;
 
@@ -2919,7 +2919,7 @@ pub fn generate_voice_batch(
     output_prefix: &str,
     progress_bar: Option<AppProgressBar>,
 ) -> Result<()> {
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     let model = Qwen3TTS::from_pretrained(model_path, device)?;
 
     // Load reference audio
@@ -3000,7 +3000,7 @@ pub fn generate_voice_batch_from_txt(
         pb.set_position(0);
     }
 
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     let model = Qwen3TTS::from_pretrained(model_path, device)?;
     let ref_audio = AudioBuffer::load(ref_audio_path)?;
     let prompt = model.create_voice_clone_prompt(&ref_audio, Some(ref_text))?;

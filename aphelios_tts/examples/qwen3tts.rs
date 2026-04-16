@@ -1,12 +1,12 @@
 use aphelios_core::{
     measure_time,
-    utils::{base, logger},
+    utils::{common, logger},
 };
 use aphelios_tts::{models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS};
 
 fn main() -> anyhow::Result<()> {
     logger::init_logging();
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
 
     let model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-CustomVoice";
     let text_to_speech = "你好世界,这是第一条语音.";

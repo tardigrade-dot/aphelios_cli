@@ -10,7 +10,7 @@ name = "aphelios_tool"
 [dependencies]
 aphelios_ocr = { path = "../aphelios_ocr" }
 aphelios_core = { path = "../aphelios_core" }
-# aphelios_web = { path = "../aphelios_web" }
+aphelios_tts = { path = "../aphelios_tts" }
 
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -67,6 +67,11 @@ name = "aphelios_tool"
 path = "src/main.rs"
 
 [features]
+profiling = [
+    "aphelios_ocr/profiling",
+    "aphelios_core/profiling",
+    "aphelios_tts/profiling",
+]
 cpu = ["aphelios_ocr/cpu", "aphelios_core/cpu"]
 metal = [
     "candle-core/metal",

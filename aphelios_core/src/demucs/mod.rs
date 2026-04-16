@@ -3,7 +3,7 @@ use tracing::{error, info};
 
 use crate::{
     demucs::processor::DemucsProcessor,
-    utils::base::{combine_stereo_tracks, load_and_resample_audio, save_audio_track_with_spec},
+    utils::common::{combine_stereo_tracks, load_and_resample_audio, save_audio_track_with_spec},
 };
 
 pub mod constants;

@@ -4,7 +4,7 @@
 //! Reference implementation: /Users/larry/coderesp/aphelios_cli/aphelios_ocr/src/bin/dolphin_ocr.rs
 
 use anyhow::{Context, Result};
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use aphelios_ocr::dolphin::dolphin_utils::{self, transform_to_pixel_dynamic};
 use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
 use imageproc::drawing::draw_hollow_rect_mut;
@@ -83,7 +83,7 @@ fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
 
 /// Load ONNX model
 fn load_model(model_path: &Path) -> Result<Session> {
-    let execution_providers = base::get_available_ep();
+    let execution_providers = common::get_available_ep();
 
     let session = Session::builder()?
         .with_execution_providers(execution_providers)?
@@ -385,7 +385,7 @@ fn main() -> Result<()> {
     let start = std::time::Instant::now();
     let pixel_values = preprocess_image(test_image)?;
 
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     let img = image::ImageReader::open(test_image)
         .with_context(|| format!("Failed to open image file {}", test_image.to_str().unwrap()))?
         .decode()

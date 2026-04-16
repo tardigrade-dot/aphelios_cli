@@ -14,7 +14,7 @@
 //! # 可用的说话人：ryan, aiden, serena, vivian, unclefu, sohee, etc.
 //! ```
 
-use aphelios_core::utils::{base, logger};
+use aphelios_core::utils::{common, logger};
 use aphelios_tts::models::talker::Speaker;
 use aphelios_tts::qwen_tts::qwen_tts::SynthesisOptions;
 use aphelios_tts::{audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS};
@@ -60,7 +60,7 @@ fn parse_speaker(speaker_str: &str) -> anyhow::Result<Speaker> {
 
 fn main() -> anyhow::Result<()> {
     logger::init_logging();
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
 
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();

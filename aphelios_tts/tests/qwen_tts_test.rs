@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use aphelios_core::utils::{base, logger};
+use aphelios_core::utils::{common, logger};
 use aphelios_tts::audio::AudioBuffer;
 use aphelios_tts::models::talker::Language;
 use aphelios_tts::qwen_tts::qwen_tts::{device_info, Qwen3TTS, SynthesisOptions};
@@ -47,7 +47,7 @@ fn qwen_tts_single_test() -> Result<()> {
 
     let text = "本书旨在探讨中国国家政权与乡村社会之间的互动关系，比如，旧的封建帝国的权力和法令是如何行之于乡村的，它们与地方组织和领袖是怎样的关系，国家权力的扩张是如何改造乡村旧有领导机构以建立新型领导层并推行新的政策的。";
 
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     info!(
         "running qwen3tts batch inference on {}",
         device_info(&device)
@@ -100,7 +100,7 @@ fn qwen_tts_batch_test() -> Result<()> {
         "我想讨论的是人文科学中一个明显的并行进程，类似于人类行为学习者的实践往往无效。",
     ];
 
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     info!(
         "running qwen3tts batch inference on {}",
         device_info(&device)

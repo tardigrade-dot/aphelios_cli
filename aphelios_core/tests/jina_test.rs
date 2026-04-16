@@ -1,4 +1,4 @@
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use candle_transformers::models::jina_bert::{BertModel, Config, PositionEmbeddingType};
 
 use anyhow::Error as E;
@@ -59,7 +59,7 @@ impl Args {
                 .repo(Repo::new(model_name.to_string(), RepoType::Model))
                 .get("tokenizer.json")?,
         };
-        let device = base::get_default_device(false)?;
+        let device = common::get_default_device(false)?;
         let tokenizer = tokenizers::Tokenizer::from_file(tokenizer).map_err(E::msg)?;
         let config = Config::new(
             tokenizer.get_vocab_size(true),

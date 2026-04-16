@@ -1,4 +1,5 @@
 pub mod demucs;
+pub mod epub;
 pub mod ocr;
 pub mod search;
 pub mod tts;

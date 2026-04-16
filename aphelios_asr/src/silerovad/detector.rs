@@ -95,7 +95,7 @@ pub struct VadProcessor {
 
 impl VadProcessor {
     pub fn new_default(model_dir: &str) -> Result<Self> {
-        let model_path = format!("{}/vad-model.onnx", model_dir);
+        let model_path = format!("{}/model.onnx", model_dir);
         let config = VadConfig::for_pipeline();
         Self::new(&model_path, config)
     }
@@ -220,7 +220,10 @@ pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
     let mono = audio.into_mono();
     let duration = mono.samples.len() as f64 / 16000.0;
 
-    let total_speech: f64 = segments.iter().map(|s| (s.end - s.start) as f64 / 1000.0).sum();
+    let total_speech: f64 = segments
+        .iter()
+        .map(|s| (s.end - s.start) as f64 / 1000.0)
+        .sum();
     let speech_ratio = if duration > 0.0 {
         total_speech / duration
     } else {

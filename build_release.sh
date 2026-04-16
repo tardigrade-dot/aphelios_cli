@@ -4,7 +4,7 @@ PROJECT_ROOT=$(cd "$(dirname "$0")" && pwd)
 cd "$PROJECT_ROOT"
 
 # 接收外部传入的 features，默认为 metal
-FEATURES=${1:-"metal"}
+FEATURES=${1:-"metal,profiling"}
 
 echo "🚀 开始构建 (Features: $FEATURES)..."
 echo "📝 日志配置说明："

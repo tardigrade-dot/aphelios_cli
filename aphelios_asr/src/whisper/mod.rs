@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::base::{self, get_device, write_to_file};
+use aphelios_core::utils::common::{self, get_device, write_to_file};
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::{
     ops::{log_softmax, softmax},
@@ -629,7 +629,7 @@ pub fn run_whisper_with_segments(
     println!("pcm data loaded {}", pcm_data.len());
     let num_mel_bins = config.num_mel_bins;
 
-    let device = base::get_device();
+    let device = common::get_device();
     let vb =
         unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);

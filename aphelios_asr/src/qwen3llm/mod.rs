@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Error as E, Result};
 
-use aphelios_core::utils::base::get_device;
+use aphelios_core::utils::common::{get_device, get_device_dtype};
 use aphelios_core::utils::token_output_stream::TokenOutputStream;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -32,7 +32,6 @@ struct TextGeneration {
 }
 
 impl TextGeneration {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         model: Model,
         tokenizer: Tokenizer,
@@ -144,12 +143,7 @@ pub fn qwen3_llm(prompt: &str, model_dir: &str) -> Result<()> {
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
     let start = std::time::Instant::now();
-    let device = get_device();
-    let dtype = if device.is_cuda() || device.is_metal() {
-        DType::BF16
-    } else {
-        DType::F32
-    };
+    let (device, dtype) = get_device_dtype();
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
 
     let config: Config3 = serde_json::from_slice(&std::fs::read(config_file)?)?;

@@ -1,5 +1,5 @@
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use aphelios_core::utils::token_output_stream::TokenOutputStream;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -32,12 +32,7 @@ impl std::ops::Deref for GraniteModel {
 impl GraniteModel {
     /// 初始化模型：支持本地路径或 HuggingFace ID
     pub fn new(model_id: &str) -> Result<Self> {
-        let device = base::get_device();
-        let dtype = if device.is_cuda() || device.is_metal() {
-            DType::BF16
-        } else {
-            DType::F32
-        };
+        let (device, dtype) = common::get_device_dtype();
 
         let path = Path::new(model_id);
         let (tokenizer_filename, config_filename, safetensors) = (

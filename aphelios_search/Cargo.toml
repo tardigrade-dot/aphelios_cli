@@ -67,10 +67,10 @@ tracing-subscriber = { workspace = true }
 profiling = []
 cpu = ["aphelios_ocr/cpu", "aphelios_core/cpu"]
 metal = [
+    "ort/coreml",
     "candle-core/metal",
     "candle-nn/metal",
     "candle-transformers/metal",
-    "ort/coreml",
     "aphelios_ocr/metal",
     "aphelios_core/metal",
 ]

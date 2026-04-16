@@ -16,6 +16,7 @@ export component MainMenu inherits Window {
     callback open_book_search();
     callback open_text_align();
     callback open_demucs();
+    callback open_epub_reader();
     callback open_settings();
     callback quit_app();
 
@@ -109,6 +110,14 @@ export component MainMenu inherits Window {
                 height: 44px;
                 clicked => {
                     root.open_demucs();
+                }
+            }
+
+            Button {
+                text: "📖  EPUB 阅读器";
+                height: 44px;
+                clicked => {
+                    root.open_epub_reader();
                 }
             }
         }

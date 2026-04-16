@@ -1,0 +1,265 @@
+import { Button, LineEdit, ListView, ScrollView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+export struct ChapterItem {
+    title: string,
+    href: string,
+}
+
+export component EpubReaderWindow inherits Window {
+    width: 900px;
+    height: 700px;
+    title: "EPUB 阅读器";
+    background: #faf9f7;
+    default-font-family: "PingFang SC";
+
+    in-out property <string> epub_path: "";
+    in-out property <string> book_title: "未打开书籍";
+    in-out property <string> status_message: "就绪";
+    in-out property <[ChapterItem]> chapters: [];
+    in-out property <int> current_chapter_index: 0;
+    in-out property <string> chapter_title: "";
+    in-out property <string> chapter_content: "";
+    in-out property <int> total_pages: 1;
+    in-out property <int> current_page: 1;
+    in-out property <bool> is_loading: false;
+
+    callback go_back();
+    callback open_file();
+    callback select_chapter(int);
+    callback prev_page();
+    callback next_page();
+    callback go_to_page(int);
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        // ── 头部
+        HorizontalLayout {
+            height: 28px;
+            alignment: space-between;
+
+            Button {
+                text: "← 返回";
+                width: 64px;
+                clicked => {
+                    go_back();
+                }
+            }
+
+            Text {
+                text: book_title;
+                font-size: 14px;
+                font-weight: 700;
+                color: #1a2535;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            // 状态胶囊
+            Rectangle {
+                width: 80px;
+                height: 20px;
+                border-radius: 10px;
+                background: is_loading ? #1565c0 : #d0d8e4;
+                animate background { duration: 250ms; }
+                Text {
+                    text: is_loading ? "加载中" : status_message;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: is_loading ? #ffffff : #4e5f75;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 文件选择区
+        HorizontalLayout {
+            height: 32px;
+            spacing: 10px;
+
+            Button {
+                text: "📂 打开 EPUB";
+                width: 100px;
+                clicked => {
+                    open_file();
+                }
+            }
+
+            LineEdit {
+                text <=> epub_path;
+                font-size: 12px;
+                placeholder-text: "选择 EPUB 文件路径...";
+                read-only: true;
+            }
+        }
+
+        // ── 主内容区（章节列表 + 阅读区）
+        HorizontalLayout {
+            spacing: 12px;
+            height: 540px;
+
+            // ── 左侧：章节列表
+            Rectangle {
+                width: 220px;
+                background: #f0f0f0;
+                border-radius: 8px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 4px;
+
+                    Text {
+                        text: "📑 目录";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #4e5f75;
+                    }
+
+                    ListView {
+                        width: parent.width;
+                        vertical-stretch: 1;
+
+                        for chapter[idx] in chapters: Rectangle {
+                            height: 36px;
+                            border-radius: 4px;
+                            background: idx == current_chapter_index ? #e3e8f0 : transparent;
+
+                            TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                clicked => {
+                                    select_chapter(idx);
+                                }
+                            }
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                Text {
+                                    text: chapter.title;
+                                    font-size: 13px;
+                                    color: idx == current_chapter_index ? #1565c0 : #1a2535;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: left;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 右侧：阅读区
+            Rectangle {
+                background: #ffffff;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #e0e0e0;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+
+                    // 章节标题
+                    Text {
+                        text: chapter_title;
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #1a2535;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #e0e0e0;
+                    }
+
+                    // 内容区（滚动）
+                    ScrollView {
+                        horizontal-stretch: 1;
+                        viewport-width: self.width;
+
+                        VerticalLayout {
+                            padding: 20px;
+                            Text {
+                                text: chapter_content;
+                                font-size: 16px;
+                                color: #2c3e50;
+                                wrap: word-wrap;
+                                horizontal-alignment: left;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #e0e0e0;
+                    }
+
+                    // 页码控制
+                    HorizontalLayout {
+                        height: 32px;
+                        alignment: center;
+                        spacing: 16px;
+
+                        Button {
+                            text: "◀ 上一页";
+                            width: 90px;
+                            enabled: current_page > 1;
+                            clicked => {
+                                prev_page();
+                            }
+                        }
+
+                        Text {
+                            text: "第 " + current_page + " / " + total_pages + " 页";
+                            font-size: 12px;
+                            color: #4e5f75;
+                            vertical-alignment: center;
+                        }
+
+                        Button {
+                            text: "下一页 ▶";
+                            width: 90px;
+                            enabled: current_page < total_pages;
+                            clicked => {
+                                next_page();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d0d8e4;
+        }
+
+        // ── 底部状态
+        HorizontalLayout {
+            height: 20px;
+            alignment: space-between;
+
+            Text {
+                text: status_message;
+                font-size: 11px;
+                color: #8a9bb0;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: epub_path;
+                font-size: 10px;
+                color: #b0bec5;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

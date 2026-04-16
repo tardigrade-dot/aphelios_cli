@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Error as E, Result};
-use candle_core::{Device, Tensor};
+use candle_core::{DType, Device, Tensor};
 use hound;
 use image::{DynamicImage, GenericImageView};
 use ort::ep::{ExecutionProviderDispatch, CPU};
@@ -81,6 +81,10 @@ pub fn load_image(
     // Create tensor: (1, 3, H, W)
     let tensor = Tensor::from_vec(normalized, (1, 3, height, width), device)?;
     Ok(tensor)
+}
+
+pub fn truncate_by_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
 }
 
 #[macro_export]
@@ -483,6 +487,18 @@ pub fn get_device() -> Device {
     get_default_device(false).unwrap_or_else(|err| {
         panic!("Device initialization failed: {err}");
     })
+}
+
+pub fn get_device_dtype() -> (Device, DType) {
+    let device = get_default_device(false).unwrap_or_else(|err| {
+        panic!("Device initialization failed: {err}");
+    });
+    let dtype = if device.is_cuda() || device.is_metal() {
+        DType::BF16
+    } else {
+        DType::F32
+    };
+    (device, dtype)
 }
 
 pub fn get_device_fallback() -> Device {

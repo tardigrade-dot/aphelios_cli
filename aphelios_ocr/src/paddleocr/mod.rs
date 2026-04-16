@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::base;
+use aphelios_core::utils::common;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::paddleocr_vl::{Config, PaddleOCRVLModel};
@@ -536,7 +536,7 @@ pub fn run_paddleocr(image: Vec<String>) -> Result<()> {
     let max_length = 1024;
     let task = Task::Ocr;
 
-    let device = base::get_default_device(false)?;
+    let device = common::get_default_device(false)?;
     let dtype = DType::BF16; // DType::F32
 
     let model_path = PathBuf::from(DEFAULT_MODEL_ID);

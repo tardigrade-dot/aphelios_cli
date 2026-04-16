@@ -5,7 +5,7 @@ use usls::{Annotator, Config, Device, Image, Model, RTDETR};
 use std::process::Command;
 use tempfile::TempDir;
 
-use crate::utils::base::RTDETR_V4_M;
+use crate::utils::common::RTDETR_V4_M;
 
 pub fn label_video_batch(video_path: &str) -> Result<String> {
     let config = Config::rtdetr_v4_m()

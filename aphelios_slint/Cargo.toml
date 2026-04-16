@@ -28,6 +28,12 @@ dirs = { workspace = true }
 indicatif = { workspace = true }
 tray-icon = { workspace = true }
 image = { workspace = true }
+zip = "2.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
 
 [build-dependencies]
 slint-build = "1.15.0"
@@ -55,8 +61,15 @@ name = "aphelios_slint"
 path = "src/main.rs"
 
 [features]
-profiling = ["aphelios_ocr/profiling"]
+profiling = [
+    "aphelios_ocr/profiling",
+    "aphelios_asr/profiling",
+    "aphelios_tts/profiling",
+    "aphelios_search/profiling",
+    "aphelios_core/profiling",
+]
 metal = [
+    "aphelios_search/metal",
     "aphelios_ocr/metal",
     "aphelios_asr/metal",
     "aphelios_tts/metal",

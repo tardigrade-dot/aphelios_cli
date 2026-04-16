@@ -1,0 +1,15 @@
+[package]
+name = "aphelios_mlx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+mlx-rs = { git = "https://github.com/oxiglade/mlx-rs", rev = "f4aa309" }
+anyhow = { workspace = true }
+
+[features]
+default = []
+metal = []
+profiling = []
