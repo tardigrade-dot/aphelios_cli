@@ -5,8 +5,7 @@ use aphelios_core::traits::{
 use aphelios_core::utils::progress::AppProgressBar;
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_search as search;
-use aphelios_tts::qwen_tts::qwen_tts::generate_voice;
-use aphelios_tts::qwen_tts::qwen_tts::generate_voice_batch_from_txt;
+use aphelios_tts::qwen_tts::{generate_voice, generate_voice_batch_from_txt};
 use tracing::info;
 
 /// OCR 服务的 Dolphin 实现

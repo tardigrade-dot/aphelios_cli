@@ -15,9 +15,7 @@
 //! ```
 
 use aphelios_core::utils::{common, logger};
-use aphelios_tts::models::talker::Speaker;
-use aphelios_tts::qwen_tts::qwen_tts::SynthesisOptions;
-use aphelios_tts::{audio::AudioPlayer, models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS};
+use aphelios_tts::qwen_tts::{AudioPlayer, Language, Qwen3TTS, Speaker, SynthesisOptions};
 use std::env;
 use std::time::Instant;
 

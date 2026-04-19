@@ -7,7 +7,6 @@
 //! - `speaker`: Speaker encoder (ECAPA-TDNN)
 //! - `codec`: Audio codec for encoding/decoding
 //! - `config`: Model configuration
-
 pub mod code_predictor;
 pub mod codec;
 pub mod config;

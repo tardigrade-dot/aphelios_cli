@@ -2,7 +2,7 @@ use aphelios_core::{
     measure_time,
     utils::{common, logger},
 };
-use aphelios_tts::{models::talker::Language, qwen_tts::qwen_tts::Qwen3TTS};
+use aphelios_tts::qwen_tts::{Language, Qwen3TTS, Speaker};
 
 fn main() -> anyhow::Result<()> {
     logger::init_logging();
@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         "语音合成 (批量 3 条)",
         model.synthesize_batch(
             &batch_texts,
-            aphelios_tts::qwen_tts::qwen_tts::Speaker::Ryan,
+            Speaker::Ryan,
             Language::Chinese,
             None
         )?

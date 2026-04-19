@@ -16,7 +16,7 @@ use candle_core::{Device, Module, Tensor, D};
 use candle_nn::{conv1d, Conv1d, Conv1dConfig, VarBuilder};
 
 use crate::audio::{AudioBuffer, MelSpectrogram};
-use crate::models::config::SpeakerEncoderConfig;
+use super::config::SpeakerEncoderConfig;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

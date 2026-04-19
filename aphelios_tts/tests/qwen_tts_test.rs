@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use aphelios_core::utils::{common, logger};
 use aphelios_tts::audio::AudioBuffer;
-use aphelios_tts::models::talker::Language;
-use aphelios_tts::qwen_tts::qwen_tts::{device_info, Qwen3TTS, SynthesisOptions};
+use aphelios_tts::qwen_tts::{device_info, Language, Qwen3TTS, SynthesisOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
