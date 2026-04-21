@@ -21,4 +21,4 @@ pub mod utils;
 
 // 重新导出常用类型
 pub use audio::{AudioLoader, AudioSaver, Resampler};
-pub use utils::{init_logging, ScopedTimer, Timer};
+pub use utils::init_logging;

@@ -1,3 +1,4 @@
+use aphelios_core::measure_time;
 use tracing::info;
 
 use anyhow::{Error as E, Result};
@@ -21,7 +22,7 @@ pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     let model_id = env::var("DOLPHIN_MODEL_PATH")
         .unwrap_or_else(|_| "/Volumes/sw/pretrained_models/Dolphin-v1.5".to_string());
 
-    let mut dm = DolphinModel::load_model(&model_id)?;
+    let mut dm = measure_time!("load model", DolphinModel::load_model(&model_id)?);
 
     let _ = &dm
         .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())

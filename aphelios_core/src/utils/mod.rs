@@ -10,4 +10,3 @@ pub mod token_output_stream;
 
 pub use logger::init_logging;
 pub use progress::AppProgressBar;
-pub use timer::{ScopedTimer, Timer};

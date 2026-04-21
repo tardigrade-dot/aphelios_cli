@@ -52,12 +52,11 @@ measureme = { workspace = true }
 rayon = { workspace = true }
 crossbeam-channel = "0.5"
 pdfium-render = { version = "0.9.0", features = ["bindings"] }
-
-dirs = "5"
-md5 = "0.7"
+dirs = { workspace = true }
+md5 = { workspace = true }
 
 [features]
-profiling = []
+profiling = ["aphelios_core/profiling"]
 cpu = ["aphelios_core/cpu"]
 metal = [
     "candle-core/metal",

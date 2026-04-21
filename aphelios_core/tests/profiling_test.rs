@@ -20,7 +20,7 @@ use tracing_tree::HierarchicalLayer;
 #[test]
 fn test_chrome_profiling() -> Result<()> {
     // 输出文件路径
-    #[cfg(feature = "profiling")]
+    // #[cfg(feature = "profiling")]
     let trace_file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("trace_profile.json");
 
     let filter = EnvFilter::try_from_default_env()
@@ -150,7 +150,7 @@ fn test_chrome_profiling2() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "profiling")]
+// #[cfg(feature = "profiling")]
 #[tracing::instrument(name = "fake_method")]
 fn fake_method(para: &str) {
     std::thread::sleep(Duration::from_millis(800));

@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::{
     audio::{MonoBuffer, ResampleQuality},
     demucs::processor::StereoAudio,
-    AudioLoader, Resampler, ScopedTimer,
+    AudioLoader, Resampler,
 };
 
 pub const SAMPLE_RATE: usize = 16000;
@@ -85,56 +85,6 @@ pub fn load_image(
 
 pub fn truncate_by_chars(s: &str, max_chars: usize) -> String {
     s.chars().take(max_chars).collect()
-}
-
-#[macro_export]
-macro_rules! measure_time {
-
-    ($desc:expr, $expr:expr) => {{
-        use tracing::{Level, info};
-        let __module = module_path!();
-        let __file = file!();
-        let __line = line!();
-
-        info!("start [{}] {} ({}:{})", __module, $desc, __file, __line);
-
-        let __start = std::time::Instant::now();
-        let __result = $expr;
-        let __duration = __start.elapsed();
-
-        info!(
-            "end [{}] {} -> type={} | {} ms",
-            __module,
-            $desc,
-            std::any::type_name_of_val(&__result),
-            __duration.as_millis()
-        );
-
-        __result
-    }};
-
-    ($($tt:tt)*) => {{
-        use tracing::{Level, info};
-
-        let __module = module_path!();
-        let __file = file!();
-        let __line = line!();
-
-        let __start = std::time::Instant::now();
-        let __result = { $($tt)* };
-        let __duration = __start.elapsed();
-
-        info!(
-            "exec  [{}] ({}:{}) -> type={} | {} ms",
-            __module,
-            __file,
-            __line,
-            std::any::type_name_of_val(&__result),
-            __duration.as_millis()
-        );
-
-        __result
-    }};
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -393,7 +343,6 @@ pub fn normalize_audio<P: AsRef<Path>>(
     audio_path: P,
     target_sample_rate: u32,
 ) -> Result<(MonoBuffer, Vec<f32>)> {
-    let _timer = ScopedTimer::new("normalize_audio");
     let audio_path = audio_path.as_ref();
 
     // Load audio using AudioLoader (supports multiple formats)

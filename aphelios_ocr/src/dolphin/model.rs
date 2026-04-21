@@ -250,8 +250,10 @@ impl DolphinModel {
         let copped_img_path = output_path.join("copped_img");
         let _ = fs::create_dir_all(&copped_img_path);
 
-        let img_iter =
-            dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate();
+        let img_iter = measure_time!(
+            "load images from pdf",
+            dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf()).enumerate()
+        );
         pin_mut!(img_iter);
 
         let mut pending_pages = VecDeque::new();
@@ -344,8 +346,6 @@ impl DolphinModel {
         copped_img_path: &PathBuf,
         output_path: &PathBuf,
     ) -> Result<()> {
-        #[cfg(feature = "profiling")]
-        let _stage1_batch_span = tracing::info_span!("stage1_batch").entered();
         let batch: Vec<PageTask> = pending_pages.drain(..batch_size).collect();
         if batch.is_empty() {
             return Ok(());
@@ -354,12 +354,10 @@ impl DolphinModel {
         let page_indexes: Vec<usize> = batch.iter().map(|page| page.idx).collect();
         info!("stage1 batch pages {:?}", page_indexes);
 
-        #[cfg(feature = "profiling")]
-        let _run_ocr_first_stage_batch_span =
-            tracing::info_span!("stage1-model", index = batch.len()).entered();
-        let layouts = self.run_ocr_first_stage_batch(&batch)?;
-        #[cfg(feature = "profiling")]
-        _run_ocr_first_stage_batch_span.exit();
+        let layouts = measure_time!(
+            "dolphin first stage batch",
+            self.run_ocr_first_stage_batch(&batch)?
+        );
 
         for (page, layout_str) in batch.into_iter().zip(layouts.into_iter()) {
             let output_file = output_path.join(format!("{}_page.txt", page.idx));
@@ -367,7 +365,6 @@ impl DolphinModel {
                 info!("{} exist, skip stage2 scheduling", output_file.display());
                 continue;
             }
-
             let page_clips =
                 self.build_clip_tasks_for_page(page.idx, page.image, &layout_str, copped_img_path)?;
             let clip_count = page_clips.len();
@@ -397,8 +394,6 @@ impl DolphinModel {
         output_path: &PathBuf,
         res_li: &mut Vec<String>,
     ) -> Result<()> {
-        #[cfg(feature = "profiling")]
-        let _stage2_batch_span = tracing::info_span!("stage2_batch").entered();
         let batch: Vec<ClipTask> = pending_clips.drain(..batch_size).collect();
         if batch.is_empty() {
             return Ok(());
@@ -446,13 +441,10 @@ impl DolphinModel {
             pixel_values_li.push(tensor);
         }
 
-        #[cfg(feature = "profiling")]
-        let _generate_text_batch_span =
-            tracing::info_span!("stage2-model", index = pixel_values_li.len()).entered();
-        let results =
-            self.generate_text_batch(&pixel_values_li, &prompts, pixel_values_li.len())?;
-        #[cfg(feature = "profiling")]
-        _generate_text_batch_span.exit();
+        let results = measure_time!(
+            "second stage",
+            self.generate_text_batch(&pixel_values_li, &prompts, pixel_values_li.len())?
+        );
 
         let mut completed_pages = Vec::new();
         for (clip, label, ocr_content) in

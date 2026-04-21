@@ -28,12 +28,7 @@ fn main() -> anyhow::Result<()> {
 
     let batch_audios = measure_time!(
         "语音合成 (批量 3 条)",
-        model.synthesize_batch(
-            &batch_texts,
-            Speaker::Ryan,
-            Language::Chinese,
-            None
-        )?
+        model.synthesize_batch(&batch_texts, Speaker::Ryan, Language::Chinese, None)?
     );
 
     for (i, audio) in batch_audios.into_iter().enumerate() {
