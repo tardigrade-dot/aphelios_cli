@@ -1,176 +1,43 @@
-import { Button } from "std-widgets.slint";
-import "./pingfang-sc-regular.ttf";
-
-export component MainMenu inherits Window {
-    width: 600px;
-    height: 640px;
-    title: "Aphelios AI Toolkit";
-    background: #eef1f6;
-    default-font-family: "PingFang SC";
-
-    in property <string> app_version;
-
-    callback open_ocr();
-    callback open_asr();
-    callback open_tts();
-    callback open_book_search();
-    callback open_text_align();
-    callback open_demucs();
-    callback open_epub_reader();
-    callback open_settings();
-    callback quit_app();
+export component HomePage inherits Rectangle {
+    in-out property <string> app_version;
 
     VerticalLayout {
-        padding: 28px;
-        spacing: 0;
-        alignment: start;
+        alignment: center;
+        spacing: 16px;
 
-        // ── 标题区
-        VerticalLayout {
-            spacing: 6px;
-            alignment: center;
-            padding-bottom: 24px;
+        Text {
+            text: "Aphelios AI";
+            font-size: 32px;
+            font-weight: 800;
+            color: #1a2535;
+            horizontal-alignment: center;
+        }
 
-            Text {
-                text: "Aphelios AI";
-                font-size: 26px;
-                font-weight: 800;
-                color: #1a2535;
-                horizontal-alignment: center;
-            }
+        Text {
+            text: "智能工具箱";
+            font-size: 16px;
+            color: #8a9bb0;
+            horizontal-alignment: center;
+        }
 
-            Text {
-                text: "智能工具箱";
-                font-size: 13px;
-                color: #8a9bb0;
-                horizontal-alignment: center;
-            }
+        Text {
+            text: "从左侧边栏选择功能模块";
+            font-size: 13px;
+            color: #b0bec5;
+            horizontal-alignment: center;
         }
 
         Rectangle {
             height: 1px;
             background: #d0d8e4;
+            width: 200px;
         }
 
-        // ── 功能列表（直接铺在背景上）
-        VerticalLayout {
-            padding-top: 16px;
-            padding-bottom: 16px;
-            spacing: 8px;
-
-            Text {
-                text: "功能模块";
-                font-size: 10px;
-                font-weight: 600;
-                color: #8a9bb0;
-            }
-
-            Button {
-                text: "📝  OCR 文字识别";
-                height: 44px;
-                clicked => {
-                    root.open_ocr();
-                }
-            }
-
-            Button {
-                text: "🎤  ASR 语音识别";
-                height: 44px;
-                clicked => {
-                    root.open_asr();
-                }
-            }
-
-            Button {
-                text: "🔊  TTS 语音合成";
-                height: 44px;
-                clicked => {
-                    root.open_tts();
-                }
-            }
-
-            Button {
-                text: "📚  书籍搜索";
-                height: 44px;
-                clicked => {
-                    root.open_book_search();
-                }
-            }
-
-            Button {
-                text: "📝  文本对齐 (SRT)";
-                height: 44px;
-                clicked => {
-                    root.open_text_align();
-                }
-            }
-
-            Button {
-                text: "🎵  Demucs 人声分离";
-                height: 44px;
-                clicked => {
-                    root.open_demucs();
-                }
-            }
-
-            Button {
-                text: "📖  EPUB 阅读器";
-                height: 44px;
-                clicked => {
-                    root.open_epub_reader();
-                }
-            }
-        }
-
-        Rectangle {
-            height: 1px;
-            background: #d0d8e4;
-        }
-
-        // ── 系统
-        VerticalLayout {
-            padding-top: 16px;
-            padding-bottom: 16px;
-            spacing: 8px;
-
-            Text {
-                text: "系统";
-                font-size: 10px;
-                font-weight: 600;
-                color: #8a9bb0;
-            }
-
-            Button {
-                text: "⚙️  系统设置";
-                height: 40px;
-                clicked => {
-                    root.open_settings();
-                }
-            }
-        }
-
-        // ── 底部
-        VerticalLayout {
-            vertical-stretch: 1;
-            alignment: end;
-
-            Rectangle {
-                height: 1px;
-                background: #d0d8e4;
-            }
-
-            HorizontalLayout {
-                alignment: space-between;
-                padding-top: 14px;
-
-                Text {
-                    text: "© 2026 Aphelios · v" + root.app_version;
-                    font-size: 11px;
-                    color: #b0bec5;
-                    vertical-alignment: center;
-                }
-
-            }
+        Text {
+            text: "v" + root.app_version;
+            font-size: 12px;
+            color: #b0bec5;
+            horizontal-alignment: center;
         }
     }
 }

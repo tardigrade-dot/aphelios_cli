@@ -1,17 +1,12 @@
 import { Button, LineEdit, ListView, ScrollView } from "std-widgets.slint";
-import "./pingfang-sc-regular.ttf";
 
 export struct ChapterItem {
     title: string,
     href: string,
 }
 
-export component EpubReaderWindow inherits Window {
-    width: 900px;
-    height: 700px;
-    title: "EPUB 阅读器";
+export component EpubReaderPage inherits Rectangle {
     background: #faf9f7;
-    default-font-family: "PingFang SC";
 
     in-out property <string> epub_path: "";
     in-out property <string> book_title: "未打开书籍";
@@ -24,7 +19,6 @@ export component EpubReaderWindow inherits Window {
     in-out property <int> current_page: 1;
     in-out property <bool> is_loading: false;
 
-    callback go_back();
     callback open_file();
     callback select_chapter(int);
     callback prev_page();
@@ -38,15 +32,7 @@ export component EpubReaderWindow inherits Window {
         // ── 头部
         HorizontalLayout {
             height: 28px;
-            alignment: space-between;
-
-            Button {
-                text: "← 返回";
-                width: 64px;
-                clicked => {
-                    go_back();
-                }
-            }
+            alignment: center;
 
             Text {
                 text: book_title;
@@ -55,23 +41,6 @@ export component EpubReaderWindow inherits Window {
                 color: #1a2535;
                 horizontal-alignment: center;
                 vertical-alignment: center;
-            }
-
-            // 状态胶囊
-            Rectangle {
-                width: 80px;
-                height: 20px;
-                border-radius: 10px;
-                background: is_loading ? #1565c0 : #d0d8e4;
-                animate background { duration: 250ms; }
-                Text {
-                    text: is_loading ? "加载中" : status_message;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: is_loading ? #ffffff : #4e5f75;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
             }
         }
 

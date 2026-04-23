@@ -6,12 +6,8 @@ import {
     ScrollView,
 } from "std-widgets.slint";
 
-export component AsrWindow inherits Window {
-    width: 800px;
-    height: 750px;
-    title: "Qwen3 ASR 语音识别";
+export component AsrPage inherits Rectangle {
     background: #eef1f6;
-    default-font-family: "PingFang SC";
 
     in-out property <string> asr_model_path;
     in-out property <string> aligner_model_path;
@@ -22,6 +18,9 @@ export component AsrWindow inherits Window {
     in-out property <string> status_message: "就绪";
     in-out property <bool> is_running: false;
     in-out property <float> progress: 0.0;
+    in-out property <string> stage_name: "VAD";
+    in-out property <int> stage_index: 1;
+    in-out property <int> total_stages: 3;
     in-out property <[string]> log_messages: ["Session started"];
     in-out property <string> transcription_result;
     in-out property <length> log_viewport_y: 0;
@@ -34,7 +33,6 @@ export component AsrWindow inherits Window {
     callback select_audio_file();
     callback select_output_path();
     callback start_asr();
-    callback go_back();
 
     VerticalLayout {
         padding: 20px;
@@ -44,14 +42,7 @@ export component AsrWindow inherits Window {
         // --- 标题栏 ---
         HorizontalLayout {
             height: 32px;
-            alignment: space-between;
-            Button {
-                text: "← 返回";
-                width: 70px;
-                clicked => {
-                    root.go_back();
-                }
-            }
+            alignment: center;
 
             Text {
                 text: "Parakeet ASR 语音识别";
@@ -85,7 +76,7 @@ export component AsrWindow inherits Window {
             border-radius: 8px;
             border-width: 1px;
             border-color: #e0e0e0;
-            vertical-stretch: 0; // 严禁拉伸
+            vertical-stretch: 0;
 
             VerticalLayout {
                 padding: 15px;
@@ -237,56 +228,44 @@ export component AsrWindow inherits Window {
         }
 
         // --- 进度（运行时） ---
-        if is_running: HorizontalLayout {
-            height: 16px;
-            spacing: 10px;
-            ProgressIndicator {
-                progress: progress;
-                height: 4px;
-                horizontal-stretch: 1;
-            }
+        if is_running: VerticalLayout {
+            spacing: 4px;
 
+            // 阶段提示
             Text {
-                text: Math.round(progress * 100) + "%";
+                text: "当前阶段 " + stage_name + " (" + stage_index + "/" + total_stages + ") 正在执行";
                 font-size: 11px;
-                font-weight: 600;
                 color: #1565c0;
-                width: 32px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-            }
-        }
-
-        // --- 识别结果展示区 (重点优化) ---
-        VerticalLayout {
-            spacing: 5px;
-            vertical-stretch: 2; // 给结果区更多的权重
-            Text {
-                text: "文本识别结果";
-                font-size: 12px;
-                color: #888;
+                font-weight: 600;
             }
 
-            Rectangle {
-                background: #ffffff;
-                border-radius: 6px;
-                border-width: 1px;
-                border-color: #e0e0e0;
-                // 这里使用 TextInput 或 LineEdit
-                LineEdit {
-                    text <=> transcription_result;
-                    // 使其看起来像多行文本域（如果 Slint 版本支持多行）
-                    // 若不支持多行，可以放一个多行组件
-                    placeholder-text: "等待识别任务开始...";
-                    enabled: true; // 允许用户复制
+            HorizontalLayout {
+                height: 16px;
+                spacing: 10px;
+                ProgressIndicator {
+                    progress: progress;
+                    height: 4px;
+                    horizontal-stretch: 1;
+                }
+
+                // 只在ASR阶段显示百分比
+                if stage_name == "ASR": Text {
+                    text: Math.round(progress * 100) + "%";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: #1565c0;
+                    width: 32px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
                 }
             }
         }
 
-        // --- 日志终端 (Geek风格) ---
+
+        // --- 日志终端 ---
         VerticalLayout {
             spacing: 5px;
-            vertical-stretch: 2; // 增加权重以占据更多下方空间
+            vertical-stretch: 2;
             Text {
                 text: "系统日志";
                 font-size: 11px;
@@ -296,8 +275,8 @@ export component AsrWindow inherits Window {
             Rectangle {
                 background: #1e1e1e;
                 border-radius: 6px;
-                min-height: 120px; // 保证起码有 5-8 行高度
-                clip: true; // 关键：防止文字溢出
+                min-height: 120px;
+                clip: true;
 
                 ScrollView {
                     viewport-y <=> log_viewport_y;
@@ -305,7 +284,7 @@ export component AsrWindow inherits Window {
                         alignment: start;
                         for msg in log_messages: Text {
                             text: "> " + msg;
-                            color: #a6e22e; // 经典的终端绿
+                            color: #a6e22e;
                             font-family: "PingFang SC";
                             font-size: 11px;
                             wrap: word-wrap;

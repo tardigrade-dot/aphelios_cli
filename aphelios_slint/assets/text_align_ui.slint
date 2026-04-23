@@ -1,11 +1,7 @@
 import { Button, LineEdit, ScrollView } from "std-widgets.slint";
 
-export component TextAlignWindow inherits Window {
-    width: 900px;
-    height: 750px;
-    title: "文本对齐 - 生成 SRT 字幕";
+export component TextAlignPage inherits Rectangle {
     background: #f6f6f6;
-    default-font-family: "PingFang SC";
 
     // 配置属性
     in-out property <string> model_path: "/Volumes/sw/onnx_models/sensevoice";
@@ -34,7 +30,6 @@ export component TextAlignWindow inherits Window {
     }
 
     // 回调事件
-    callback go_back();
     callback select_model_path();
     callback select_audio_file();
     callback select_target_text();
@@ -50,14 +45,7 @@ export component TextAlignWindow inherits Window {
         // --- 标题栏 ---
         HorizontalLayout {
             height: 32px;
-            alignment: space-between;
-            Button {
-                text: "← 返回";
-                width: 70px;
-                clicked => {
-                    root.go_back();
-                }
-            }
+            alignment: center;
 
             Text {
                 text: "文本对齐 - 生成 SRT 字幕";

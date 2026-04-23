@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use aphelios_core::audio::loader::AudioLoader;
+use aphelios_core::audio::types::AudioBuffer;
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
@@ -48,40 +50,25 @@ impl Default for AudioConfig {
 
 /// Load a WAV file, downmix to mono, normalize to f32 [-1,1], resample to target rate.
 pub fn load_wav(path: &Path, cfg: &AudioConfig) -> Result<Vec<f32>, AudioError> {
-    let reader = hound::WavReader::open(path)?;
-    let spec = reader.spec();
-    let channels = spec.channels as usize;
+    // Use AudioLoader to support multiple formats (WAV, MP3, etc.)
+    let loader = AudioLoader::new();
+    let buffer = loader.load(path).map_err(|e| AudioError::Resample(e.to_string()))?;
 
-    let raw_samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Int => {
-            let bits = spec.bits_per_sample;
-            let scale = 1.0 / (1i64 << (bits - 1)) as f32;
-            reader
-                .into_samples::<i32>()
-                .map(|s| s.map(|v| v as f32 * scale))
-                .collect::<std::result::Result<_, _>>()?
+    // Extract mono samples from AudioBuffer
+    let (mono, loaded_sample_rate) = match buffer {
+        AudioBuffer::Mono(mono_buf) => {
+            (mono_buf.samples.clone(), mono_buf.sample_rate)
         }
-        hound::SampleFormat::Float => reader
-            .into_samples::<f32>()
-            .collect::<std::result::Result<_, _>>()?,
+        // This should not happen as AudioLoader always returns mono
+        _ => return Err(AudioError::Resample("Unexpected multi-channel buffer".to_string())),
     };
 
-    // Downmix to mono
-    let mono: Vec<f32> = if channels == 1 {
-        raw_samples
-    } else {
-        raw_samples
-            .chunks_exact(channels)
-            .map(|ch| ch.iter().sum::<f32>() / channels as f32)
-            .collect()
-    };
-
-    // Resample if needed
-    if spec.sample_rate == cfg.sample_rate {
+    // Resample if needed (AudioLoader already resamples to 16000, but check anyway)
+    if loaded_sample_rate == cfg.sample_rate {
         return Ok(mono);
     }
 
-    resample(&mono, spec.sample_rate, cfg.sample_rate)
+    resample(&mono, loaded_sample_rate, cfg.sample_rate)
 }
 
 fn resample(samples: &[f32], from_hz: u32, to_hz: u32) -> Result<Vec<f32>, AudioError> {

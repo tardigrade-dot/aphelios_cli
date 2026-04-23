@@ -411,15 +411,6 @@ pub async fn write_to_file(content: &Vec<String>, save_file: &str) -> Result<()>
     Ok(())
 }
 
-pub const MODEL_PATH_TEXT_MATCHING: &str =
-    "/Volumes/sw/aphelios_cli_models/gguf_models/v5-small-text-matching-Q4_K_M.gguf";
-pub const MODEL_PATH_RETRIEVAL: &str =
-    "/Volumes/sw/aphelios_cli_models/gguf_models/v5-small-retrieval-Q4_K_M.gguf";
-pub const RERANKER_MODEL_PATH: &str =
-    "/Volumes/sw/aphelios_cli_models/gguf_models/jina-reranker-v3-Q4_K_M.gguf";
-pub const MODEL_PATH_JINA_TOKENIZER: &str =
-    "/Volumes/sw/aphelios_cli_models/gguf_models/tokenizer.json";
-
 pub const TEXIFY2_MODEL_DECODER_PATH: &str =
     "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/decoder_model_merged.onnx";
 pub const TEXIFY2_MODEL_ENCODER_PATH: &str =
@@ -428,8 +419,6 @@ pub const TEXIFY2_TOKENIZER_PATH: &str =
     "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/tokenizer.json";
 
 pub const RTDETR_V4_M: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/rtdetr_v4_m.onnx";
-
-pub const PARAKEET_TDT_MODEL_PATH: &str = "/Volumes/sw/onnx_models/parakeet-tdt-0.6b-v3-onnx";
 
 ///! without fallback
 pub fn get_device() -> Device {

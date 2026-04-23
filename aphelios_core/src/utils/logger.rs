@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::broadcast;
 use tracing::info;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -143,6 +143,9 @@ pub fn init_chrome_logging() -> Option<tracing_chrome::FlushGuard> {
 /// 全局广播通道，用于分发日志消息
 static LOG_TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 
+#[cfg(feature = "profiling")]
+static CHROME_GUARD: OnceLock<Mutex<tracing_chrome::FlushGuard>> = OnceLock::new();
+
 /// 获取广播通道的发送端
 fn get_log_tx() -> &'static broadcast::Sender<String> {
     LOG_TX.get_or_init(|| {
@@ -222,13 +225,37 @@ pub fn init_slint_logging() {
             .with_line_number(true)
             .compact();
 
-        let _ = tracing_subscriber::registry()
+        // 4. Chrome 性能跟踪层（仅在 profiling 特性启用时）
+        #[cfg(feature = "profiling")]
+        let chrome_layer = {
+            use tracing_chrome::ChromeLayerBuilder;
+            let trace_file = log_dir.join(format!("trace_profile_{}.json", timestamp));
+            let (chrome_layer, guard) = ChromeLayerBuilder::new()
+                .include_args(true)
+                .file(trace_file)
+                .build();
+            // 存储 guard 到全局变量，确保它在程序生命周期内存活
+            let _ = CHROME_GUARD.set(Mutex::new(guard));
+            chrome_layer
+        };
+
+        // 构建注册表，条件添加 Chrome 层
+        let registry = tracing_subscriber::registry()
             .with(filter)
             .with(stdout_layer)
             .with(slint_layer)
-            .with(file_layer)
-            .try_init();
+            .with(file_layer);
+
+        #[cfg(feature = "profiling")]
+        let registry = registry.with(chrome_layer);
+
+        let _ = registry.try_init();
 
         info!("Logging initialized. Log file: {:?}", log_file);
+        #[cfg(feature = "profiling")]
+        info!(
+            "Chrome tracing enabled. Trace file: {:?}",
+            log_dir.join(format!("trace_profile_{}.json", timestamp))
+        );
     });
 }

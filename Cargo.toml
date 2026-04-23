@@ -80,7 +80,7 @@ measureme = "12.0.3"
 eyre = "0.6.12"
 rayon = "1.10.0"
 parakeet-rs = { version = "0.3.3", features = ["sortformer"] }
-symphonia = "0.5.5"
+symphonia = { version = "0.5.5", features = ["mp3"] }
 byteorder = "1.5.0"
 rubato = "0.16.2"
 rustfft = "6.4.1"

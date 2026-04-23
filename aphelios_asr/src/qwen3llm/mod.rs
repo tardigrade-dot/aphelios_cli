@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Error as E, Result};
 
-use aphelios_core::utils::common::{get_device, get_device_dtype};
+use aphelios_core::utils::common::get_device_dtype;
 use aphelios_core::utils::token_output_stream::TokenOutputStream;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;

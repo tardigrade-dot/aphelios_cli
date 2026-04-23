@@ -5,12 +5,8 @@ import {
     ProgressIndicator,
 } from "std-widgets.slint";
 
-export component TtsWindow inherits Window {
-    width: 800px;
-    height: 720px;
-    title: "Qwen3 TTS";
+export component TtsPage inherits Rectangle {
     background: #eef1f6;
-    default-font-family: "PingFang SC";
 
     in-out property <string> input_text;
     in-out property <int> input_text_length: 0;
@@ -42,7 +38,6 @@ export component TtsWindow inherits Window {
     callback start_tts();
     callback start_batch_tts();
     callback play_audio();
-    callback go_back();
 
     VerticalLayout {
         padding: 16px;
@@ -52,15 +47,7 @@ export component TtsWindow inherits Window {
         // ── 头部
         HorizontalLayout {
             height: 28px;
-            alignment: space-between;
-
-            Button {
-                text: "← 返回";
-                width: 64px;
-                clicked => {
-                    root.go_back();
-                }
-            }
+            alignment: center;
 
             Text {
                 text: "Qwen3 TTS  语音合成中心";

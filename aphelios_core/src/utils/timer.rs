@@ -59,7 +59,9 @@ macro_rules! measure_time {
     //   measure_time!(expr?)
     // ----------------------------------------------------------------
     ($expr:expr) => {
-        $crate::measure_time!(::std::concat!(::std::file!(), ":", ::std::line!()), $expr)
+        $crate::measure_time!(::std::concat!(::std::file!(), ":", ::std::line!()), {
+            $expr
+        })
     };
 }
 

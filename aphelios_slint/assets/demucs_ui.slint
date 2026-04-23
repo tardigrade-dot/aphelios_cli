@@ -5,12 +5,8 @@ import {
     ProgressIndicator,
 } from "std-widgets.slint";
 
-export component DemucsWindow inherits Window {
-    width: 800px;
-    height: 720px;
-    title: "Demucs 人声分离";
+export component DemucsPage inherits Rectangle {
     background: #eef1f6;
-    default-font-family: "PingFang SC";
 
     in-out property <string> audio_file_path;
     in-out property <string> model_path;
@@ -32,7 +28,6 @@ export component DemucsWindow inherits Window {
     callback select_output_dir();
     callback toggle_separation_mode();
     callback start_separation();
-    callback go_back();
 
     VerticalLayout {
         padding: 16px;
@@ -42,15 +37,7 @@ export component DemucsWindow inherits Window {
         // ── 头部
         HorizontalLayout {
             height: 28px;
-            alignment: space-between;
-
-            Button {
-                text: "← 返回";
-                width: 64px;
-                clicked => {
-                    root.go_back();
-                }
-            }
+            alignment: center;
 
             Text {
                 text: "🎵 Demucs 人声分离中心";
@@ -59,7 +46,7 @@ export component DemucsWindow inherits Window {
                 color: #1a2535;
                 vertical-alignment: center;
             }
-
+            
             Rectangle {
                 width: 86px;
                 height: 20px;

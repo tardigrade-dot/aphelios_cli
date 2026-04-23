@@ -11,7 +11,7 @@ use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphErr;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+use symphonia::core::meta::{Limit, MetadataOptions};
 use symphonia::core::probe::Hint;
 
 use super::types::{AudioBuffer, MonoBuffer};
@@ -75,11 +75,15 @@ impl AudioLoader {
             hint.with_extension(ext);
         }
 
+        let metadata_options = MetadataOptions {
+            limit_metadata_bytes: Limit::Maximum(0), // Disable metadata reading to avoid ID3v2 issues
+            ..Default::default()
+        };
         let probed = symphonia::default::get_probe().format(
             &hint,
             mss,
             &FormatOptions::default(),
-            &MetadataOptions::default(),
+            &metadata_options,
         )?;
 
         let mut format = probed.format;
@@ -102,10 +106,8 @@ impl AudioLoader {
             .ok_or_else(|| anyhow::anyhow!("missing channels"))?
             .count();
 
-        let mut decoder = symphonia::default::get_codecs().make(
-            &track.codec_params,
-            &DecoderOptions::default(),
-        )?;
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())?;
 
         let mut per_channel: Vec<Vec<f32>> = vec![Vec::new(); channels];
 

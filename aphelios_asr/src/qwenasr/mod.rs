@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use anyhow::Result;
-use aphelios_core::utils::common::{get_device, truncate_by_chars};
+use aphelios_core::{
+    measure_time,
+    utils::common::{get_device, truncate_by_chars},
+};
 use candle_core::Tensor;
 use tracing::info;
 
@@ -174,19 +177,8 @@ pub async fn qwen3asr_with_vad(
                     audio_ms / 1000.0
                 );
 
-                #[cfg(feature = "profiling")]
-                let transcribe_start = std::time::Instant::now();
-                let (text, timings) = pipeline.transcribe_mel(&mel, audio_ms)?;
-                #[cfg(feature = "profiling")]
-                {
-                    let transcribe_duration = transcribe_start.elapsed();
-                    info!(
-                        "[profiling] Batch {}/{} transcribe duration: {:.2}s",
-                        i + 1,
-                        batch_size,
-                        transcribe_duration.as_secs_f64()
-                    );
-                }
+                let desc = format!("{}, {},", i + 1, batch_size,);
+                let (text, timings) = measure_time!(desc, pipeline.transcribe_mel(&mel, audio_ms)?);
                 let preview = truncate_by_chars(&text, 20);
                 info!(
                     "[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...",
@@ -215,7 +207,6 @@ pub async fn qwen3asr_with_vad(
         "[Phase 1] Transcription complete. Total batches: {}",
         transcription_batches.len()
     );
-    info!("[Phase 1] Final text: {}", final_text);
 
     // ==================== Phase 2: Alignment ====================
     info!(
@@ -234,19 +225,7 @@ pub async fn qwen3asr_with_vad(
     for (i, batch) in transcription_batches.iter().enumerate() {
         info!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size);
 
-        #[cfg(feature = "profiling")]
-        let align_start = std::time::Instant::now();
-        let mut items = aligner.align_samples(&batch.pcm, &batch.text, language)?;
-        #[cfg(feature = "profiling")]
-        {
-            let align_duration = align_start.elapsed();
-            info!(
-                "[profiling] Batch {}/{} align duration: {:.2}s",
-                i + 1,
-                batch_size,
-                align_duration.as_secs_f64()
-            );
-        }
+        let mut items = measure_time!(aligner.align_samples(&batch.pcm, &batch.text, language)?);
 
         // Convert to absolute timestamps by adding the segment start time
         for item in &mut items {
@@ -272,7 +251,6 @@ pub async fn qwen3asr_with_vad(
             item.start_time, item.end_time, item.text
         ));
     }
-    info!("{}", &items_info[..10].join(""));
 
     // Generate SRT file
     let srt_content = generate_srt_from_aligned_batches(&aligned_batches);
@@ -427,8 +405,8 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
         return Vec::new();
     }
 
-    const MIN_CHARS: usize = 80;
-    const MAX_CHARS: usize = 120;
+    const MIN_CHARS: usize = 40;
+    const MAX_CHARS: usize = 100;
 
     let finalize_range =
         |entries: &mut Vec<SubtitleEntry>, tokens: &[SubtitleToken], start: usize, end: usize| {

@@ -1,0 +1,629 @@
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
+import "./pingfang-sc-regular.ttf";
+
+import { HomePage } from "./main_menu.slint";
+import { OcrPage } from "./ocr_ui.slint";
+import { AsrPage } from "./asr_ui.slint";
+import { TtsPage } from "./tts_ui.slint";
+import { SettingsPage } from "./settings_ui.slint";
+import { BookItem, BookSearchPage } from "./book_search_ui.slint";
+import { TextAlignPage } from "./text_align_ui.slint";
+import { DemucsPage } from "./demucs_ui.slint";
+import { ChapterItem, EpubReaderPage } from "./epub_reader_ui.slint";
+
+export component AppWindow inherits Window {
+    width: 1024px;
+    height: 760px;
+    title: "Aphelios AI Toolkit";
+    default-font-family: "PingFang SC";
+
+    in-out property <string> current_page: "home";
+    in-out property <string> app_version: "";
+
+    // ── OCR 页面属性 ──
+    in-out property <string> ocr-model-path: "/Volumes/sw/pretrained_models/Dolphin-v1.5";
+    in-out property <string> ocr-input-file-path;
+    in-out property <string> ocr-output-dir-path: "/Users/larry/Documents/resources";
+    in-out property <[string]> ocr-log-messages: ["Ready", "Waiting for input..."];
+    in-out property <bool> ocr-is-running: false;
+    in-out property <string> ocr-status-message: "";
+    in-out property <length> ocr-log-viewport-y: 0;
+    callback ocr-scroll-to-bottom();
+    ocr-scroll-to-bottom => { root.ocr-log-viewport-y = -100000px; }
+    callback ocr-select-input-file();
+    callback ocr-select-output-dir();
+    callback ocr-select-model-path();
+    callback ocr-start-ocr();
+    callback ocr-stop-ocr();
+
+    // ── ASR 页面属性 ──
+    in-out property <string> asr-model-path;
+    in-out property <string> asr-aligner-model-path;
+    in-out property <string> asr-vad-model-path;
+    in-out property <string> asr-audio-file-path;
+    in-out property <string> asr-output-path;
+    in-out property <string> asr-language: "Chinese";
+    in-out property <string> asr-status-message: "就绪";
+    in-out property <bool> asr-is-running: false;
+    in-out property <float> asr-progress: 0.0;
+    in-out property <string> asr-stage-name: "VAD";
+    in-out property <int> asr-stage-index: 1;
+    in-out property <int> asr-total-stages: 3;
+    in-out property <[string]> asr-log-messages: ["Session started"];
+    in-out property <string> asr-transcription-result;
+    in-out property <length> asr-log-viewport-y: 0;
+    callback asr-scroll-to-bottom();
+    asr-scroll-to-bottom => { root.asr-log-viewport-y = -100000px; }
+    callback asr-select-audio-file();
+    callback asr-select-output-path();
+    callback asr-start-asr();
+
+    // ── TTS 页面属性 ──
+    in-out property <string> tts-input-text;
+    in-out property <int> tts-input-text-length: 0;
+    in-out property <string> tts-txt-file-path;
+    in-out property <int> tts-txt-line-count: 0;
+    in-out property <string> tts-model-path;
+    in-out property <string> tts-output-path;
+    in-out property <string> tts-ref-audio-path;
+    in-out property <string> tts-ref-text;
+    in-out property <bool> tts-is-batch-mode: false;
+    in-out property <string> tts-status-message: "就绪";
+    in-out property <bool> tts-is-running: false;
+    in-out property <bool> tts-has-audio: false;
+    in-out property <float> tts-progress: 0.0;
+    in-out property <[string]> tts-log-messages: ["Session Initialized"];
+    in-out property <length> tts-log-viewport-y: 0;
+    callback tts-scroll-to-bottom();
+    tts-scroll-to-bottom => { root.tts-log-viewport-y = -100000px; }
+    callback tts-text-changed(string);
+    callback tts-select-model-path();
+    callback tts-select-output-path();
+    callback tts-select-ref-audio();
+    callback tts-select-txt-file();
+    callback tts-start-tts();
+    callback tts-start-batch-tts();
+    callback tts-play-audio();
+
+    // ── 书籍搜索页面属性 ──
+    in-out property <string> bs-books-dir: "/Volumes/sw/books";
+    in-out property <string> bs-status-message: "就绪";
+    in-out property <int> bs-book-count: 0;
+    in-out property <bool> bs-is-indexing: false;
+    in-out property <[BookItem]> bs-search-results: [];
+    in-out property <string> bs-search-mode: "keyword";
+    in-out property <string> bs-index-status-text: "";
+    in-out property <bool> bs-has-index: false;
+    in-out property <bool> bs-has-semantic-index: false;
+    callback bs-build-index();
+    callback bs-search-books(string);
+    callback bs-open-book(string);
+    callback bs-reveal-in-finder(string);
+
+    // ── 文本对齐页面属性 ──
+    in-out property <string> ta-model-path: "/Volumes/sw/onnx_models/sensevoice";
+    in-out property <string> ta-audio-file-path;
+    in-out property <string> ta-target-text-path;
+    in-out property <string> ta-output-path;
+    in-out property <string> ta-min-segment-length: "80";
+    in-out property <string> ta-max-segment-length: "120";
+    in-out property <string> ta-status-message: "就绪";
+    in-out property <bool> ta-is-running: false;
+    in-out property <[string]> ta-log-messages: ["Session started"];
+    in-out property <string> ta-srt-preview;
+    in-out property <length> ta-log-viewport-y: 0;
+    callback ta-scroll-to-bottom();
+    ta-scroll-to-bottom => { root.ta-log-viewport-y = -100000px; }
+    callback ta-scroll-preview-to-bottom();
+    callback ta-select-model-path();
+    callback ta-select-audio-file();
+    callback ta-select-target-text();
+    callback ta-select-output-path();
+    callback ta-start-alignment();
+    callback ta-stop-alignment();
+
+    // ── Demucs 页面属性 ──
+    in-out property <string> demucs-audio-file-path;
+    in-out property <string> demucs-model-path;
+    in-out property <string> demucs-output-dir;
+    in-out property <string> demucs-separation-mode: "vocals_instrumental";
+    in-out property <string> demucs-status-message: "就绪";
+    in-out property <bool> demucs-is-running: false;
+    in-out property <float> demucs-progress: 0.0;
+    in-out property <[string]> demucs-log-messages: ["Session Initialized"];
+    in-out property <length> demucs-log-viewport-y: 0;
+    callback demucs-scroll-to-bottom();
+    demucs-scroll-to-bottom => { root.demucs-log-viewport-y = -100000px; }
+    callback demucs-select-audio-file();
+    callback demucs-select-model-path();
+    callback demucs-select-output-dir();
+    callback demucs-toggle-separation-mode();
+    callback demucs-start-separation();
+
+    // ── EPUB 阅读器页面属性 ──
+    in-out property <string> epub-path: "";
+    in-out property <string> epub-book-title: "未打开书籍";
+    in-out property <string> epub-status-message: "就绪";
+    in-out property <[ChapterItem]> epub-chapters: [];
+    in-out property <int> epub-current-chapter-index: 0;
+    in-out property <string> epub-chapter-title: "";
+    in-out property <string> epub-chapter-content: "";
+    in-out property <int> epub-total-pages: 1;
+    in-out property <int> epub-current-page: 1;
+    in-out property <bool> epub-is-loading: false;
+    callback epub-open-file();
+    callback epub-select-chapter(int);
+    callback epub-prev-page();
+    callback epub-next-page();
+    callback epub-go-to-page(int);
+
+    // ── 设置页面属性 ──
+    in-out property <string> settings-ocr-model-path;
+    in-out property <string> settings-ocr-output-dir;
+    in-out property <string> settings-asr-model-path;
+    in-out property <string> settings-asr-aligner-model-path;
+    in-out property <string> settings-asr-vad-model-path;
+    in-out property <string> settings-srt-model-path;
+    in-out property <string> settings-srt-min-segment-length: "80";
+    in-out property <string> settings-srt-max-segment-length: "120";
+    in-out property <string> settings-tts-model-path;
+    in-out property <string> settings-tts-output-path;
+    in-out property <string> settings-tts-ref-audio-path;
+    in-out property <string> settings-tts-ref-text;
+    in-out property <string> settings-demucs-model-path;
+    in-out property <string> settings-books-dir;
+    in-out property <string> settings-harrier-model-path;
+    in-out property <string> settings-save-status-message: "";
+    callback settings-save();
+    callback settings-select-ocr-model-path();
+    callback settings-select-ocr-output-dir();
+    callback settings-select-asr-model-path();
+    callback settings-select-asr-aligner-model-path();
+    callback settings-select-asr-vad-model-path();
+    callback settings-select-srt-model-path();
+    callback settings-select-tts-model-path();
+    callback settings-select-tts-output-path();
+    callback settings-select-tts-ref-audio();
+    callback settings-select-demucs-model-path();
+    callback settings-select-books-dir();
+    callback settings-select-harrier-model-path();
+
+    // ── 主布局：侧边栏 + 内容 ──
+    HorizontalLayout {
+        spacing: 0;
+
+        // ═══════ 左侧侧边栏 ═══════
+        Rectangle {
+            width: 220px;
+            background: #1a2535;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 0;
+
+                // 应用标题
+                Text {
+                    text: "Aphelios AI";
+                    font-size: 20px;
+                    font-weight: 800;
+                    color: #ffffff;
+                }
+                Text {
+                    text: "智能工具箱";
+                    font-size: 11px;
+                    color: #8a9bb0;
+                }
+
+                Rectangle { height: 1px; background: #2a3a4f; }
+
+                // 导航按钮
+                VerticalLayout {
+                    padding-top: 12px;
+                    spacing: 4px;
+
+                    // 功能模块组标题
+                    Text {
+                        text: "功能模块";
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: #5a7a9a;
+                    }
+
+                    // 首页
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "home" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "home"; }
+                            Text {
+                                text: "🏠  首页";
+                                color: current_page == "home" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // OCR
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "ocr" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "ocr"; }
+                            Text {
+                                text: "📝  OCR 文字识别";
+                                color: current_page == "ocr" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // ASR
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "asr" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "asr"; }
+                            Text {
+                                text: "🎤  ASR 语音识别";
+                                color: current_page == "asr" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // TTS
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "tts" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "tts"; }
+                            Text {
+                                text: "🔊  TTS 语音合成";
+                                color: current_page == "tts" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // 书籍搜索
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "book_search" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "book_search"; }
+                            Text {
+                                text: "📚  书籍搜索";
+                                color: current_page == "book_search" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // 文本对齐
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "text_align" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "text_align"; }
+                            Text {
+                                text: "📝  文本对齐 (SRT)";
+                                color: current_page == "text_align" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // Demucs
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "demucs" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "demucs"; }
+                            Text {
+                                text: "🎵  Demucs 人声分离";
+                                color: current_page == "demucs" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // EPUB 阅读器
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "epub_reader" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "epub_reader"; }
+                            Text {
+                                text: "📖  EPUB 阅读器";
+                                color: current_page == "epub_reader" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+
+                    // 分隔线
+                    Rectangle { height: 1px; background: #2a3a4f; }
+
+                    // 系统组标题
+                    Text {
+                        text: "系统";
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: #5a7a9a;
+                    }
+
+                    // 设置
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: current_page == "settings" ? #2a4a6a : transparent;
+                        TouchArea {
+                            clicked => { current_page = "settings"; }
+                            Text {
+                                text: "⚙️  系统设置";
+                                color: current_page == "settings" ? #ffffff : #b0c4d8;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+                }
+
+                // 底部版本
+                VerticalLayout {
+                    vertical-stretch: 1;
+                    alignment: end;
+                    Text {
+                        text: "v" + root.app_version;
+                        font-size: 10px;
+                        color: #4a5a6f;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // ═══════ 右侧内容区域 ═══════
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #eef1f6;
+            clip: true;
+
+            // 首页
+            HomePage {
+                visible: current_page == "home";
+                app_version <=> root.app_version;
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+            }
+
+            // OCR
+            OcrPage {
+                visible: current_page == "ocr";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                model_path <=> root.ocr-model-path;
+                input_file_path <=> root.ocr-input-file-path;
+                output_dir_path <=> root.ocr-output-dir-path;
+                log_messages <=> root.ocr-log-messages;
+                is_running <=> root.ocr-is-running;
+                status_message <=> root.ocr-status-message;
+                log_viewport_y <=> root.ocr-log-viewport-y;
+                scroll_to_bottom => { root.ocr-scroll-to-bottom(); }
+                select_input_file => { root.ocr-select-input-file(); }
+                select_output_dir => { root.ocr-select-output-dir(); }
+                select_model_path => { root.ocr-select-model-path(); }
+                start_ocr => { root.ocr-start-ocr(); }
+                stop_ocr => { root.ocr-stop-ocr(); }
+            }
+
+            // ASR
+            AsrPage {
+                visible: current_page == "asr";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                asr_model_path <=> root.asr-model-path;
+                aligner_model_path <=> root.asr-aligner-model-path;
+                vad_model_path <=> root.asr-vad-model-path;
+                audio_file_path <=> root.asr-audio-file-path;
+                output_path <=> root.asr-output-path;
+                language <=> root.asr-language;
+                status_message <=> root.asr-status-message;
+                is_running <=> root.asr-is-running;
+                progress <=> root.asr-progress;
+                stage_name <=> root.asr-stage-name;
+                stage_index <=> root.asr-stage-index;
+                total_stages <=> root.asr-total-stages;
+                log_messages <=> root.asr-log-messages;
+                transcription_result <=> root.asr-transcription-result;
+                log_viewport_y <=> root.asr-log-viewport-y;
+                scroll_to_bottom => { root.asr-scroll-to-bottom(); }
+                select_audio_file => { root.asr-select-audio-file(); }
+                select_output_path => { root.asr-select-output-path(); }
+                start_asr => { root.asr-start-asr(); }
+            }
+
+            // TTS
+            TtsPage {
+                visible: current_page == "tts";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                input_text <=> root.tts-input-text;
+                input_text_length <=> root.tts-input-text-length;
+                txt_file_path <=> root.tts-txt-file-path;
+                txt_line_count <=> root.tts-txt-line-count;
+                model_path <=> root.tts-model-path;
+                output_path <=> root.tts-output-path;
+                ref_audio_path <=> root.tts-ref-audio-path;
+                ref_text <=> root.tts-ref-text;
+                is_batch_mode <=> root.tts-is-batch-mode;
+                status_message <=> root.tts-status-message;
+                is_running <=> root.tts-is-running;
+                has_audio <=> root.tts-has-audio;
+                progress <=> root.tts-progress;
+                log_messages <=> root.tts-log-messages;
+                log_viewport_y <=> root.tts-log-viewport-y;
+                scroll_to_bottom => { root.tts-scroll-to-bottom(); }
+                text_changed(text) => { root.tts-text-changed(text); }
+                select_model_path => { root.tts-select-model-path(); }
+                select_output_path => { root.tts-select-output-path(); }
+                select_ref_audio => { root.tts-select-ref-audio(); }
+                select_txt_file => { root.tts-select-txt-file(); }
+                start_tts => { root.tts-start-tts(); }
+                start_batch_tts => { root.tts-start-batch-tts(); }
+                play_audio => { root.tts-play-audio(); }
+            }
+
+            // 书籍搜索
+            BookSearchPage {
+                visible: current_page == "book_search";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                books_dir <=> root.bs-books-dir;
+                status_message <=> root.bs-status-message;
+                book_count <=> root.bs-book-count;
+                is_indexing <=> root.bs-is-indexing;
+                search_results <=> root.bs-search-results;
+                search_mode <=> root.bs-search-mode;
+                index_status_text <=> root.bs-index-status-text;
+                has_index <=> root.bs-has-index;
+                has_semantic_index <=> root.bs-has-semantic-index;
+                build_index => { root.bs-build-index(); }
+                search_books(query) => { root.bs-search-books(query); }
+                open_book(path) => { root.bs-open-book(path); }
+                reveal_in_finder(path) => { root.bs-reveal-in-finder(path); }
+            }
+
+            // 文本对齐
+            TextAlignPage {
+                visible: current_page == "text_align";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                model_path <=> root.ta-model-path;
+                audio_file_path <=> root.ta-audio-file-path;
+                target_text_path <=> root.ta-target-text-path;
+                output_path <=> root.ta-output-path;
+                min_segment_length <=> root.ta-min-segment-length;
+                max_segment_length <=> root.ta-max-segment-length;
+                status_message <=> root.ta-status-message;
+                is_running <=> root.ta-is-running;
+                log_messages <=> root.ta-log-messages;
+                log_viewport_y <=> root.ta-log-viewport-y;
+                srt_preview <=> root.ta-srt-preview;
+                scroll_to_bottom => { root.ta-scroll-to-bottom(); }
+                scroll_preview_to_bottom => { root.ta-scroll-preview-to-bottom(); }
+                select_model_path => { root.ta-select-model-path(); }
+                select_audio_file => { root.ta-select-audio-file(); }
+                select_target_text => { root.ta-select-target-text(); }
+                select_output_path => { root.ta-select-output-path(); }
+                start_alignment => { root.ta-start-alignment(); }
+                stop_alignment => { root.ta-stop-alignment(); }
+            }
+
+            // Demucs
+            DemucsPage {
+                visible: current_page == "demucs";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                audio_file_path <=> root.demucs-audio-file-path;
+                model_path <=> root.demucs-model-path;
+                output_dir <=> root.demucs-output-dir;
+                separation_mode <=> root.demucs-separation-mode;
+                status_message <=> root.demucs-status-message;
+                is_running <=> root.demucs-is-running;
+                progress <=> root.demucs-progress;
+                log_messages <=> root.demucs-log-messages;
+                log_viewport_y <=> root.demucs-log-viewport-y;
+                scroll_to_bottom => { root.demucs-scroll-to-bottom(); }
+                select_audio_file => { root.demucs-select-audio-file(); }
+                select_model_path => { root.demucs-select-model-path(); }
+                select_output_dir => { root.demucs-select-output-dir(); }
+                toggle_separation_mode => { root.demucs-toggle-separation-mode(); }
+                start_separation => { root.demucs-start-separation(); }
+            }
+
+            // EPUB 阅读器
+            EpubReaderPage {
+                visible: current_page == "epub_reader";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                epub_path <=> root.epub-path;
+                book_title <=> root.epub-book-title;
+                status_message <=> root.epub-status-message;
+                chapters <=> root.epub-chapters;
+                current_chapter_index <=> root.epub-current-chapter-index;
+                chapter_title <=> root.epub-chapter-title;
+                chapter_content <=> root.epub-chapter-content;
+                total_pages <=> root.epub-total-pages;
+                current_page <=> root.epub-current-page;
+                is_loading <=> root.epub-is-loading;
+                open_file => { root.epub-open-file(); }
+                select_chapter(index) => { root.epub-select-chapter(index); }
+                prev_page => { root.epub-prev-page(); }
+                next_page => { root.epub-next-page(); }
+                go_to_page(page) => { root.epub-go-to-page(page); }
+            }
+
+            // 设置
+            SettingsPage {
+                visible: current_page == "settings";
+                x: 0px; y: 0px;
+                width: 100%; height: 100%;
+                ocr_model_path <=> root.settings-ocr-model-path;
+                ocr_output_dir <=> root.settings-ocr-output-dir;
+                asr_model_path <=> root.settings-asr-model-path;
+                asr_aligner_model_path <=> root.settings-asr-aligner-model-path;
+                asr_vad_model_path <=> root.settings-asr-vad-model-path;
+                srt_model_path <=> root.settings-srt-model-path;
+                srt_min_segment_length <=> root.settings-srt-min-segment-length;
+                srt_max_segment_length <=> root.settings-srt-max-segment-length;
+                tts_model_path <=> root.settings-tts-model-path;
+                tts_output_path <=> root.settings-tts-output-path;
+                tts_ref_audio_path <=> root.settings-tts-ref-audio-path;
+                tts_ref_text <=> root.settings-tts-ref-text;
+                demucs_model_path <=> root.settings-demucs-model-path;
+                books_dir <=> root.settings-books-dir;
+                harrier_model_path <=> root.settings-harrier-model-path;
+                save_status_message <=> root.settings-save-status-message;
+                save_settings => { root.settings-save(); }
+                select_ocr_model_path => { root.settings-select-ocr-model-path(); }
+                select_ocr_output_dir => { root.settings-select-ocr-output-dir(); }
+                select_asr_model_path => { root.settings-select-asr-model-path(); }
+                select_asr_aligner_model_path => { root.settings-select-asr-aligner-model-path(); }
+                select_asr_vad_model_path => { root.settings-select-asr-vad-model-path(); }
+                select_srt_model_path => { root.settings-select-srt-model-path(); }
+                select_tts_model_path => { root.settings-select-tts-model-path(); }
+                select_tts_output_path => { root.settings-select-tts-output-path(); }
+                select_tts_ref_audio => { root.settings-select-tts-ref-audio(); }
+                select_demucs_model_path => { root.settings-select-demucs-model-path(); }
+                select_books_dir => { root.settings-select-books-dir(); }
+                select_harrier_model_path => { root.settings-select-harrier-model-path(); }
+            }
+        }
+    }
+}
