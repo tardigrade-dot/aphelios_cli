@@ -20,18 +20,12 @@ impl SearchLogic {
         self.ctx.search_engine.get_index_status()
     }
 
-    pub fn build_index(
-        &self,
-        book_dir: String,
-        on_complete: impl Fn(Result<usize>) + Send + 'static,
-    ) {
-        let config = aphelios_search::IndexConfig::from_book_dir(&book_dir);
+    /// Scan books directory in background thread.
+    pub fn rescan_books(&self, on_complete: impl Fn(Result<usize>) + Send + 'static) {
+        let engine = self.ctx.search_engine.clone();
 
         std::thread::spawn(move || {
-            let result = match aphelios_search::build_index(&config, None) {
-                Ok(count) => Ok(count),
-                Err(e) => Err(e),
-            };
+            let result = engine.build_index(None);
             on_complete(result);
         });
     }

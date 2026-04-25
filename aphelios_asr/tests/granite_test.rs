@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aphelios_asr::granite::GraniteModel;
+use aphelios_asr::granite::llm::GraniteModel;
 use aphelios_core::utils::logger;
 
 #[test]

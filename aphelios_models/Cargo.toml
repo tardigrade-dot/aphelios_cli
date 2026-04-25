@@ -63,6 +63,9 @@ parakeet-rs = { workspace = true }
 rbook = "0.7.5"
 boko = "0.2.0"
 
+zhconv = "0.4"
+lazy_static = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3"
 

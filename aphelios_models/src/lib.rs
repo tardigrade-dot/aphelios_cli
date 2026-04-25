@@ -1,5 +1,6 @@
 pub mod c1;
 pub mod kokoro;
+pub mod search;
 
 use candle_core::backend::BackendDevice;
 use candle_core::Device;

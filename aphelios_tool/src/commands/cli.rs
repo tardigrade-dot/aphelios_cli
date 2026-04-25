@@ -13,7 +13,7 @@ pub enum Commands {
         path: String,
     },
     Base {
-        path: String,
+        path: Option<String>,
         name: String,
     },
     Run {

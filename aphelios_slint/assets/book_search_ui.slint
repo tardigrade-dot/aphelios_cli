@@ -21,14 +21,10 @@ export component BookSearchPage inherits Rectangle {
     in-out property <string> books_dir: "/Volumes/sw/books";
     in-out property <string> status_message: "就绪";
     in-out property <int> book_count: 0;
-    in-out property <bool> is_indexing: false;
     in-out property <int> selected_index: -1;
     in-out property <string> selected_file_path: "";
     in-out property <[BookItem]> search_results: [];
     in-out property <string> search_mode: "keyword";
-    in-out property <string> index_status_text: "";
-    in-out property <bool> has_index: false;
-    in-out property <bool> has_semantic_index: false;
 
     // Context menu state (global)
     in-out property <bool> show_context_menu: false;
@@ -36,7 +32,7 @@ export component BookSearchPage inherits Rectangle {
     in-out property <length> context_menu_y: 0px;
     in-out property <string> context_menu_file_path: "";
 
-    callback build_index();
+    callback rescan_books();
     callback search_books(string);
     callback open_book(string);
     callback reveal_in_finder(string);
@@ -57,23 +53,6 @@ export component BookSearchPage inherits Rectangle {
                 font-weight: 700;
                 color: #1a2535;
                 vertical-alignment: center;
-            }
-            
-            // 状态胶囊
-            Rectangle {
-                width: 86px;
-                height: 20px;
-                border-radius: 10px;
-                background: is_indexing ? #1565c0 : #d0d8e4;
-                animate background { duration: 250ms; }
-                Text {
-                    text: is_indexing ? "索引构建中" : status_message;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: is_indexing ? #ffffff : #4e5f75;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
             }
         }
 
@@ -107,7 +86,7 @@ export component BookSearchPage inherits Rectangle {
                 ComboBox {
                     width: 90px;
                     current-value: search_mode;
-                    model: ["keyword", "semantic", "hybrid"];
+                    model: ["keyword"];
                     selected(v) => {
                         search_mode = v;
                     }
@@ -149,33 +128,11 @@ export component BookSearchPage inherits Rectangle {
                 }
 
                 Button {
-                    text: "重建索引";
+                    text: "重新扫描";
                     width: 70px;
-                    enabled: !is_indexing;
                     clicked => {
-                        build_index();
+                        rescan_books();
                     }
-                }
-            }
-
-            // 索引状态显示
-            if has_index: HorizontalLayout {
-                height: 20px;
-                spacing: 10px;
-                Text {
-                    text: "📊  索引状态";
-                    width: 70px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: #1a2535;
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    text: index_status_text;
-                    font-size: 10px;
-                    color: #6b7a8d;
-                    vertical-alignment: center;
                 }
             }
 

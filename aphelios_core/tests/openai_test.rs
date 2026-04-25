@@ -1,8 +1,6 @@
 use anyhow::Result;
-use aphelios_core::{
-    openai::{translate_file_zh_hant_zh_hans, translate_zh_hant_zh_hans},
-    utils::logger,
-};
+use aphelios_core::openai::infer::{translate_file_zh_hant_zh_hans, translate_zh_hant_zh_hans};
+use aphelios_core::utils::logger;
 use tracing::info;
 
 #[tokio::test]

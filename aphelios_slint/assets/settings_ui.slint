@@ -28,7 +28,6 @@ export component SettingsPage inherits Rectangle {
 
     // 搜索设置
     in-out property <string> books_dir;
-    in-out property <string> harrier_model_path;
 
     // 保存状态
     in-out property <string> save_status_message: "";
@@ -45,7 +44,6 @@ export component SettingsPage inherits Rectangle {
     callback select_tts_ref_audio();
     callback select_demucs_model_path();
     callback select_books_dir();
-    callback select_harrier_model_path();
 
     VerticalLayout {
         padding: 20px;
@@ -509,30 +507,6 @@ export component SettingsPage inherits Rectangle {
                                 width: 50px;
                                 clicked => {
                                     root.select_books_dir();
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            height: 28px;
-                            spacing: 10px;
-                            Text {
-                                text: "Harrier模型";
-                                width: 70px;
-                                vertical-alignment: center;
-                                font-size: 12px;
-                                color: #1a2535;
-                            }
-
-                            LineEdit {
-                                text <=> root.harrier_model_path;
-                            }
-
-                            Button {
-                                text: "选择";
-                                width: 50px;
-                                clicked => {
-                                    root.select_harrier_model_path();
                                 }
                             }
                         }

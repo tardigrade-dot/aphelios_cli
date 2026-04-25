@@ -9,7 +9,6 @@ import { SettingsPage } from "./settings_ui.slint";
 import { BookItem, BookSearchPage } from "./book_search_ui.slint";
 import { TextAlignPage } from "./text_align_ui.slint";
 import { DemucsPage } from "./demucs_ui.slint";
-import { ChapterItem, EpubReaderPage } from "./epub_reader_ui.slint";
 
 export component AppWindow inherits Window {
     width: 1024px;
@@ -89,13 +88,9 @@ export component AppWindow inherits Window {
     in-out property <string> bs-books-dir: "/Volumes/sw/books";
     in-out property <string> bs-status-message: "就绪";
     in-out property <int> bs-book-count: 0;
-    in-out property <bool> bs-is-indexing: false;
     in-out property <[BookItem]> bs-search-results: [];
     in-out property <string> bs-search-mode: "keyword";
-    in-out property <string> bs-index-status-text: "";
-    in-out property <bool> bs-has-index: false;
-    in-out property <bool> bs-has-semantic-index: false;
-    callback bs-build-index();
+    callback bs-rescan-books();
     callback bs-search-books(string);
     callback bs-open-book(string);
     callback bs-reveal-in-finder(string);
@@ -172,7 +167,6 @@ export component AppWindow inherits Window {
     in-out property <string> settings-tts-ref-text;
     in-out property <string> settings-demucs-model-path;
     in-out property <string> settings-books-dir;
-    in-out property <string> settings-harrier-model-path;
     in-out property <string> settings-save-status-message: "";
     callback settings-save();
     callback settings-select-ocr-model-path();
@@ -186,7 +180,6 @@ export component AppWindow inherits Window {
     callback settings-select-tts-ref-audio();
     callback settings-select-demucs-model-path();
     callback settings-select-books-dir();
-    callback settings-select-harrier-model-path();
 
     // ── 主布局：侧边栏 + 内容 ──
     HorizontalLayout {
@@ -507,13 +500,9 @@ export component AppWindow inherits Window {
                 books_dir <=> root.bs-books-dir;
                 status_message <=> root.bs-status-message;
                 book_count <=> root.bs-book-count;
-                is_indexing <=> root.bs-is-indexing;
                 search_results <=> root.bs-search-results;
                 search_mode <=> root.bs-search-mode;
-                index_status_text <=> root.bs-index-status-text;
-                has_index <=> root.bs-has-index;
-                has_semantic_index <=> root.bs-has-semantic-index;
-                build_index => { root.bs-build-index(); }
+                rescan_books => { root.bs-rescan-books(); }
                 search_books(query) => { root.bs-search-books(query); }
                 open_book(path) => { root.bs-open-book(path); }
                 reveal_in_finder(path) => { root.bs-reveal-in-finder(path); }
@@ -608,7 +597,6 @@ export component AppWindow inherits Window {
                 tts_ref_text <=> root.settings-tts-ref-text;
                 demucs_model_path <=> root.settings-demucs-model-path;
                 books_dir <=> root.settings-books-dir;
-                harrier_model_path <=> root.settings-harrier-model-path;
                 save_status_message <=> root.settings-save-status-message;
                 save_settings => { root.settings-save(); }
                 select_ocr_model_path => { root.settings-select-ocr-model-path(); }
@@ -622,7 +610,6 @@ export component AppWindow inherits Window {
                 select_tts_ref_audio => { root.settings-select-tts-ref-audio(); }
                 select_demucs_model_path => { root.settings-select-demucs-model-path(); }
                 select_books_dir => { root.settings-select-books-dir(); }
-                select_harrier_model_path => { root.settings-select-harrier-model-path(); }
             }
         }
     }

@@ -10,7 +10,7 @@ use aphelios_core::traits::{OcrEngine, SearchEngine, SearchMode, TtsEngine};
 use aphelios_core::utils::logger;
 use config::AppSettings;
 use controllers::{
-    demucs::DemucsLogic, epub, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
+    demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
 };
 use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
@@ -43,8 +43,9 @@ fn main() -> Result<()> {
     // 初始化服务引擎
     let ocr_engine: Arc<Mutex<dyn OcrEngine>> = Arc::new(Mutex::new(services::DolphinOcrClient));
     let book_dir = settings.books_dir.as_deref().unwrap_or("/Volumes/sw/books");
-    let search_engine: Arc<dyn SearchEngine> =
-        Arc::new(services::SqliteSearchClient::new(book_dir));
+    let search_client = Arc::new(services::InMemorySearchClient::new(book_dir));
+    let search_engine: Arc<dyn SearchEngine> = search_client.clone();
+    let search_engine_for_rescan = search_engine.clone();
     let tts_engine: Arc<dyn TtsEngine> = Arc::new(services::QwenTtsClient);
 
     // 创建应用上下文
@@ -159,9 +160,6 @@ fn main() -> Result<()> {
         }
         if let Some(dir) = s.books_dir {
             window.set_settings_books_dir(dir.into());
-        }
-        if let Some(path) = s.harrier_model_path {
-            window.set_settings_harrier_model_path(path.into());
         }
     }
 
@@ -715,47 +713,36 @@ fn main() -> Result<()> {
     {
         let book_count = logic_search.get_book_count().unwrap_or(0);
         window.set_bs_book_count(book_count as i32);
-        if let Ok(status) = logic_search.get_index_status() {
-            window.set_bs_has_index(status.exists);
-            window.set_bs_has_semantic_index(status.semantic_exists);
-            if status.exists {
-                window.set_bs_index_status_text(format_index_status(&status).into());
-            }
-        }
     }
 
-    window.on_bs_build_index({
+    window.on_bs_rescan_books({
         let w = window_weak.clone();
-        let logic = logic_search.clone();
+        let engine = search_engine_for_rescan.clone();
+        let search_client = search_client.clone();
         move || {
             let Some(win) = w.upgrade() else { return };
             let book_dir = win.get_bs_books_dir().to_string();
-            win.set_bs_is_indexing(true);
-            win.set_bs_status_message("正在构建完整索引（BM25 + 语义向量）...".into());
+            win.set_bs_status_message("正在扫描书籍目录...".into());
+
+            // Update book dir before rescanning
+            search_client.set_book_dir(&book_dir);
 
             let w2 = w.clone();
-            let logic2 = logic.clone();
-            logic.build_index(book_dir, move |result| {
-                let w3 = w2.clone();
-                let logic3 = logic2.clone();
+            let eng = engine.clone();
+            std::thread::spawn(move || {
+                let result = eng.build_index(None);
                 let _ = slint::invoke_from_event_loop(move || {
-                    let Some(win) = w3.upgrade() else { return };
-                    win.set_bs_is_indexing(false);
+                    let Some(win) = w2.upgrade() else { return };
                     match result {
                         Ok(count) => {
                             win.set_bs_book_count(count as i32);
                             win.set_bs_status_message(
-                                format!("索引构建完成，共 {} 本书（全文+向量）", count).into(),
+                                format!("扫描完成，共 {} 本书", count).into(),
                             );
-                            if let Ok(status) = logic3.get_index_status() {
-                                win.set_bs_has_index(status.exists);
-                                win.set_bs_has_semantic_index(status.semantic_exists);
-                                win.set_bs_index_status_text(format_index_status(&status).into());
-                            }
                         }
                         Err(e) => {
-                            error!("Index build failed: {}", e);
-                            win.set_bs_status_message(format!("索引构建失败: {}", e).into());
+                            error!("Rescan failed: {}", e);
+                            win.set_bs_status_message(format!("扫描失败: {}", e).into());
                         }
                     }
                 });
@@ -770,46 +757,45 @@ fn main() -> Result<()> {
             let Some(win) = w.upgrade() else { return };
             win.set_bs_status_message("搜索中...".into());
 
-            let mode_str = win.get_bs_search_mode().to_string();
-            let search_mode = match mode_str.as_str() {
-                "semantic" => SearchMode::Semantic,
-                "hybrid" => SearchMode::Hybrid,
-                _ => SearchMode::Keyword,
-            };
-
             let w2 = w.clone();
-            logic.search_books_with_mode(query.to_string(), 50, search_mode, move |result| {
-                let w3 = w2.clone();
-                let _ = slint::invoke_from_event_loop(move || {
-                    let Some(win) = w3.upgrade() else { return };
-                    match result {
-                        Ok(search_result) => {
-                            let items = search_result.books;
-                            let book_items: Vec<BookItem> = items
-                                .iter()
-                                .map(|b| BookItem {
-                                    id: b.id.to_string().into(),
-                                    title: b.title.clone().into(),
-                                    author: b.author.clone().unwrap_or_default().into(),
-                                    file_path: b.file_path.clone().into(),
-                                    file_type: b.file_type.clone().into(),
-                                    file_size: format_file_size(b.file_size).into(),
-                                })
-                                .collect();
+            logic.search_books_with_mode(
+                query.to_string(),
+                50,
+                SearchMode::Keyword,
+                move |result| {
+                    let w3 = w2.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(win) = w3.upgrade() else { return };
+                        match result {
+                            Ok(search_result) => {
+                                let items = search_result.books;
+                                let book_items: Vec<BookItem> = items
+                                    .iter()
+                                    .map(|b| BookItem {
+                                        id: b.id.to_string().into(),
+                                        title: b.title.clone().into(),
+                                        author: b.author.clone().unwrap_or_default().into(),
+                                        file_path: b.file_path.clone().into(),
+                                        file_type: b.file_type.clone().into(),
+                                        file_size: format_file_size(b.file_size).into(),
+                                    })
+                                    .collect();
 
-                            let model: Rc<VecModel<BookItem>> = Rc::new(VecModel::from(book_items));
-                            win.set_bs_search_results(ModelRc::from(model));
-                            win.set_bs_status_message(
-                                format!("找到 {} 个结果", search_result.total).into(),
-                            );
+                                let model: Rc<VecModel<BookItem>> =
+                                    Rc::new(VecModel::from(book_items));
+                                win.set_bs_search_results(ModelRc::from(model));
+                                win.set_bs_status_message(
+                                    format!("找到 {} 个结果", search_result.total).into(),
+                                );
+                            }
+                            Err(e) => {
+                                error!("Search failed: {}", e);
+                                win.set_bs_status_message(format!("搜索失败: {}", e).into());
+                            }
                         }
-                        Err(e) => {
-                            error!("Search failed: {}", e);
-                            win.set_bs_status_message(format!("搜索失败: {}", e).into());
-                        }
-                    }
-                });
-            });
+                    });
+                },
+            );
         }
     });
 
@@ -1165,156 +1151,6 @@ fn main() -> Result<()> {
     });
 
     // ═══════════════════════════════════════════════════════════════
-    // EPUB 阅读器页面回调
-    // ═══════════════════════════════════════════════════════════════
-    let logic_epub = Arc::new(epub::EpubLogic::new());
-
-    window.on_epub_open_file({
-        let w = window_weak.clone();
-        let logic = logic_epub.clone();
-        move || {
-            if let Some(win) = w.upgrade() {
-                let path = rfd::FileDialog::new()
-                    .add_filter("EPUB 文件", &["epub"])
-                    .pick_file()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default();
-
-                if !path.is_empty() {
-                    win.set_epub_path(path.clone().into());
-                    win.set_epub_is_loading(true);
-                    win.set_epub_status_message("加载中...".into());
-
-                    let w2 = w.clone();
-                    let logic = logic.clone();
-                    std::thread::spawn(move || match logic.load_book(&path) {
-                        Ok(book) => {
-                            let total = book.total_chapters();
-                            let chapters: Vec<ChapterItem> = book
-                                .chapters
-                                .iter()
-                                .map(|c| ChapterItem {
-                                    title: c.title.clone().into(),
-                                    href: c.href.clone().into(),
-                                })
-                                .collect();
-
-                            let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(win) = w2.upgrade() {
-                                    win.set_epub_book_title(book.title.clone().into());
-                                    win.set_epub_total_pages(total as i32);
-                                    let model: Rc<VecModel<ChapterItem>> =
-                                        Rc::new(VecModel::from(chapters));
-                                    win.set_epub_chapters(ModelRc::from(model));
-
-                                    if total > 0 {
-                                        win.set_epub_current_chapter_index(0);
-                                        if let Some(content) = logic.get_chapter_content(0) {
-                                            win.set_epub_chapter_title(
-                                                book.chapters[0].title.clone().into(),
-                                            );
-                                            win.set_epub_chapter_content(content.into());
-                                        }
-                                        win.set_epub_current_page(1);
-                                    }
-                                    win.set_epub_is_loading(false);
-                                    win.set_epub_status_message(format!("共 {} 章", total).into());
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            error!("EPUB 加载失败: {}", e);
-                            let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(win) = w2.upgrade() {
-                                    win.set_epub_is_loading(false);
-                                    win.set_epub_status_message(format!("加载失败: {}", e).into());
-                                }
-                            });
-                        }
-                    });
-                }
-            }
-        }
-    });
-
-    window.on_epub_select_chapter({
-        let w = window_weak.clone();
-        let logic = logic_epub.clone();
-        move |index: i32| {
-            if let Some(win) = w.upgrade() {
-                if let Some(content) = logic.get_chapter_content(index as usize) {
-                    let chapters = win.get_epub_chapters();
-                    if let Some(vm) = chapters.as_any().downcast_ref::<VecModel<ChapterItem>>() {
-                        if index >= 0 && (index as usize) < vm.row_count() {
-                            let chapter = vm.row_data(index as usize).unwrap();
-                            win.set_epub_chapter_title(chapter.title.clone());
-                            win.set_epub_chapter_content(content.into());
-                            win.set_epub_current_chapter_index(index);
-                            win.set_epub_current_page(index + 1);
-                            win.set_epub_status_message(
-                                format!("已加载: {}", chapter.title).into(),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    window.on_epub_prev_page({
-        let w = window_weak.clone();
-        let logic = logic_epub.clone();
-        move || {
-            if let Some(win) = w.upgrade() {
-                let current = win.get_epub_current_page();
-                if current > 1 {
-                    let new_idx = (current - 2) as usize;
-                    if let Some(content) = logic.get_chapter_content(new_idx) {
-                        win.set_epub_current_page(current - 1);
-                        win.set_epub_current_chapter_index(new_idx as i32);
-                        let chapters = win.get_epub_chapters();
-                        if let Some(vm) = chapters.as_any().downcast_ref::<VecModel<ChapterItem>>()
-                        {
-                            if new_idx < vm.row_count() {
-                                let chapter = vm.row_data(new_idx).unwrap();
-                                win.set_epub_chapter_title(chapter.title.clone());
-                                win.set_epub_chapter_content(content.into());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    window.on_epub_next_page({
-        let w = window_weak.clone();
-        let logic = logic_epub.clone();
-        move || {
-            if let Some(win) = w.upgrade() {
-                let current = win.get_epub_current_page();
-                let total = win.get_epub_total_pages();
-                if current < total {
-                    let new_idx = current as usize;
-                    if let Some(content) = logic.get_chapter_content(new_idx) {
-                        win.set_epub_current_page(current + 1);
-                        win.set_epub_current_chapter_index(new_idx as i32);
-                        let chapters = win.get_epub_chapters();
-                        if let Some(vm) = chapters.as_any().downcast_ref::<VecModel<ChapterItem>>()
-                        {
-                            if new_idx < vm.row_count() {
-                                let chapter = vm.row_data(new_idx).unwrap();
-                                win.set_epub_chapter_title(chapter.title.clone());
-                                win.set_epub_chapter_content(content.into());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    // ═══════════════════════════════════════════════════════════════
     // 设置页面回调
     // ═══════════════════════════════════════════════════════════════
     window.on_settings_save({
@@ -1498,18 +1334,6 @@ fn main() -> Result<()> {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
                 win.set_settings_books_dir(path.into());
-            }
-        }
-    });
-    window.on_settings_select_harrier_model_path({
-        let w = window_weak.clone();
-        move || {
-            if let Some(win) = w.upgrade() {
-                let path = rfd::FileDialog::new()
-                    .pick_folder()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                win.set_settings_harrier_model_path(path.into());
             }
         }
     });
@@ -1707,32 +1531,6 @@ fn activate_macos_app() {
 }
 
 // ── 辅助函数 ──
-
-fn format_index_status(status: &aphelios_core::traits::IndexStatus) -> String {
-    let mut parts = Vec::new();
-    parts.push(format!("{} 本书", status.book_count));
-
-    if let Some(created) = &status.created_at {
-        let formatted = if created.contains('T') {
-            created
-                .replace('T', " ")
-                .chars()
-                .take(16)
-                .collect::<String>()
-        } else {
-            created.clone()
-        };
-        parts.push(format!("创建于 {}", formatted));
-    }
-
-    if status.semantic_exists {
-        parts.push("✓ 语义索引".to_string());
-    } else {
-        parts.push("语义索引未构建".to_string());
-    }
-
-    parts.join(", ")
-}
 
 fn format_file_size(size: u64) -> String {
     const KB: u64 = 1024;

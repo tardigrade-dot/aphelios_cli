@@ -1,11 +1,12 @@
 use anyhow::Result;
 use aphelios_core::traits::{
-    BookInfo, OcrEngine, SearchEngine, SearchMode, SearchResult, TtsEngine,
+    BookInfo, IndexStatus, OcrEngine, SearchEngine, SearchMode, SearchResult, TtsEngine,
 };
 use aphelios_core::utils::progress::AppProgressBar;
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_search as search;
-use aphelios_tts::qwen_tts::{generate_voice, generate_voice_batch_from_txt};
+use aphelios_tts::qwen_tts::qwen_tts_infer::{generate_voice, generate_voice_batch_from_txt};
+use std::sync::{Arc, RwLock};
 
 /// OCR 服务的 Dolphin 实现
 pub struct DolphinOcrClient;
@@ -71,49 +72,68 @@ impl TtsEngine for QwenTtsClient {
     }
 }
 
-/// 搜索服务的 Sqlite 实现
-pub struct SqliteSearchClient {
-    config: search::IndexConfig,
+/// 内存搜索服务的实现。
+///
+/// 扫描书籍目录后全部加载到内存中，通过子串匹配（含简繁转换）进行搜索。
+pub struct InMemorySearchClient {
+    books: Arc<RwLock<Vec<search::BookInfo>>>,
+    book_dir: Arc<RwLock<String>>,
 }
 
-impl SqliteSearchClient {
+impl InMemorySearchClient {
     pub fn new(book_dir: &str) -> Self {
-        Self {
-            config: search::IndexConfig::from_book_dir(book_dir),
-        }
+        let client = Self {
+            books: Arc::new(RwLock::new(Vec::new())),
+            book_dir: Arc::new(RwLock::new(book_dir.to_string())),
+        };
+        // Pre-scan on creation
+        let _ = client.rescan();
+        client
     }
 
-    pub fn with_config(config: search::IndexConfig) -> Self {
-        Self { config }
+    /// Update the books directory and rescan.
+    pub fn set_book_dir(&self, book_dir: &str) {
+        if let Ok(mut dir) = self.book_dir.write() {
+            *dir = book_dir.to_string();
+        }
+        let _ = self.rescan();
+    }
+
+    /// Scan (or re-scan) the books directory.
+    fn rescan(&self) -> Result<usize> {
+        let dir = self.book_dir.read().unwrap().clone();
+        let books = search::scan_books(&dir)?;
+        let count = books.len();
+        if let Ok(mut cache) = self.books.write() {
+            *cache = books;
+        }
+        Ok(count)
     }
 }
 
-impl SearchEngine for SqliteSearchClient {
+impl SearchEngine for InMemorySearchClient {
     fn get_book_count(&self) -> Result<usize> {
-        search::get_book_count(&self.config)
+        Ok(self.books.read().unwrap().len())
     }
 
-    fn get_index_status(&self) -> Result<aphelios_core::traits::IndexStatus> {
-        let status = search::get_index_status(&self.config)?;
-        Ok(aphelios_core::traits::IndexStatus {
-            exists: status.exists,
-            book_count: status.book_count,
-            created_at: status.created_at,
-            updated_at: status.updated_at,
-            semantic_exists: status.semantic_exists,
+    fn get_index_status(&self) -> Result<IndexStatus> {
+        let count = self.books.read().unwrap().len();
+        Ok(IndexStatus {
+            exists: count > 0,
+            book_count: count,
+            created_at: None,
+            updated_at: None,
+            semantic_exists: false,
         })
     }
 
-    fn build_index(&self, progress_callback: Option<Box<dyn Fn(usize) + Send>>) -> Result<usize> {
-        match progress_callback {
-            Some(cb) => search::build_index(&self.config, Some(&|p| cb(p))),
-            None => search::build_index(&self.config, None),
-        }
+    fn build_index(&self, _progress_callback: Option<Box<dyn Fn(usize) + Send>>) -> Result<usize> {
+        self.rescan()
     }
 
     fn search_books(&self, query: &str, limit: usize) -> Result<SearchResult> {
-        let result = search::search_books(&self.config, query, limit)?;
-
+        let books = self.books.read().unwrap();
+        let result = search::search_books(&books, query, limit);
         Ok(SearchResult {
             books: result
                 .books
@@ -135,38 +155,9 @@ impl SearchEngine for SqliteSearchClient {
         &self,
         query: &str,
         limit: usize,
-        mode: SearchMode,
+        _mode: SearchMode,
     ) -> Result<SearchResult> {
-        let search_mode = match mode {
-            SearchMode::Keyword => search::SearchMode::Keyword,
-            SearchMode::Semantic => search::SearchMode::Semantic,
-            SearchMode::Hybrid => search::SearchMode::Hybrid,
-        };
-
-        let options = search::SearchOptions {
-            query: query.to_string(),
-            limit,
-            mode: search_mode,
-            normalize_chinese: true,
-            config: self.config.clone(),
-        };
-
-        let result = search::search_books_with_options(&options)?;
-
-        Ok(SearchResult {
-            books: result
-                .books
-                .iter()
-                .map(|b| BookInfo {
-                    id: b.id,
-                    title: b.title.clone(),
-                    author: b.author.clone(),
-                    file_path: b.file_path.clone(),
-                    file_type: b.file_type.clone(),
-                    file_size: b.file_size,
-                })
-                .collect(),
-            total: result.total,
-        })
+        // Only keyword search is supported; mode is ignored.
+        self.search_books(query, limit)
     }
 }

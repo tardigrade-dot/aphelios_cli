@@ -5,11 +5,18 @@ pub mod commands;
 
 #[allow(unused_variables, unused_imports)]
 pub async fn run(cli: Cli) -> Result<()> {
+    let p = "".to_string();
     match cli.command {
         Commands::Init { path } => {
             commands::init::run()?;
         }
-        Commands::Base { path, name } => {
+        Commands::Base {
+            path: Some(p),
+            name,
+        } => {
+            // commands::base::run(path, name)?;
+        }
+        Commands::Base { path: None, name } => {
             // commands::base::run(path, name)?;
         }
         Commands::Run { verbose } => {

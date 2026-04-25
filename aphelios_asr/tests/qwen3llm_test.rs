@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use aphelios_asr::qwen3llm::qwen3_llm;
+use aphelios_asr::qwen3llm::llm::qwen3_llm;
 
 #[test]
 fn test_qwen3llm() -> Result<()> {

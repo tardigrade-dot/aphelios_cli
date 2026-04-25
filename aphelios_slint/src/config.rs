@@ -33,8 +33,7 @@ pub struct AppSettings {
 
     // 搜索设置
     pub books_dir: Option<String>,
-    pub harrier_model_path: Option<String>,
-    pub search_mode: Option<String>, // "keyword", "semantic", "hybrid"
+    pub search_mode: Option<String>, // "keyword"
 
     // 通用设置
     pub window_width: Option<i32>,
@@ -149,14 +148,10 @@ impl AppSettings {
     pub fn update_search_settings(
         &mut self,
         books_dir: Option<&str>,
-        harrier_model_path: Option<&str>,
         search_mode: Option<&str>,
     ) {
         if let Some(dir) = books_dir {
             self.books_dir = Some(dir.to_string());
-        }
-        if let Some(path) = harrier_model_path {
-            self.harrier_model_path = Some(path.to_string());
         }
         if let Some(mode) = search_mode {
             self.search_mode = Some(mode.to_string());

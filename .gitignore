@@ -24,3 +24,4 @@ trace*.json
 /roadmap.txt
 __pycache__
 /debug_outputs_python
+cookies.json

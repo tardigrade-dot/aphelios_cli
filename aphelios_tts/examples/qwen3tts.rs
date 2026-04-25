@@ -2,7 +2,7 @@ use aphelios_core::{
     measure_time,
     utils::{common, logger},
 };
-use aphelios_tts::qwen_tts::{Language, Qwen3TTS, Speaker};
+use aphelios_tts::qwen_tts::qwen_tts_infer::{Language, Qwen3TTS, Speaker};
 
 fn main() -> anyhow::Result<()> {
     logger::init_logging();
