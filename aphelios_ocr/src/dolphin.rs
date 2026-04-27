@@ -15,6 +15,8 @@ pub mod dolphin_utils;
 pub mod donut;
 pub mod model;
 
+const IGNORED_TAGS: &[&str] = &["fig", "tab", "equ", "code", "header", "foot", "fnote"];
+
 pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     info!("start run dolphin ocr task");
 
@@ -77,9 +79,8 @@ fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
                 let item_content = caps["content"].trim().to_string();
 
                 // 过滤掉不需要的标签
-                if ["fig", "tab", "equ", "code", "header", "foot", "fnote"]
-                    .contains(&item_tag.as_str())
-                {
+                if IGNORED_TAGS.contains(&item_tag.as_str()) {
+                    info!("skip label {}", item_tag);
                     continue;
                 }
                 // half_para 统一为 para

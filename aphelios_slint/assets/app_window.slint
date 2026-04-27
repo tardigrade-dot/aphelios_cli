@@ -135,23 +135,6 @@ export component AppWindow inherits Window {
     callback demucs-toggle-separation-mode();
     callback demucs-start-separation();
 
-    // ── EPUB 阅读器页面属性 ──
-    in-out property <string> epub-path: "";
-    in-out property <string> epub-book-title: "未打开书籍";
-    in-out property <string> epub-status-message: "就绪";
-    in-out property <[ChapterItem]> epub-chapters: [];
-    in-out property <int> epub-current-chapter-index: 0;
-    in-out property <string> epub-chapter-title: "";
-    in-out property <string> epub-chapter-content: "";
-    in-out property <int> epub-total-pages: 1;
-    in-out property <int> epub-current-page: 1;
-    in-out property <bool> epub-is-loading: false;
-    callback epub-open-file();
-    callback epub-select-chapter(int);
-    callback epub-prev-page();
-    callback epub-next-page();
-    callback epub-go-to-page(int);
-
     // ── 设置页面属性 ──
     in-out property <string> settings-ocr-model-path;
     in-out property <string> settings-ocr-output-dir;
@@ -554,28 +537,6 @@ export component AppWindow inherits Window {
                 select_output_dir => { root.demucs-select-output-dir(); }
                 toggle_separation_mode => { root.demucs-toggle-separation-mode(); }
                 start_separation => { root.demucs-start-separation(); }
-            }
-
-            // EPUB 阅读器
-            EpubReaderPage {
-                visible: current_page == "epub_reader";
-                x: 0px; y: 0px;
-                width: 100%; height: 100%;
-                epub_path <=> root.epub-path;
-                book_title <=> root.epub-book-title;
-                status_message <=> root.epub-status-message;
-                chapters <=> root.epub-chapters;
-                current_chapter_index <=> root.epub-current-chapter-index;
-                chapter_title <=> root.epub-chapter-title;
-                chapter_content <=> root.epub-chapter-content;
-                total_pages <=> root.epub-total-pages;
-                current_page <=> root.epub-current-page;
-                is_loading <=> root.epub-is-loading;
-                open_file => { root.epub-open-file(); }
-                select_chapter(index) => { root.epub-select-chapter(index); }
-                prev_page => { root.epub-prev-page(); }
-                next_page => { root.epub-next-page(); }
-                go_to_page(page) => { root.epub-go-to-page(page); }
             }
 
             // 设置

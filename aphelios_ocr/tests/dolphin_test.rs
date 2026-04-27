@@ -90,7 +90,7 @@ async fn dolphin_pdf_test() -> Result<()> {
 #[tokio::test]
 async fn dolphin_test2() -> Result<()> {
     utils::init_logging();
-    let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages/2";
+    let output_dir = "/Users/larry/coderesp/aphelios_cli/output/extracted_pages/3";
 
     if Path::new(output_dir).exists() {
         std::fs::remove_dir_all(output_dir).unwrap();
