@@ -8,13 +8,11 @@ use tracing::{error, info};
 
 const TEN_PAGES_PDF: &str = "/Users/larry/Downloads/test_pdf.pdf";
 const SMALL_PDF: &str = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
-const SINGLE_IMAGE: &str = "/Users/larry/coderesp/aphelios_cli/test_data/page_32.png";
+const SINGLE_IMAGE: &str = "/Volumes/sw/MyDrive/data_src/page_zht_49.png";
 
 #[tokio::test]
 async fn dolphin_single_image_test() -> Result<()> {
-    #[cfg(feature = "profiling")]
-    let guard = logger::init_chrome_logging();
-
+    utils::init_logging();
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
     // let model_id = "ByteDance/Dolphin-1.5";
     let mut dm = DolphinModel::load_model(model_id)?;
@@ -37,9 +35,6 @@ async fn dolphin_single_image_test() -> Result<()> {
             error!("Failed to load PDF page {}", e);
         }
     }
-
-    #[cfg(feature = "profiling")]
-    drop(guard);
     Ok(())
 }
 
