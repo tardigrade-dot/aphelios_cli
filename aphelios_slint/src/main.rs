@@ -17,18 +17,15 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info};
 
-use image::GenericImageView;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     Icon,
 };
 
 #[cfg(target_os = "macos")]
-use objc2::{AnyThread, MainThreadMarker};
+use objc2::MainThreadMarker;
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSImage};
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSString;
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
 // 日志最大行数限制
 const MAX_LOG_LINES: usize = 200;
@@ -1419,9 +1416,11 @@ fn main() -> Result<()> {
 
     let icon_bytes = include_bytes!("../assets/icon.png");
     let icon_img = image::load_from_memory(icon_bytes)?;
-    let (width, height) = icon_img.dimensions();
-    let rgba = icon_img.to_rgba8();
-    let icon = Icon::from_rgba(rgba.into_raw(), width, height)?;
+    // 缩放到菜单栏图标尺寸（36x36，即 @2x Retina 下的 18x18 点）
+    let tray_size = 36u32;
+    let small_img = icon_img.resize_exact(tray_size, tray_size, image::imageops::Lanczos3);
+    let rgba = small_img.to_rgba8();
+    let icon = Icon::from_rgba(rgba.into_raw(), tray_size, tray_size)?;
 
     let window_for_tray = window.as_weak();
     let open_id = open_item.id().clone();
@@ -1509,14 +1508,6 @@ fn configure_macos_app() {
 
     let app = NSApplication::sharedApplication(mtm);
     let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-
-    let icon_path = format!("{}/assets/icon.icns", env!("CARGO_MANIFEST_DIR"));
-    let icon_path = NSString::from_str(&icon_path);
-    let icon_image = NSImage::initWithContentsOfFile(NSImage::alloc(), &icon_path);
-
-    if let Some(icon_image) = icon_image.as_deref() {
-        unsafe { app.setApplicationIconImage(Some(icon_image)) };
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1527,7 +1518,7 @@ fn activate_macos_app() {
 
     let app = NSApplication::sharedApplication(mtm);
     let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-    app.activateIgnoringOtherApps(true);
+    app.activate();
 }
 
 // ── 辅助函数 ──

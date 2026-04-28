@@ -56,6 +56,40 @@ if [[ "$OSTYPE" == darwin* ]]; then
     if [ -d "$BUNDLE_PATH" ]; then
         cp -r "$BUNDLE_PATH" "$OUTPUT_DIR/"
 
+        # 修复 .app bundle 的图标：
+        # cargo-bundle 的 icon 配置可能不生效，导致:
+        # 1. Contents/Resources/ 目录缺失
+        # 2. Info.plist 缺少 CFBundleIconFile
+        # 这会使 Finder 中显示图标不正常（但 Dock/MenuBar 因使用运行时图标而不受影响）
+        # 确保 icon.icns 存在，如果不存在则从 icon.png 自动生成
+        ICONS_DIR="$PROJECT_ROOT/aphelios_slint/assets"
+        if [ -f "$ICONS_DIR/icon.icns" ]; then
+            echo "✅ 使用现有的 icon.icns"
+        elif [ -f "$ICONS_DIR/icon.png" ]; then
+            echo "🔨 icon.icns 不存在，从 icon.png 自动生成..."
+            if [ -f "$PROJECT_ROOT/scripts/generate_rounded_icon.swift" ]; then
+                swift "$PROJECT_ROOT/scripts/generate_rounded_icon.swift" \
+                    "$ICONS_DIR/icon.png" \
+                    "$ICONS_DIR/icon.icns"
+                echo "✅ 已生成 $ICONS_DIR/icon.icns"
+            else
+                echo "⚠️ 警告：找不到 generate_rounded_icon.swift，跳过图标生成"
+            fi
+        else
+            echo "⚠️ 警告：找不到 icon.png 或 icon.icns，将使用默认图标"
+        fi
+
+        APP_RESOURCES_DIR="$OUTPUT_DIR/$BUNDLE_NAME/Contents/Resources"
+        mkdir -p "$APP_RESOURCES_DIR"
+        cp "$ICONS_DIR/icon.icns" "$APP_RESOURCES_DIR/"
+
+        # 确保 Info.plist 包含 CFBundleIconFile
+        if ! grep -q "CFBundleIconFile" "$OUTPUT_DIR/$BUNDLE_NAME/Contents/Info.plist"; then
+            # 在 NSHighResolutionCapable 后面插入 CFBundleIconFile
+            sed -i '' 's/<key>NSHighResolutionCapable<\/key>/<key>CFBundleIconFile<\/key>\n\t<string>icon.icns<\/string>\n\t<key>NSHighResolutionCapable<\/key>/' "$OUTPUT_DIR/$BUNDLE_NAME/Contents/Info.plist"
+            echo "✅ 已添加 CFBundleIconFile 到 Info.plist"
+        fi
+
         # 打包 libpdfium.dylib 到 app bundle 的 Contents/MacOS/ 目录
         PDFIUM_LIB="$PROJECT_ROOT/libs/libpdfium.dylib"
         APP_MACOS_DIR="$OUTPUT_DIR/$BUNDLE_NAME/Contents/MacOS"

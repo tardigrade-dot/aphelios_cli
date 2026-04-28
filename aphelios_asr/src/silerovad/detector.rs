@@ -207,8 +207,6 @@ impl VadProcessor {
 
 /// Run VAD detection with path (for testing).
 pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
-    use aphelios_core::utils::init_logging;
-
     info!("=== VAD Test: {} ===", label);
     info!("Audio file: {}", audio_path);
 

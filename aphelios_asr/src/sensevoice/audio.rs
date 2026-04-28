@@ -3,7 +3,7 @@ use std::path::Path;
 
 use opusic_sys as opus_sys;
 use symphonia::core::audio::Signal;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphErr;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -43,20 +43,11 @@ pub fn decode_audio_multi(path: &Path) -> Result<(u32, usize, Vec<Vec<f32>>)> {
         .ok_or_else(|| anyhow::anyhow!("missing channels"))?
         .count();
 
-    if track.codec_params.codec == CODEC_TYPE_OPUS {
-        #[cfg(feature = "opus")]
-        {
-            return decode_opus_track(format.as_mut(), track, sample_rate, channels);
-        }
-        #[cfg(not(feature = "opus"))]
-        {
-            anyhow::bail!("Opus decoding not enabled (enable the 'opus' feature)");
-        }
-    } else {
-        decode_with_builtin_decoder(format.as_mut(), track, sample_rate, channels)
-    }
+    // decode_with_builtin_decoder(format.as_mut(), track, sample_rate, channels)
+    decode_opus_track(format.as_mut(), track, sample_rate, channels)
 }
 
+#[allow(dead_code)]
 fn decode_with_builtin_decoder(
     format: &mut dyn symphonia::core::formats::FormatReader,
     track: symphonia::core::formats::Track,

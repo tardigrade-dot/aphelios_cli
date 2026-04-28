@@ -47,3 +47,6 @@ whisper
 wav short:2min long:30min
 ggml 15s 400s
 candle 38s 305s
+
+日志: ~/Library/Logs/aphelios/
+配置文件: ~/Library/Application\ Support/aphelios_cli

@@ -354,12 +354,10 @@ impl DolphinModel {
         let page_indexes: Vec<usize> = batch.iter().map(|page| page.idx).collect();
         info!("stage1 batch pages {:?}", page_indexes);
 
-        let layouts = measure_time!({ self.run_ocr_first_stage_batch(&batch)? });
-
-        #[cfg(feature = "profiling")]
-        for (page_task, layout_str) in batch.iter().zip(layouts.iter()) {
-            info!("page {}, layout str = {}", page_task.idx, layout_str);
-        }
+        let layouts = measure_time!(
+            "ocr first stage batch pages",
+            self.run_ocr_first_stage_batch(&batch)?
+        );
 
         for (page, layout_str) in batch.into_iter().zip(layouts.into_iter()) {
             let output_file = output_path.join(format!("{}_page.txt", page.idx));
@@ -630,7 +628,6 @@ impl DolphinModel {
         for cap in re.captures_iter(layout_str) {
             let label = cap[2].to_string();
             if IGNORED_TAGS.contains(&label.as_str()) {
-                info!("skip label {}", label);
                 continue;
             }
             let coords_raw: Vec<i32> = cap[1].split(',').map(|s| s.parse().unwrap()).collect();
