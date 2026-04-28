@@ -60,7 +60,7 @@ fn test_glmocr() -> Result<()> {
     // Initialize OCR model
     let start = Instant::now();
     let model_id = Some("/Volumes/sw/pretrained_models/GLM-OCR");
-    let quantize = Some("q8_0");
+    let quantize = None; //Some("q8_0");
     let ocr = GlmOcr::new_with_device(model_id, quantize, device)?;
     let load_time = start.elapsed();
     eprintln!("OCR model loaded in {load_time:.2?}");
