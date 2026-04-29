@@ -21,7 +21,12 @@ impl QLinear {
     ///
     /// Loads the weight as F32 from safetensors, then quantizes to the given dtype.
     /// No bias support (GLM-OCR uses linear_no_bias throughout).
-    pub fn new(in_features: usize, out_features: usize, vb: VarBuilder, qdtype: GgmlDType) -> Result<Self> {
+    pub fn new(
+        in_features: usize,
+        out_features: usize,
+        vb: VarBuilder,
+        qdtype: GgmlDType,
+    ) -> Result<Self> {
         let weight = vb.get((out_features, in_features), "weight")?;
         let qtensor = QTensor::quantize(&weight, qdtype)?;
         let inner = QMatMul::from_qtensor(qtensor)?;

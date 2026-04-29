@@ -2,10 +2,10 @@ use candle_core::quantized::GgmlDType;
 use candle_core::{Result, Tensor};
 use candle_nn::{Module, RmsNorm, VarBuilder};
 
-use crate::glmocr::config::TextConfig;
-use crate::glmocr::nn_utils::rms_norm;
 use super::attention::{KvCache, TextAttention};
 use super::mlp::TextMlp;
+use crate::glmocr::config::TextConfig;
+use crate::glmocr::nn_utils::rms_norm;
 
 /// Text decoder layer with 4 RMSNorm layers (GLM-OCR specific).
 ///
@@ -38,10 +38,8 @@ impl TextDecoderLayer {
         let self_attn = TextAttention::new(config, vb.pp("self_attn"), qdtype)?;
         let mlp = TextMlp::new(config, vb.pp("mlp"), qdtype)?;
         let input_layernorm = rms_norm(hidden, eps, vb.pp("input_layernorm"))?;
-        let post_self_attn_layernorm =
-            rms_norm(hidden, eps, vb.pp("post_self_attn_layernorm"))?;
-        let post_attention_layernorm =
-            rms_norm(hidden, eps, vb.pp("post_attention_layernorm"))?;
+        let post_self_attn_layernorm = rms_norm(hidden, eps, vb.pp("post_self_attn_layernorm"))?;
+        let post_attention_layernorm = rms_norm(hidden, eps, vb.pp("post_attention_layernorm"))?;
         let post_mlp_layernorm = rms_norm(hidden, eps, vb.pp("post_mlp_layernorm"))?;
 
         Ok(Self {
@@ -65,7 +63,9 @@ impl TextDecoderLayer {
         // Self-attention block
         let residual = hidden_states;
         let h = self.input_layernorm.forward(hidden_states)?;
-        let (h, new_cache) = self.self_attn.forward(&h, cos, sin, attention_mask, cache)?;
+        let (h, new_cache) = self
+            .self_attn
+            .forward(&h, cos, sin, attention_mask, cache)?;
         let h = self.post_self_attn_layernorm.forward(&h)?;
         let hidden_states = (residual + h)?;
 

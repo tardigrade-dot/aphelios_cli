@@ -25,7 +25,10 @@ impl VisionRotaryEmbedding {
     pub fn forward(&self, seqlen: u32, device: &Device) -> Result<Tensor> {
         let seq = Tensor::arange(0f32, seqlen as f32, device)?;
         // outer product: [seqlen] x [dim/2] -> [seqlen, dim/2]
-        let freqs = seq.unsqueeze(1)?.contiguous()?.matmul(&self.inv_freq.unsqueeze(0)?.contiguous()?)?;
+        let freqs = seq
+            .unsqueeze(1)?
+            .contiguous()?
+            .matmul(&self.inv_freq.unsqueeze(0)?.contiguous()?)?;
         Ok(freqs)
     }
 }
@@ -125,8 +128,14 @@ pub fn apply_rotary_pos_emb_vision(
     let cos = cos.unsqueeze(1)?;
     let sin = sin.unsqueeze(1)?;
 
-    let q_embed = q.to_dtype(DType::F32)?.broadcast_mul(&cos)?.add(&rotate_half(q)?.broadcast_mul(&sin)?)?;
-    let k_embed = k.to_dtype(DType::F32)?.broadcast_mul(&cos)?.add(&rotate_half(k)?.broadcast_mul(&sin)?)?;
+    let q_embed = q
+        .to_dtype(DType::F32)?
+        .broadcast_mul(&cos)?
+        .add(&rotate_half(q)?.broadcast_mul(&sin)?)?;
+    let k_embed = k
+        .to_dtype(DType::F32)?
+        .broadcast_mul(&cos)?
+        .add(&rotate_half(k)?.broadcast_mul(&sin)?)?;
 
     Ok((q_embed.to_dtype(q.dtype())?, k_embed.to_dtype(k.dtype())?))
 }

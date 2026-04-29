@@ -79,4 +79,9 @@ impl GlmOcrTokenizer {
     pub fn image_token_id(&self) -> u32 {
         self.image_token_id
     }
+
+    /// Pad token ID (uses the first EOS token, standard practice for this model).
+    pub fn pad_token_id(&self) -> u32 {
+        self.eos_token_ids[0]
+    }
 }

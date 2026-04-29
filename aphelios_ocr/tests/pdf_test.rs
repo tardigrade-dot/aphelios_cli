@@ -64,3 +64,30 @@ async fn test_pdf_load_images() -> Result<()> {
     assert!(index >= 0);
     Ok(())
 }
+
+const BIG_TEST_PDF: &str = "/Users/larry/Downloads/test_layout.pdf";
+
+#[test]
+fn test_pdf_extract_from() {
+    init_test_logging();
+    let pdf_path = PathBuf::from(BIG_TEST_PDF);
+    let output_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/test_pdf2.pdf");
+    dolphin_utils::pdf_extract_from(&pdf_path, 9, 90, &output_path).unwrap();
+    info!("Extracted page from {:?} to {:?}", pdf_path, output_path);
+}
+
+#[test]
+fn test_pdf_page_to_png() {
+    init_test_logging();
+    let num = 2;
+    let pdf_path = PathBuf::from(BIG_TEST_PDF);
+    let output_path = PathBuf::from(format!(
+        "/Users/larry/coderesp/aphelios_cli/output/example_page_{}.png",
+        num
+    ));
+    dolphin_utils::pdf_page_to_png(&pdf_path, num, &output_path).unwrap();
+    info!(
+        "Saved page {} from {:?} to {:?}",
+        num, pdf_path, output_path
+    );
+}

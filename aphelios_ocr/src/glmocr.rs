@@ -1,5 +1,6 @@
 pub mod config;
 pub mod generation;
+pub mod generation_batched;
 pub mod image_processor;
 pub mod layout;
 pub mod model;
@@ -86,6 +87,9 @@ impl DocumentLayout {
 /// Max total merged patches per strip to keep memory and quality reasonable.
 /// 300 merged patches → fast inference, good text quality on CPU.
 const MAX_MERGED_PATCHES: u32 = 300;
+/// Soft target for region OCR. Regions above this are gently downscaled to
+/// improve batching efficiency without aggressively reducing detail.
+const SOFT_MAX_MERGED_PATCHES: u32 = 240;
 
 /// Overlap between adjacent strips in original image pixels.
 const STRIP_OVERLAP: u32 = 56;
@@ -300,6 +304,286 @@ impl GlmOcr {
         Ok(doc.to_markdown())
     }
 
+    /// Like [`recognize_with_layout`] but processes regions in batches through
+    /// the text decoder for higher throughput on multi-region documents.
+    ///
+    /// `batch_size` controls how many region crops are batched into one model call.
+    /// A value of 1 is equivalent to sequential processing.
+    pub fn recognize_with_layout_batched(
+        &self,
+        image: &DynamicImage,
+        layout: &mut LayoutDetector,
+        max_tokens_per_region: usize,
+        batch_size: usize,
+    ) -> Result<String> {
+        let doc = self.recognize_layout_structured_batched(
+            image,
+            layout,
+            max_tokens_per_region,
+            batch_size,
+        )?;
+        Ok(doc.to_markdown())
+    }
+
+    /// Like [`recognize_layout_structured`] but processes regions in batches.
+    ///
+    /// Collects region crops up to `batch_size` at a time and runs batched
+    /// inference via [`generation_batched::generate_batched`].
+    pub fn recognize_layout_structured_batched(
+        &self,
+        image: &DynamicImage,
+        layout: &mut LayoutDetector,
+        max_tokens_per_region: usize,
+        batch_size: usize,
+    ) -> Result<DocumentLayout> {
+        if batch_size == 0 {
+            anyhow::bail!("batch_size must be at least 1");
+        }
+
+        let rgb = image.to_rgb8();
+        let (img_w, img_h) = (rgb.width(), rgb.height());
+        let detections = layout.detect(&rgb)?;
+
+        if detections.is_empty() {
+            tracing::warn!("No layout regions detected, falling back to strip-based processing");
+            let text =
+                self.recognize_with_max_tokens(image, "Text Recognition:", max_tokens_per_region)?;
+            return Ok(DocumentLayout {
+                width: img_w,
+                height: img_h,
+                sections: vec![DocumentSection {
+                    label: "text".to_string(),
+                    bbox: [0.0, 0.0, img_w as f32, img_h as f32],
+                    text: text.clone(),
+                    key_values: extract_key_values(&text),
+                    table: None,
+                }],
+            });
+        }
+
+        tracing::info!("Detected {} layout regions", detections.len());
+        for det in &detections {
+            tracing::info!(
+                "  {} (score={:.2}) at [{:.0}, {:.0}, {:.0}, {:.0}]",
+                det.label,
+                det.score,
+                det.bbox[0],
+                det.bbox[1],
+                det.bbox[2],
+                det.bbox[3]
+            );
+        }
+
+        // not need to merge for batch infer
+        // let merged = merge_adjacent_blocks(&detections);
+        let merged: Vec<MergedRegion> = detections
+            .iter()
+            .map(|x| MergedRegion {
+                label: x.label,
+                bbox: x.bbox,
+                score: x.score,
+            })
+            .collect();
+
+        let mut sections_by_index: Vec<Option<DocumentSection>> =
+            (0..merged.len()).map(|_| None).collect();
+        let pad = 4;
+
+        // Collect valid regions for batched inference
+        struct BatchRegion<'a> {
+            index: usize,
+            region: &'a MergedRegion,
+            crop: DynamicImage,
+            prompt: &'static str,
+            merged_patches: u32,
+        }
+
+        let mut valid_regions: Vec<BatchRegion> = Vec::new();
+
+        for (i, region) in merged.iter().enumerate() {
+            if IMAGE_LABELS.contains(&region.label) {
+                tracing::info!(
+                    "Skipping region {}/{}: {} (image label)",
+                    i + 1,
+                    merged.len(),
+                    region.label,
+                );
+                continue;
+            }
+
+            let x1 = (region.bbox[0] as u32).saturating_sub(pad);
+            let y1 = (region.bbox[1] as u32).saturating_sub(pad);
+            let x2 = ((region.bbox[2] as u32) + pad).min(img_w);
+            let y2 = ((region.bbox[3] as u32) + pad).min(img_h);
+            let w = x2 - x1;
+            let h = y2 - y1;
+
+            if w < 10 || h < 10 {
+                continue;
+            }
+
+            let crop = image.crop_imm(x1, y1, w, h);
+            let crop = scale_to_patch_budget(&crop, MAX_MERGED_PATCHES);
+            let prompt = prompt_for_label(region.label);
+            let merged_patches = merged_patch_count(&crop);
+
+            tracing::info!(
+                "Region {}/{}: {} ({}x{}, {} merged patches) prompt=\"{}\"",
+                i + 1,
+                merged.len(),
+                region.label,
+                crop.width(),
+                crop.height(),
+                merged_patches,
+                prompt,
+            );
+
+            if merged_patches > MAX_MERGED_PATCHES {
+                tracing::info!(
+                    "Region {}/{} exceeds patch budget after scaling; falling back to sequential OCR",
+                    i + 1,
+                    merged.len()
+                );
+
+                match self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region) {
+                    Ok(text) => {
+                        let text = truncate_repetitive_content(text.trim());
+                        let text = strip_empty_code_blocks(&text);
+                        if !text.is_empty() {
+                            let table = if region.label == "table" {
+                                let (td, _) = parse_table_region(&text);
+                                td
+                            } else {
+                                None
+                            };
+
+                            let key_values = if region.label != "table" {
+                                extract_key_values(&text)
+                            } else {
+                                Vec::new()
+                            };
+
+                            sections_by_index[i] = Some(DocumentSection {
+                                label: region.label.to_string(),
+                                bbox: region.bbox,
+                                text,
+                                key_values,
+                                table,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Region {}/{} ({}) sequential fallback failed: {}",
+                            i + 1,
+                            merged.len(),
+                            region.label,
+                            e
+                        );
+                    }
+                }
+                continue;
+            }
+
+            valid_regions.push(BatchRegion {
+                index: i,
+                region,
+                crop,
+                prompt,
+                merged_patches,
+            });
+        }
+
+        // Group similarly sized regions so tiny crops do not get padded and decoded
+        // alongside near-budget crops on the same batch.
+        valid_regions.sort_by(|a, b| b.merged_patches.cmp(&a.merged_patches));
+        let patch_spread_limit = 128u32;
+        let mut start = 0usize;
+
+        // Process in size-aware batches.
+        while start < valid_regions.len() {
+            let first_patches = valid_regions[start].merged_patches;
+            let mut end = start + 1;
+            while end < valid_regions.len() && (end - start) < batch_size {
+                let next_patches = valid_regions[end].merged_patches;
+                if first_patches.saturating_sub(next_patches) > patch_spread_limit {
+                    break;
+                }
+                end += 1;
+            }
+
+            let chunk = &valid_regions[start..end];
+            let images: Vec<DynamicImage> = chunk.iter().map(|r| r.crop.clone()).collect();
+            let prompts: Vec<&str> = chunk.iter().map(|r| r.prompt).collect();
+
+            tracing::info!(
+                "Running batched OCR for {} regions (merged patches: {:?})",
+                chunk.len(),
+                chunk.iter().map(|r| r.merged_patches).collect::<Vec<_>>()
+            );
+
+            match generation_batched::generate_batched(
+                &self.model,
+                &self.tokenizer,
+                &images,
+                &prompts,
+                max_tokens_per_region,
+            ) {
+                Ok(results) => {
+                    for (idx, br) in chunk.iter().enumerate() {
+                        let text = truncate_repetitive_content(results[idx].trim());
+                        let text = strip_empty_code_blocks(&text);
+                        if text.is_empty() {
+                            continue;
+                        }
+
+                        let table = if br.region.label == "table" {
+                            let (td, _) = parse_table_region(&text);
+                            td
+                        } else {
+                            None
+                        };
+
+                        let key_values = if br.region.label != "table" {
+                            extract_key_values(&text)
+                        } else {
+                            Vec::new()
+                        };
+
+                        tracing::info!(
+                            "Region {}/{} ({}) text: {}",
+                            br.index + 1,
+                            merged.len(),
+                            br.region.label,
+                            text
+                        );
+
+                        sections_by_index[br.index] = Some(DocumentSection {
+                            label: br.region.label.to_string(),
+                            bbox: br.region.bbox,
+                            text,
+                            key_values,
+                            table,
+                        });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Batch failed ({} regions): {}", chunk.len(), e);
+                }
+            }
+
+            start = end;
+        }
+
+        let sections = sections_by_index.into_iter().flatten().collect();
+
+        Ok(DocumentLayout {
+            width: img_w,
+            height: img_h,
+            sections,
+        })
+    }
+
     /// Recognize text using layout detection, returning structured data.
     ///
     /// Returns a [`DocumentLayout`] with typed sections preserving the layout
@@ -347,41 +631,7 @@ impl GlmOcr {
         }
 
         // Merge adjacent same-label text blocks to reduce VLM calls
-        let mut merged = merge_adjacent_blocks(&detections);
-        tracing::info!(
-            "Merged {} regions into {} groups",
-            detections.len(),
-            merged.len()
-        );
-
-        // Fill vertical gaps not covered by any detected region.
-        let gap_regions = find_vertical_gaps(&merged, img_w as f32, img_h as f32);
-        if !gap_regions.is_empty() {
-            tracing::info!("Adding {} gap-fill regions", gap_regions.len());
-            for gap in &gap_regions {
-                tracing::info!(
-                    "  gap text at [{:.0}, {:.0}, {:.0}, {:.0}]",
-                    gap.bbox[0],
-                    gap.bbox[1],
-                    gap.bbox[2],
-                    gap.bbox[3]
-                );
-            }
-            let mut all_regions = Vec::new();
-            let mut gap_iter = gap_regions.into_iter().peekable();
-            for region in merged {
-                while let Some(gap) = gap_iter.peek() {
-                    if gap.bbox[1] < region.bbox[1] {
-                        all_regions.push(gap_iter.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-                all_regions.push(region);
-            }
-            all_regions.extend(gap_iter);
-            merged = all_regions;
-        }
+        let merged = merge_adjacent_blocks(&detections);
 
         let mut sections: Vec<DocumentSection> = Vec::new();
         let pad = 4; // padding pixels around crop
@@ -442,6 +692,14 @@ impl GlmOcr {
                         } else {
                             Vec::new()
                         };
+
+                        tracing::info!(
+                            "Region {}/{} ({}) text: {}",
+                            i + 1,
+                            merged.len(),
+                            region.label,
+                            text
+                        );
 
                         sections.push(DocumentSection {
                             label: region.label.to_string(),
@@ -624,37 +882,54 @@ fn blocks_are_adjacent(a: &[f32; 4], b: &[f32; 4]) -> bool {
     gap < max_height * 0.5
 }
 
-/// Scale an image down so its merged patch count fits within the budget.
-/// Preserves aspect ratio. Returns the original image if it already fits.
+/// Scale an image down using a two-threshold merged patch budget.
+///
+/// - `<= SOFT_MAX_MERGED_PATCHES`: keep original resolution
+/// - `SOFT_MAX_MERGED_PATCHES+1 ..= MAX_MERGED_PATCHES`: gently scale toward
+///   the soft target for better batching efficiency
+/// - `> MAX_MERGED_PATCHES`: scale toward the hard cap
+///
+/// Preserves aspect ratio. The caller still decides whether to fall back if
+/// post-resize rounding leaves the image slightly above the hard cap.
 fn scale_to_patch_budget(image: &DynamicImage, max_patches: u32) -> DynamicImage {
-    let unit = 28u32; // patch_size(14) * merge_size(2)
     let w = image.width();
     let h = image.height();
+    let total = merged_patch_count(image);
 
-    let w_merged = ((w + unit / 2) / unit).max(1);
-    let h_merged = ((h + unit / 2) / unit).max(1);
-    let total = w_merged * h_merged;
-
-    if total <= max_patches {
+    if total <= SOFT_MAX_MERGED_PATCHES {
         return image.clone();
     }
 
-    // Scale factor to fit within budget
-    let scale = (max_patches as f64 / total as f64).sqrt();
+    let target_patches = if total <= max_patches {
+        SOFT_MAX_MERGED_PATCHES
+    } else {
+        max_patches
+    };
+
+    // Scale factor to fit within the chosen budget.
+    let scale = (target_patches as f64 / total as f64).sqrt();
+    let unit = 28u32; // patch_size(14) * merge_size(2)
     let new_w = ((w as f64 * scale) as u32).max(unit);
     let new_h = ((h as f64 * scale) as u32).max(unit);
 
     tracing::info!(
-        "Scaling {}x{} ({} patches) → {}x{} to fit {} patch budget",
+        "Scaling {}x{} ({} patches) → {}x{} toward {} patch budget",
         w,
         h,
         total,
         new_w,
         new_h,
-        max_patches,
+        target_patches,
     );
 
     image.resize(new_w, new_h, image::imageops::FilterType::Lanczos3)
+}
+
+fn merged_patch_count(image: &DynamicImage) -> u32 {
+    let unit = 28u32; // patch_size(14) * merge_size(2)
+    let w_merged = ((image.width() + unit / 2) / unit).max(1);
+    let h_merged = ((image.height() + unit / 2) / unit).max(1);
+    w_merged * h_merged
 }
 
 /// Choose an appropriate OCR prompt based on the layout region type.
@@ -731,13 +1006,14 @@ fn truncate_repetitive_content(content: &str) -> String {
 
 /// Find the shortest substring that repeats to form the entire string.
 fn find_shortest_repeating_substring(s: &str) -> Option<String> {
-    let n = s.len();
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
     for i in 1..=n / 2 {
         if n % i == 0 {
-            let unit = &s[..i];
+            let unit: String = chars[..i].iter().collect();
             let count = n / i;
             if unit.repeat(count) == s {
-                return Some(unit.to_string());
+                return Some(unit);
             }
         }
     }
@@ -750,25 +1026,31 @@ fn find_repeating_suffix(
     s: &str,
     min_len: usize,
     min_repeats: usize,
-) -> Option<(&str, &str, usize)> {
-    let len = s.len();
+) -> Option<(String, String, usize)> {
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
     let max_unit = len / min_repeats;
     for i in (min_len..=max_unit).rev() {
         if i > len {
             continue;
         }
-        let unit = &s[len - i..];
+        let unit: String = chars[len - i..].iter().collect();
         let repeated = unit.repeat(min_repeats);
         if s.ends_with(&repeated) {
             // Count total repeats from the end
             let mut count = 0;
             let mut pos = len;
-            while pos >= i && &s[pos - i..pos] == unit {
+            while pos >= i {
+                let slice: String = chars[pos - i..pos].iter().collect();
+                if slice != unit {
+                    break;
+                }
                 pos -= i;
                 count += 1;
             }
             let prefix_end = len - (count * i);
-            return Some((&s[..prefix_end], unit, count));
+            let prefix: String = chars[..prefix_end].iter().collect();
+            return Some((prefix, unit, count));
         }
     }
     None

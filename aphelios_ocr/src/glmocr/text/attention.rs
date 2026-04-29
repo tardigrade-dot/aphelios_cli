@@ -2,9 +2,9 @@ use candle_core::quantized::GgmlDType;
 use candle_core::{Result, Tensor};
 use candle_nn::{linear_no_bias, Module, VarBuilder};
 
+use super::rotary::apply_rotary_pos_emb;
 use crate::glmocr::config::TextConfig;
 use crate::glmocr::quantize::QLinear;
-use super::rotary::apply_rotary_pos_emb;
 
 /// KV-cache for a single decoder layer.
 pub struct KvCache {
@@ -45,17 +45,53 @@ impl TextAttention {
             Box<dyn Module + Send + Sync>,
         ) = if let Some(qdt) = qdtype {
             (
-                Box::new(QLinear::new(hidden, num_heads * head_dim, vb.pp("q_proj"), qdt)?),
-                Box::new(QLinear::new(hidden, num_kv_heads * head_dim, vb.pp("k_proj"), qdt)?),
-                Box::new(QLinear::new(hidden, num_kv_heads * head_dim, vb.pp("v_proj"), qdt)?),
-                Box::new(QLinear::new(num_heads * head_dim, hidden, vb.pp("o_proj"), qdt)?),
+                Box::new(QLinear::new(
+                    hidden,
+                    num_heads * head_dim,
+                    vb.pp("q_proj"),
+                    qdt,
+                )?),
+                Box::new(QLinear::new(
+                    hidden,
+                    num_kv_heads * head_dim,
+                    vb.pp("k_proj"),
+                    qdt,
+                )?),
+                Box::new(QLinear::new(
+                    hidden,
+                    num_kv_heads * head_dim,
+                    vb.pp("v_proj"),
+                    qdt,
+                )?),
+                Box::new(QLinear::new(
+                    num_heads * head_dim,
+                    hidden,
+                    vb.pp("o_proj"),
+                    qdt,
+                )?),
             )
         } else {
             (
-                Box::new(linear_no_bias(hidden, num_heads * head_dim, vb.pp("q_proj"))?),
-                Box::new(linear_no_bias(hidden, num_kv_heads * head_dim, vb.pp("k_proj"))?),
-                Box::new(linear_no_bias(hidden, num_kv_heads * head_dim, vb.pp("v_proj"))?),
-                Box::new(linear_no_bias(num_heads * head_dim, hidden, vb.pp("o_proj"))?),
+                Box::new(linear_no_bias(
+                    hidden,
+                    num_heads * head_dim,
+                    vb.pp("q_proj"),
+                )?),
+                Box::new(linear_no_bias(
+                    hidden,
+                    num_kv_heads * head_dim,
+                    vb.pp("k_proj"),
+                )?),
+                Box::new(linear_no_bias(
+                    hidden,
+                    num_kv_heads * head_dim,
+                    vb.pp("v_proj"),
+                )?),
+                Box::new(linear_no_bias(
+                    num_heads * head_dim,
+                    hidden,
+                    vb.pp("o_proj"),
+                )?),
             )
         };
 
@@ -132,7 +168,8 @@ impl TextAttention {
 
         // Attention: softmax((Q @ K^T) * scale + mask) @ V
         // CUDA matmul requires contiguous tensors after transpose
-        let attn_weights = (q.contiguous()?.matmul(&k.transpose(2, 3)?.contiguous()?)? * self.scale)?;
+        let attn_weights =
+            (q.contiguous()?.matmul(&k.transpose(2, 3)?.contiguous()?)? * self.scale)?;
 
         let attn_weights = if let Some(mask) = attention_mask {
             attn_weights.broadcast_add(mask)?
@@ -144,10 +181,11 @@ impl TextAttention {
         let attn_output = attn_weights.contiguous()?.matmul(&v.contiguous()?)?;
 
         // Reshape: [batch, num_heads, seq, head_dim] → [batch, seq, num_heads*head_dim]
-        let attn_output = attn_output
-            .transpose(1, 2)?
-            .contiguous()?
-            .reshape((batch, seq_len, self.num_heads * self.head_dim))?;
+        let attn_output = attn_output.transpose(1, 2)?.contiguous()?.reshape((
+            batch,
+            seq_len,
+            self.num_heads * self.head_dim,
+        ))?;
 
         let output = self.o_proj.forward(&attn_output)?;
         Ok((output, new_cache))
