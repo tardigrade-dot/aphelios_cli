@@ -8,10 +8,10 @@ macro_rules! measure_time {
         #[cfg(feature = "profiling")]
         {
             let __start = ::std::time::Instant::now();
-            ::tracing::info!("start {}", $desc);
+            ::tracing::info!("[profiling] >>>>> start {}", $desc);
             let __result = $block;
             ::tracing::info!(
-                "[profiling] ✓ {} -> {:.3}s",
+                "[profiling] <<<<< {} cost [{:.3}s]",
                 $desc,
                 __start.elapsed().as_secs_f64()
             );
@@ -31,10 +31,10 @@ macro_rules! measure_time {
         #[cfg(feature = "profiling")]
         {
             let __start = ::std::time::Instant::now();
-            ::tracing::info!("start {}", $desc);
+            ::tracing::info!("[profiling] >>>>> start {}", $desc);
             let __result = $expr;
             ::tracing::info!(
-                "[profiling] ✓ {} -> {:.3}s",
+                "[profiling] <<<<< {} cost [{:.3}s]",
                 $desc,
                 __start.elapsed().as_secs_f64()
             );

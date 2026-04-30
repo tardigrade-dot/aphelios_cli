@@ -1,4 +1,6 @@
 export component HomePage inherits Rectangle {
+    in-out property <bool> dark_mode: false;
+
     in-out property <string> app_version;
 
     VerticalLayout {
@@ -9,34 +11,34 @@ export component HomePage inherits Rectangle {
             text: "Aphelios AI";
             font-size: 32px;
             font-weight: 800;
-            color: #1a2535;
+            color: dark_mode ? #e0e0e0 : #1a2535;
             horizontal-alignment: center;
         }
 
         Text {
             text: "智能工具箱";
             font-size: 16px;
-            color: #8a9bb0;
+            color: dark_mode ? #a0a0b0 : #8a9bb0;
             horizontal-alignment: center;
         }
 
         Text {
             text: "从左侧边栏选择功能模块";
             font-size: 13px;
-            color: #b0bec5;
+            color: dark_mode ? #6a6a7a : #b0bec5;
             horizontal-alignment: center;
         }
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: dark_mode ? #3a3a4f : #d0d8e4;
             width: 200px;
         }
 
         Text {
             text: "v" + root.app_version;
             font-size: 12px;
-            color: #b0bec5;
+            color: dark_mode ? #6a6a7a : #b0bec5;
             horizontal-alignment: center;
         }
     }

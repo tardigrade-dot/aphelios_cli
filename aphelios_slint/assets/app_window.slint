@@ -18,6 +18,7 @@ export component AppWindow inherits Window {
 
     in-out property <string> current_page: "home";
     in-out property <string> app_version: "";
+    in-out property <bool> dark_mode: true;
 
     // ── OCR 页面属性 ──
     in-out property <string> ocr-model-path: "/Volumes/sw/pretrained_models/Dolphin-v1.5";
@@ -26,6 +27,7 @@ export component AppWindow inherits Window {
     in-out property <[string]> ocr-log-messages: ["Ready", "Waiting for input..."];
     in-out property <bool> ocr-is-running: false;
     in-out property <string> ocr-status-message: "";
+    in-out property <float> ocr-progress: 0.0;
     in-out property <length> ocr-log-viewport-y: 0;
     callback ocr-scroll-to-bottom();
     ocr-scroll-to-bottom => { root.ocr-log-viewport-y = -100000px; }
@@ -368,6 +370,26 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
+
+                    // 黑夜模式切换
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        TouchArea {
+                            clicked => { root.dark_mode = !root.dark_mode; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                padding-left: 4px;
+                                alignment: start;
+                                Text {
+                                    text: dark_mode ? "☀️  白天模式" : "🌙  黑夜模式";
+                                    color: #b0c4d8;
+                                    vertical-alignment: center;
+                                    font-size: 13px;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // 底部版本
@@ -387,13 +409,14 @@ export component AppWindow inherits Window {
         // ═══════ 右侧内容区域 ═══════
         Rectangle {
             horizontal-stretch: 1;
-            background: #eef1f6;
+            background: dark_mode ? #1e1e2e : #eef1f6;
             clip: true;
 
             // 首页
             HomePage {
                 visible: current_page == "home";
                 app_version <=> root.app_version;
+                dark_mode <=> root.dark_mode;
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
             }
@@ -403,12 +426,14 @@ export component AppWindow inherits Window {
                 visible: current_page == "ocr";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 model_path <=> root.ocr-model-path;
                 input_file_path <=> root.ocr-input-file-path;
                 output_dir_path <=> root.ocr-output-dir-path;
                 log_messages <=> root.ocr-log-messages;
                 is_running <=> root.ocr-is-running;
                 status_message <=> root.ocr-status-message;
+                progress <=> root.ocr-progress;
                 log_viewport_y <=> root.ocr-log-viewport-y;
                 scroll_to_bottom => { root.ocr-scroll-to-bottom(); }
                 select_input_file => { root.ocr-select-input-file(); }
@@ -423,6 +448,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "asr";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 asr_model_path <=> root.asr-model-path;
                 aligner_model_path <=> root.asr-aligner-model-path;
                 vad_model_path <=> root.asr-vad-model-path;
@@ -449,6 +475,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "tts";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 input_text <=> root.tts-input-text;
                 input_text_length <=> root.tts-input-text-length;
                 txt_file_path <=> root.tts-txt-file-path;
@@ -480,6 +507,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "book_search";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 books_dir <=> root.bs-books-dir;
                 status_message <=> root.bs-status-message;
                 book_count <=> root.bs-book-count;
@@ -496,6 +524,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "text_align";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 model_path <=> root.ta-model-path;
                 audio_file_path <=> root.ta-audio-file-path;
                 target_text_path <=> root.ta-target-text-path;
@@ -522,6 +551,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "demucs";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 audio_file_path <=> root.demucs-audio-file-path;
                 model_path <=> root.demucs-model-path;
                 output_dir <=> root.demucs-output-dir;
@@ -544,6 +574,7 @@ export component AppWindow inherits Window {
                 visible: current_page == "settings";
                 x: 0px; y: 0px;
                 width: 100%; height: 100%;
+                dark_mode <=> root.dark_mode;
                 ocr_model_path <=> root.settings-ocr-model-path;
                 ocr_output_dir <=> root.settings-ocr-output-dir;
                 asr_model_path <=> root.settings-asr-model-path;

@@ -17,13 +17,14 @@ impl OcrEngine for DolphinOcrClient {
         model_path: &str,
         input_path: &str,
         output_dir: &str,
+        progress: Option<AppProgressBar>,
     ) -> Result<Vec<String>> {
         let mut dolphin_model = DolphinModel::load_model(model_path)?;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(dolphin_model.dolphin_ocr(input_path, output_dir))
+        rt.block_on(dolphin_model.dolphin_ocr(input_path, output_dir, progress))
     }
 }
 

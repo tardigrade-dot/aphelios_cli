@@ -37,7 +37,7 @@ pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     let mut dm = measure_time!("load model", DolphinModel::load_model(&model_id)?);
 
     let _ = &dm
-        .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string())
+        .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string(), None)
         .await?;
     info!("ocr finished. start merge all file to single one");
 

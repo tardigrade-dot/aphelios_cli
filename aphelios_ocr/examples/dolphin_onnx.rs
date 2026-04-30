@@ -14,18 +14,14 @@ use ort::session::Session;
 use ort::value::Value;
 use regex::Regex;
 use std::path::Path;
+use std::time::Instant;
 use tokenizers::Tokenizer;
 
 /// Dolphin model image dimensions (from preprocessor_config.json)
 const IMAGE_HEIGHT: usize = 896;
 const IMAGE_WIDTH: usize = 896;
 
-/// Load and preprocess image for Dolphin model
-/// 修改后的预处理函数：采用居中对齐 (Center Padding)
-fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
-    let img = image::open(image_path)
-        .with_context(|| format!("Failed to open image: {:?}", image_path))?;
-
+fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
     // 1. 按照 target 尺寸进行等比例缩放
     let resized = img.resize(
         IMAGE_WIDTH as u32,
@@ -76,14 +72,25 @@ fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
         .context("Failed to create input tensor")?;
 
     // 可选：调试保存，检查图片是否居中
-    // canvas.save("debug_centered_input.png")?;
+    let i = Instant::now().elapsed().as_micros();
+    canvas.save(format!(
+        "/Users/larry/coderesp/aphelios_cli/output/debug_centered_input-{}.png",
+        i
+    ))?;
 
     Ok(array)
+}
+/// Load and preprocess image for Dolphin model
+/// 修改后的预处理函数：采用居中对齐 (Center Padding)
+fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
+    let img = image::open(image_path)
+        .with_context(|| format!("Failed to open image: {:?}", image_path))?;
+    preprocess_img(&img)
 }
 
 /// Load ONNX model
 fn load_model(model_path: &Path) -> Result<Session> {
-    let execution_providers = common::get_available_ep();
+    let execution_providers = common::get_cpu_ep();
 
     let session = Session::builder()?
         .with_execution_providers(execution_providers)?
@@ -94,7 +101,7 @@ fn load_model(model_path: &Path) -> Result<Session> {
 }
 
 /// Run encoder-decoder model for layout recognition
-fn run_layout_recognition(
+fn model_infer(
     encoder_session: &mut Session,
     decoder_session: &mut Session,
     pixel_values: &Array4<f32>,
@@ -328,13 +335,11 @@ fn draw_bboxes_and_save(
     img_rgba.save(save_path)?;
     Ok(())
 }
-
+// optimum-cli export onnx --task image-to-text-with-past --num_channels 3 --model /Volumes/sw/pretrained_models/Dolphin-v1.5 ./Dolphin-1.5-onnx
 //  [78,59,514,239][half_para][PAIR_SEP][78,244,515,425][para][PAIR_SEP][164,456,398,485][sec_1][PAIR_SEP][81,507,517,687][para][PAIR_SEP][82,692,517,769][para][PAIR_SEP][103,780,149,792][foot][page_num]
 fn main() -> Result<()> {
-    let encoder_file =
-        Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/onnx/encoder_model.onnx");
-    let decoder_file =
-        Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/onnx/decoder_model.onnx");
+    let encoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/encoder_model.onnx");
+    let decoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/decoder_model.onnx");
     let test_image = Path::new("/Users/larry/coderesp/aphelios_cli/test_data/page_32.png");
     let tokenizer_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/tokenizer.json");
 
@@ -385,14 +390,10 @@ fn main() -> Result<()> {
     let start = std::time::Instant::now();
     let pixel_values = preprocess_image(test_image)?;
 
-    let device = common::get_default_device(false)?;
     let img = image::ImageReader::open(test_image)
         .with_context(|| format!("Failed to open image file {}", test_image.to_str().unwrap()))?
         .decode()
         .with_context(|| format!("Failed to decode image {}", test_image.to_str().unwrap()))?;
-
-    let img_tensor =
-        dolphin_utils::get_tensor_from_image(&img, 896, 896, &device, candle_core::DType::F32);
 
     println!("Image preprocessed in {:?}", start.elapsed());
 
@@ -400,7 +401,7 @@ fn main() -> Result<()> {
     println!("\nRunning layout recognition...");
 
     let start = std::time::Instant::now();
-    let layout_str = run_layout_recognition(
+    let layout_str = model_infer(
         &mut encoder_session,
         &mut decoder_session,
         &pixel_values,
@@ -428,6 +429,17 @@ fn main() -> Result<()> {
 
         let n_bbox = transform_to_pixel_dynamic(bbox, img_w, img_h, 896, 895);
         draw_bbox.push((n_bbox, label.to_string()));
+
+        let clip = dolphin_utils::crop_image(&img, n_bbox, 5);
+        let r = model_infer(
+            &mut encoder_session,
+            &mut decoder_session,
+            &preprocess_img(&clip)?,
+            &tokenizer,
+            "<s>Read text in the image. <Answer/>",
+            512,
+        );
+        print!("label [{}] text [{}]", label, r?)
     }
 
     // Draw bboxes on image

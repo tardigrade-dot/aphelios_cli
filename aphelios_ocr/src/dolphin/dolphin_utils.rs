@@ -11,6 +11,8 @@ use imageproc::rect::Rect;
 use pdfium_render::prelude::*;
 use tracing::info;
 
+use crate::ImageData;
+
 /// Get the directory where the running executable resides.
 fn get_exe_dir() -> PathBuf {
     std::env::current_exe()
@@ -172,24 +174,23 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-pub fn load_pdf_images(path: PathBuf) -> impl Stream<Item = Result<DynamicImage>> {
+pub fn load_pdf_images(path: PathBuf) -> impl Stream<Item = Result<ImageData>> {
     try_stream! {
         let pdfium = bind_pdfium()?;
         let document = pdfium.load_pdf_from_file(path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?, None)?;
-
         let render_config = PdfRenderConfig::default();
+        let pages = document.pages();
+        let total_pages = pages.len() as usize;
 
-        for page in document.pages().iter() {
-            #[cfg(feature = "profiling")]
-            let _span = tracing::info_span!("render_page").entered();
-
+        for (page_index, page) in pages.iter().enumerate() {
             let img = page.render_with_config(&render_config)?
                 .as_image()?;
-
-            #[cfg(feature = "profiling")]
-            _span.exit();
-
-            yield img;
+            let data = ImageData {
+                page_index,
+                total_pages,
+                image: img,
+            };
+            yield data;
         }
     }
 }

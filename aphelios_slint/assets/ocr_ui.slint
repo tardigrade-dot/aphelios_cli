@@ -1,11 +1,13 @@
 import {
     Button,
     LineEdit,
+    ProgressIndicator,
     ScrollView,
 } from "std-widgets.slint";
 
 export component OcrPage inherits Rectangle {
-    background: #f6f6f6;
+    in-out property <bool> dark_mode: false;
+    background: dark_mode ? #1e1e2e : #f6f6f6;
 
     in-out property <string> model_path: "/Volumes/sw/pretrained_models/Dolphin-v1.5";
     in-out property <string> input_file_path;
@@ -13,7 +15,16 @@ export component OcrPage inherits Rectangle {
     in-out property <[string]> log_messages: ["Ready", "Waiting for input..."];
     in-out property <bool> is_running: false;
     in-out property <string> status_message: "";
+    in-out property <float> progress: 0.0;
     in-out property <length> log_viewport_y: 0;
+
+    // Color palette
+    in-out property <color> text-primary: dark_mode ? #e0e0e0 : #1a2535;
+    in-out property <color> text-secondary: dark_mode ? #a0a0b0 : #666;
+    in-out property <color> text-muted: dark_mode ? #7a7a8a : #999;
+    in-out property <color> panel-bg: dark_mode ? #2b2b3d : #ffffff;
+    in-out property <color> card-border: dark_mode ? #3a3a4f : #e0e0e0;
+    in-out property <color> accent-color: dark_mode ? #4fc3f7 : #1565c0;
 
     callback scroll_to_bottom();
     scroll_to_bottom => {
@@ -39,17 +50,17 @@ export component OcrPage inherits Rectangle {
                 text: "Dolphin OCR 文字识别";
                 font-size: 14px;
                 font-weight: 600;
-                color: #333;
+                color: text-primary;
                 vertical-alignment: center;
             }
         }
 
         // --- 主配置面板 ---
         Rectangle {
-            background: #ffffff;
+            background: panel-bg;
             border-radius: 8px;
             border-width: 1px;
-            border-color: #e0e0e0;
+            border-color: card-border;
 
             VerticalLayout {
                 padding: 12px;
@@ -64,7 +75,7 @@ export component OcrPage inherits Rectangle {
                         vertical-alignment: center;
                         width: 60px;
                         font-size: 12px;
-                        color: #1a2535;
+                        color: text-primary;
                     }
 
                     LineEdit {
@@ -92,7 +103,7 @@ export component OcrPage inherits Rectangle {
                             vertical-alignment: center;
                             width: 60px;
                             font-size: 12px;
-                            color: #666;
+                            color: text-secondary;
                         }
 
                         LineEdit {
@@ -116,7 +127,7 @@ export component OcrPage inherits Rectangle {
                             vertical-alignment: center;
                             width: 60px;
                             font-size: 12px;
-                            color: #666;
+                            color: text-secondary;
                         }
 
                         LineEdit {
@@ -160,17 +171,39 @@ export component OcrPage inherits Rectangle {
             }
         }
 
+        // --- 进度（运行时） ---
+        if is_running: VerticalLayout {
+            spacing: 4px;
+
+            Text {
+                text: Math.round(progress * 100) + "%";
+                font-size: 11px;
+                color: accent-color;
+                font-weight: 600;
+            }
+
+            HorizontalLayout {
+                height: 16px;
+                spacing: 10px;
+                ProgressIndicator {
+                    progress: progress;
+                    height: 4px;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
         Text {
             text: " 运行日志";
             font-size: 11px;
-            color: #999;
+            color: text-muted;
         }
 
         Rectangle {
             background: #1e1e1e;
             border-radius: 6px;
             vertical-stretch: 1;
-            min-height: 120px;
+            min-height: 360px;
             clip: true;
 
             ScrollView {

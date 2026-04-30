@@ -50,7 +50,8 @@ async fn test_pdf_load_images() -> Result<()> {
         }
 
         let output_path = output_dir.join(format!("page-{}.jpg", index));
-        img.save_with_format(&output_path, image::ImageFormat::Jpeg)?;
+        let _ = img.save_jpeg(&output_path);
+
         info!("Saved page {} to {:?}", index, output_path);
         index += 1;
     }

@@ -14,6 +14,7 @@ pub trait OcrEngine: Send + Sync {
         model_path: &str,
         input_path: &str,
         output_dir: &str,
+        progress: Option<AppProgressBar>,
     ) -> Result<Vec<String>>;
 }
 

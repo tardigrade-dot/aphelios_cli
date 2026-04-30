@@ -7,15 +7,16 @@ import {
 } from "std-widgets.slint";
 
 export component AsrPage inherits Rectangle {
-    background: #eef1f6;
+    in-out property <bool> dark_mode: false;
+    background: dark_mode ? #1e1e2e : #eef1f6;
 
     in-out property <string> asr_model_path;
     in-out property <string> aligner_model_path;
     in-out property <string> vad_model_path;
     in-out property <string> audio_file_path;
     in-out property <string> output_path;
-    in-out property <string> language: "Chinese";
-    in-out property <string> status_message: "就绪";
+    in-out property <string> language: "English";
+    in-out property <string> status_message: "Ready";
     in-out property <bool> is_running: false;
     in-out property <float> progress: 0.0;
     in-out property <string> stage_name: "VAD";
@@ -24,6 +25,15 @@ export component AsrPage inherits Rectangle {
     in-out property <[string]> log_messages: ["Session started"];
     in-out property <string> transcription_result;
     in-out property <length> log_viewport_y: 0;
+
+    // Color palette
+    in-out property <color> text-primary: dark_mode ? #e0e0e0 : #1a2535;
+    in-out property <color> text-secondary: dark_mode ? #a0a0b0 : #666;
+    in-out property <color> text-muted: dark_mode ? #7a7a8a : #999;
+    in-out property <color> label-color: dark_mode ? #c0c0d0 : #333;
+    in-out property <color> panel-bg: dark_mode ? #2b2b3d : #ffffff;
+    in-out property <color> card-border: dark_mode ? #3a3a4f : #e0e0e0;
+    in-out property <color> accent-color: dark_mode ? #4fc3f7 : #1565c0;
 
     callback scroll_to_bottom();
     scroll_to_bottom => {
@@ -48,6 +58,7 @@ export component AsrPage inherits Rectangle {
                 text: "Parakeet ASR 语音识别";
                 font-size: 16px;
                 font-weight: 700;
+                color: text-primary;
                 vertical-alignment: center;
             }
             // 状态指示灯
@@ -64,7 +75,7 @@ export component AsrPage inherits Rectangle {
                 Text {
                     text: status_message;
                     font-size: 12px;
-                    color: #666;
+                    color: text-secondary;
                     vertical-alignment: center;
                 }
             }
@@ -72,10 +83,10 @@ export component AsrPage inherits Rectangle {
 
         // --- 核心配置卡片 (输入输出) ---
         Rectangle {
-            background: #ffffff;
+            background: panel-bg;
             border-radius: 8px;
             border-width: 1px;
-            border-color: #e0e0e0;
+            border-color: card-border;
             vertical-stretch: 0;
 
             VerticalLayout {
@@ -91,6 +102,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     LineEdit {
@@ -109,6 +121,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     LineEdit {
@@ -127,6 +140,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     LineEdit {
@@ -145,6 +159,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     ComboBox {
@@ -164,6 +179,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     LineEdit {
@@ -191,6 +207,7 @@ export component AsrPage inherits Rectangle {
                         width: 60px;
                         vertical-alignment: center;
                         font-size: 12px;
+                        color: label-color;
                     }
 
                     LineEdit {
@@ -235,7 +252,7 @@ export component AsrPage inherits Rectangle {
             Text {
                 text: "当前阶段 " + stage_name + " (" + stage_index + "/" + total_stages + ") 正在执行";
                 font-size: 11px;
-                color: #1565c0;
+                color: accent-color;
                 font-weight: 600;
             }
 
@@ -253,7 +270,7 @@ export component AsrPage inherits Rectangle {
                     text: Math.round(progress * 100) + "%";
                     font-size: 11px;
                     font-weight: 600;
-                    color: #1565c0;
+                    color: accent-color;
                     width: 32px;
                     horizontal-alignment: right;
                     vertical-alignment: center;
@@ -269,7 +286,7 @@ export component AsrPage inherits Rectangle {
             Text {
                 text: "系统日志";
                 font-size: 11px;
-                color: #999;
+                color: text-muted;
             }
 
             Rectangle {

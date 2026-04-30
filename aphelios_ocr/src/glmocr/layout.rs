@@ -4,10 +4,8 @@
 //! Ported from Kreuzberg's kreuzberg-paddle-ocr implementation.
 
 use anyhow::{Context, Result};
-use hf_hub::{api::sync::Api, Repo, RepoType};
 use ndarray::Array4;
 use ort::session::Session;
-use std::path::PathBuf;
 
 /// Input dimensions for PP-DocLayout-M: 640x640 square.
 const INPUT_SIZE: u32 = 640;
@@ -18,10 +16,6 @@ const STD_RGB: [f32; 3] = [0.229, 0.224, 0.225];
 
 const DEFAULT_SCORE_THRESHOLD: f32 = 0.3;
 const DEFAULT_NMS_THRESHOLD: f32 = 0.5;
-
-/// HuggingFace repo containing the layout ONNX model.
-const LAYOUT_MODEL_REPO: &str = "Kreuzberg/paddleocr-onnx-models";
-const LAYOUT_MODEL_FILE: &str = "pp-doclayout-m.onnx";
 
 /// A detected layout region with bounding box and class label.
 #[derive(Debug, Clone)]
@@ -72,20 +66,11 @@ pub struct LayoutDetector {
 
 impl LayoutDetector {
     /// Create a new layout detector, downloading the ONNX model if needed.
-    pub fn new() -> Result<Self> {
-        // Initialize ONNX Runtime from the system shared library
-        // let ort_lib = Self::find_onnxruntime_lib()?;
-        // tracing::info!("Loading ONNX Runtime from {:?}", ort_lib);
-        // ort::init_from(&ort_lib)
-        //     .context("Failed to init ONNX Runtime")?
-        //     .commit();
-
-        // let model_path = Self::ensure_model()?; // "/Users/larry/Downloads/PP-DocLayoutV3.onnx";
-        let model_path = "/Users/larry/Downloads/PP-DocLayout-M.onnx";
+    pub fn new(model_file_path: &str) -> Result<Self> {
         let session = Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_intra_threads(4)?
-            .commit_from_file(&model_path)
+            .commit_from_file(model_file_path)
             .context("Failed to load layout ONNX model")?;
 
         Ok(Self {
@@ -93,95 +78,6 @@ impl LayoutDetector {
             score_threshold: DEFAULT_SCORE_THRESHOLD,
             nms_threshold: DEFAULT_NMS_THRESHOLD,
         })
-    }
-
-    /// Find the ONNX Runtime shared library on the system.
-    fn find_onnxruntime_lib() -> Result<PathBuf> {
-        // Check ORT_DYLIB_PATH env var first
-        if let Ok(path) = std::env::var("ORT_DYLIB_PATH") {
-            let p = PathBuf::from(&path);
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-
-        // Search Python onnxruntime packages under $HOME/.local/lib/
-        if let Ok(home) = std::env::var("HOME") {
-            let local_lib = PathBuf::from(&home).join(".local/lib");
-            if local_lib.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(&local_lib) {
-                    for entry in entries.flatten() {
-                        let name = entry.file_name();
-                        if name.to_string_lossy().starts_with("python") {
-                            let capi_dir = entry.path().join("site-packages/onnxruntime/capi");
-                            if capi_dir.is_dir() {
-                                // Find libonnxruntime.so* (may have version suffix)
-                                if let Ok(capi_entries) = std::fs::read_dir(&capi_dir) {
-                                    for capi_entry in capi_entries.flatten() {
-                                        let fname = capi_entry.file_name();
-                                        let fname_str = fname.to_string_lossy();
-                                        if fname_str.starts_with("libonnxruntime.so") {
-                                            return Ok(capi_entry.path());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // System locations
-        for path in &[
-            "/usr/lib/libonnxruntime.so",
-            "/usr/local/lib/libonnxruntime.so",
-        ] {
-            let p = PathBuf::from(path);
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-
-        anyhow::bail!(
-            "Could not find libonnxruntime.so. Install onnxruntime: pip install onnxruntime, \
-             or set ORT_DYLIB_PATH to the library path."
-        )
-    }
-
-    /// Find or download the PP-DocLayout-M ONNX model.
-    fn ensure_model() -> Result<PathBuf> {
-        // Check LAYOUT_MODEL_PATH env var
-        if let Ok(path) = std::env::var("LAYOUT_MODEL_PATH") {
-            let p = PathBuf::from(&path);
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-
-        // Check Kreuzberg cache locations
-        let kreuzberg_paths = [".kreuzberg/paddle-ocr/layout/model.onnx"];
-        if let Ok(cwd) = std::env::current_dir() {
-            for rel in &kreuzberg_paths {
-                let p = cwd.join(rel);
-                if p.exists() {
-                    return Ok(p);
-                }
-            }
-        }
-
-        // Try to download from HuggingFace
-        let api = Api::new().context("Failed to create HF API")?;
-        let repo = api.repo(Repo::new(LAYOUT_MODEL_REPO.to_string(), RepoType::Model));
-        match repo.get(LAYOUT_MODEL_FILE) {
-            Ok(path) => Ok(path),
-            Err(e) => {
-                anyhow::bail!(
-                    "Failed to find layout model. Set LAYOUT_MODEL_PATH env var to the path of pp-doclayout-m.onnx, \
-                     or place it at .kreuzberg/paddle-ocr/layout/model.onnx. Download error: {e}"
-                )
-            }
-        }
     }
 
     /// Detect layout regions in an image.

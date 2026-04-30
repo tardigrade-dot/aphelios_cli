@@ -1,31 +1,36 @@
 use std::path::Path;
 
 use anyhow::Result;
-use aphelios_core::utils::{self, logger};
+use aphelios_core::{
+    init_logging, measure_time,
+    utils::{self},
+};
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_ocr::dolphin::run_ocr;
 use tracing::{error, info};
 
 const TEN_PAGES_PDF: &str = "/Users/larry/Downloads/test_pdf.pdf";
 const SMALL_PDF: &str = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
-const SINGLE_IMAGE: &str = "/Volumes/sw/MyDrive/data_src/page_zht_49.png";
+const SINGLE_IMAGE: &str = "/Users/larry/coderesp/aphelios_cli/test_data/page_32.png";
 
 #[tokio::test]
+#[ignore = "this is a slow test"]
 async fn dolphin_single_image_test() -> Result<()> {
     utils::init_logging();
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
     // let model_id = "ByteDance/Dolphin-1.5";
-    let mut dm = DolphinModel::load_model(model_id)?;
-
+    let mut dm = measure_time!("load_model", DolphinModel::load_model(model_id)?);
     let output_dir = "/Users/larry/coderesp/aphelios_cli/output/3";
 
     info!("output_dir: {}", output_dir);
     if Path::new(output_dir).exists() {
         std::fs::remove_dir_all(output_dir).unwrap();
     }
-    let res = dm
-        .dolphin_ocr(&SINGLE_IMAGE.to_string(), &output_dir.to_string())
-        .await;
+    let res = measure_time!(
+        "dolphin_single_image_test",
+        dm.dolphin_ocr(&SINGLE_IMAGE.to_string(), &output_dir.to_string(), None)
+            .await
+    );
     info!("执行完成, 打印结果....");
     match res {
         Ok(res) => {
@@ -40,19 +45,12 @@ async fn dolphin_single_image_test() -> Result<()> {
 
 #[tokio::test]
 async fn dolphin_pdf_test() -> Result<()> {
+    init_logging();
     let test_data = TEN_PAGES_PDF;
-
-    #[cfg(feature = "profiling")]
-    let guard = logger::init_chrome_logging();
 
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
 
-    #[cfg(feature = "profiling")]
-    let _load_model_span = tracing::info_span!("load_model").entered();
-    let mut dolphin_model = DolphinModel::load_model(model_id)?;
-
-    #[cfg(feature = "profiling")]
-    _load_model_span.exit();
+    let mut dolphin_model = measure_time!("load_model", DolphinModel::load_model(model_id)?);
 
     let output_dir = "/Users/larry/coderesp/aphelios_cli/output/10";
 
@@ -60,16 +58,13 @@ async fn dolphin_pdf_test() -> Result<()> {
     if target_dir.exists() {
         std::fs::remove_dir_all(target_dir).unwrap();
     }
-    #[cfg(feature = "profiling")]
-    let _dolphin_ocr_span = tracing::info_span!("dolphin_ocr").entered();
-    let res = dolphin_model
-        .dolphin_ocr(&test_data.to_string(), &output_dir.to_string())
-        .await;
-    #[cfg(feature = "profiling")]
-    _dolphin_ocr_span.exit();
+    let res = measure_time!(
+        "dolphin_ocr",
+        dolphin_model
+            .dolphin_ocr(&test_data.to_string(), &output_dir.to_string(), None)
+            .await
+    );
     info!("执行完成, 打印结果....");
-    #[cfg(feature = "profiling")]
-    drop(guard);
     match res {
         Ok(res) => {
             info!("test success {}", res.join(" "));

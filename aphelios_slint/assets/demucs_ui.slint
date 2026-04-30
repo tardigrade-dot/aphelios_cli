@@ -6,7 +6,8 @@ import {
 } from "std-widgets.slint";
 
 export component DemucsPage inherits Rectangle {
-    background: #eef1f6;
+    in-out property <bool> dark_mode: false;
+    background: dark_mode ? #1e1e2e : #eef1f6;
 
     in-out property <string> audio_file_path;
     in-out property <string> model_path;
@@ -17,6 +18,15 @@ export component DemucsPage inherits Rectangle {
     in-out property <float> progress: 0.0;
     in-out property <[string]> log_messages: ["Session Initialized"];
     in-out property <length> log_viewport_y: 0;
+
+    // Color palette
+    in-out property <color> text-primary: dark_mode ? #e0e0e0 : #1a2535;
+    in-out property <color> text-secondary: dark_mode ? #a0a0b0 : #6b7a8d;
+    in-out property <color> text-muted: dark_mode ? #7a7a8a : #8a9bb0;
+    in-out property <color> label-color: dark_mode ? #c0c0d0 : #1a2535;
+    in-out property <color> panel-bg: dark_mode ? #2b2b3d : #ffffff;
+    in-out property <color> separator-color: dark_mode ? #3a3a4f : #d0d8e4;
+    in-out property <color> accent-color: dark_mode ? #4fc3f7 : #1565c0;
 
     callback scroll_to_bottom();
     scroll_to_bottom => {
@@ -43,15 +53,15 @@ export component DemucsPage inherits Rectangle {
                 text: "🎵 Demucs 人声分离中心";
                 font-size: 14px;
                 font-weight: 700;
-                color: #1a2535;
+                color: text-primary;
                 vertical-alignment: center;
             }
-            
+
             Rectangle {
                 width: 86px;
                 height: 20px;
                 border-radius: 10px;
-                background: is_running ? #1565c0 : #d0d8e4;
+                background: is_running ? #1565c0 : separator-color;
                 animate background { duration: 250ms; }
                 Text {
                     text: status_message;
@@ -66,7 +76,7 @@ export component DemucsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 音频文件选择
@@ -77,7 +87,7 @@ export component DemucsPage inherits Rectangle {
                 text: "🎼 音频文件";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
             }
 
             HorizontalLayout {
@@ -102,7 +112,7 @@ export component DemucsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 路径配置
@@ -113,7 +123,7 @@ export component DemucsPage inherits Rectangle {
                 text: "📂  路径配置";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
             }
 
             HorizontalLayout {
@@ -123,7 +133,7 @@ export component DemucsPage inherits Rectangle {
                     text: "模型路径";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -150,7 +160,7 @@ export component DemucsPage inherits Rectangle {
                     text: "输出目录";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -174,7 +184,7 @@ export component DemucsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 分离模式选择
@@ -185,7 +195,7 @@ export component DemucsPage inherits Rectangle {
                 text: "🔧  分离模式";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
             }
 
             HorizontalLayout {
@@ -206,13 +216,13 @@ export component DemucsPage inherits Rectangle {
             Text {
                 text: separation_mode == "vocals_instrumental" ? "输出：vocals_only.wav (人声) + instrumental_only.wav (伴奏)" : "输出：vocals.wav + drums.wav + bass.wav + other.wav";
                 font-size: 10px;
-                color: #8a9bb0;
+                color: text-muted;
             }
         }
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 进度（运行时）
@@ -223,7 +233,7 @@ export component DemucsPage inherits Rectangle {
                 text: "分离进度";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
             }
 
             HorizontalLayout {
@@ -239,7 +249,7 @@ export component DemucsPage inherits Rectangle {
                     text: Math.round(progress * 100) + "%";
                     font-size: 11px;
                     font-weight: 600;
-                    color: #1565c0;
+                    color: accent-color;
                     width: 42px;
                     horizontal-alignment: right;
                     vertical-alignment: center;
@@ -274,7 +284,7 @@ export component DemucsPage inherits Rectangle {
                 text: "系统日志";
                 font-size: 10px;
                 font-weight: 600;
-                color: #8a9bb0;
+                color: text-muted;
             }
 
             Rectangle {

@@ -271,6 +271,12 @@ pub fn save_audio_track_with_spec(audio: &StereoAudio, filename: &str, sample_ra
     writer.finalize().expect("Failed to finalize WAV writer");
 }
 
+pub fn get_cpu_ep() -> Vec<ExecutionProviderDispatch> {
+    let mut execution_providers = Vec::new();
+    execution_providers.push(CPU::default().build().into());
+    execution_providers
+}
+
 pub fn get_available_ep() -> Vec<ExecutionProviderDispatch> {
     let mut execution_providers = Vec::new();
     #[cfg(feature = "metal")]

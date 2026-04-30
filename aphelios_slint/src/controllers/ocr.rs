@@ -1,6 +1,5 @@
 use anyhow::Result;
-use slint::{SharedString, VecModel};
-use std::rc::Rc;
+use aphelios_core::utils::AppProgressBar;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::info;
@@ -29,7 +28,7 @@ impl OcrLogic {
         model_path: String,
         input_file: String,
         output_dir: String,
-        _log_model: Rc<VecModel<SharedString>>,
+        progress_callback: impl Fn(f32) + Send + Sync + 'static,
         on_complete: impl Fn(Result<Vec<String>>) + Send + 'static,
     ) {
         self.stop_flag.store(false, Ordering::Relaxed);
@@ -49,9 +48,14 @@ impl OcrLogic {
                 input_file, output_dir, model_path
             );
 
+            let progress_bar =
+                AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| {
+                    progress_callback(p)
+                });
+
             let result = {
                 let mut engine_guard = engine.lock().unwrap();
-                engine_guard.dolphin_ocr(&model_path, &input_file, &output_dir)
+                engine_guard.dolphin_ocr(&model_path, &input_file, &output_dir, Some(progress_bar))
             };
 
             on_complete(result);

@@ -1,7 +1,8 @@
 import { Button, LineEdit, ScrollView } from "std-widgets.slint";
 
 export component SettingsPage inherits Rectangle {
-    background: #f6f6f6;
+    in-out property <bool> dark_mode: false;
+    background: dark_mode ? #1e1e2e : #f6f6f6;
 
     // 属性定义
     in-out property <string> ocr_model_path;
@@ -32,6 +33,15 @@ export component SettingsPage inherits Rectangle {
     // 保存状态
     in-out property <string> save_status_message: "";
 
+    // Color palette
+    in-out property <color> text-primary: dark_mode ? #e0e0e0 : #1a2535;
+    in-out property <color> text-secondary: dark_mode ? #a0a0b0 : #666;
+    in-out property <color> text-muted: dark_mode ? #7a7a8a : #999;
+    in-out property <color> text-heading: dark_mode ? #e0e0e0 : #333;
+    in-out property <color> label-color: dark_mode ? #c0c0d0 : #1a2535;
+    in-out property <color> panel-bg: dark_mode ? #2b2b3d : #ffffff;
+    in-out property <color> card-border: dark_mode ? #3a3a4f : #e0e0e0;
+
     callback save_settings();
     callback select_ocr_model_path();
     callback select_ocr_output_dir();
@@ -59,6 +69,7 @@ export component SettingsPage inherits Rectangle {
                 text: "应用偏好设置";
                 font-size: 16px;
                 font-weight: 700;
+                color: text-primary;
                 vertical-alignment: center;
             }
 
@@ -97,10 +108,10 @@ export component SettingsPage inherits Rectangle {
 
                 // 1. OCR 卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         accessible-role: AccessibleRole.none;
                         alignment: LayoutAlignment.stretch;
@@ -109,7 +120,7 @@ export component SettingsPage inherits Rectangle {
                         Text {
                             text: "📝 OCR 识别设置";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                     HorizontalLayout {
@@ -120,7 +131,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -144,7 +155,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -164,17 +175,17 @@ export component SettingsPage inherits Rectangle {
 
                 // 2. ASR 卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "🎤 ASR 语音识别";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         HorizontalLayout {
@@ -185,7 +196,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -209,7 +220,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -233,7 +244,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -253,17 +264,17 @@ export component SettingsPage inherits Rectangle {
 
                 // 3. SRT 文本对齐卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "📝 SRT 文本对齐";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         HorizontalLayout {
@@ -274,7 +285,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -298,7 +309,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -309,7 +320,7 @@ export component SettingsPage inherits Rectangle {
                             Text {
                                 text: "~";
                                 vertical-alignment: center;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -320,7 +331,7 @@ export component SettingsPage inherits Rectangle {
                             Text {
                                 text: "字";
                                 vertical-alignment: center;
-                                color: #1a2535;
+                                color: label-color;
                             }
                         }
                     }
@@ -328,17 +339,17 @@ export component SettingsPage inherits Rectangle {
 
                 // 4. TTS 卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "🔊 TTS 语音合成";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         HorizontalLayout {
@@ -349,7 +360,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -373,7 +384,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -395,7 +406,7 @@ export component SettingsPage inherits Rectangle {
                             Text {
                                 text: "参考音频";
                                 width: 70px;
-                                color: #1a2535;
+                                color: label-color;
                                 vertical-alignment: center;
                                 font-size: 12px;
                             }
@@ -421,7 +432,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -433,17 +444,17 @@ export component SettingsPage inherits Rectangle {
 
                 // 5. Demucs 人声分离卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "🎵 Demucs 人声分离";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         HorizontalLayout {
@@ -454,7 +465,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -474,17 +485,17 @@ export component SettingsPage inherits Rectangle {
 
                 // 6. 搜索设置卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "🔍 搜索设置";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         HorizontalLayout {
@@ -495,7 +506,7 @@ export component SettingsPage inherits Rectangle {
                                 width: 70px;
                                 vertical-alignment: center;
                                 font-size: 12px;
-                                color: #1a2535;
+                                color: label-color;
                             }
 
                             LineEdit {
@@ -515,23 +526,23 @@ export component SettingsPage inherits Rectangle {
 
                 // 7. 通用设置卡片
             Rectangle {
-                    background: #ffffff;
+                    background: panel-bg;
                     border-radius: 8px;
                     border-width: 1px;
-                    border-color: #e0e0e0;
+                    border-color: card-border;
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
                         Text {
                             text: "⚙️  通用设置";
                             font-weight: 700;
-                            color: #333;
+                            color: text-heading;
                         }
 
                         Text {
                             text: "更多设置即将推出...";
                             font-size: 12px;
-                            color: #999;
+                            color: text-muted;
                         }
                     }
                 }
@@ -542,7 +553,7 @@ export component SettingsPage inherits Rectangle {
         Text {
             text: "💡 修改即时生效，但需点击保存按钮以持久化配置";
             font-size: 11px;
-            color: #999;
+            color: text-muted;
             horizontal-alignment: center;
         }
     }

@@ -27,17 +27,14 @@ use objc2::MainThreadMarker;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
-// 日志最大行数限制
-const MAX_LOG_LINES: usize = 200;
+const MAX_LOG_LINES: usize = 500;
 
 fn main() -> Result<()> {
     logger::init_slint_logging();
     initialize_desktop_app();
 
-    // 加载配置
     let settings = AppSettings::load().unwrap_or_default();
 
-    // 初始化服务引擎
     let ocr_engine: Arc<Mutex<dyn OcrEngine>> = Arc::new(Mutex::new(services::DolphinOcrClient));
     let book_dir = settings.books_dir.as_deref().unwrap_or("/Volumes/sw/books");
     let search_client = Arc::new(services::InMemorySearchClient::new(book_dir));
@@ -215,6 +212,7 @@ fn main() -> Result<()> {
             let model_path: String = win.get_ocr_model_path().to_string();
 
             win.set_ocr_is_running(true);
+            win.set_ocr_progress(0.0);
             win.set_ocr_status_message("OCR 执行中...".into());
 
             let log_model = win.get_ocr_log_messages();
@@ -230,7 +228,19 @@ fn main() -> Result<()> {
                 model_path,
                 input_file,
                 output_dir,
-                Rc::new(VecModel::default()),
+                {
+                    let w_progress = w2.clone();
+                    move |p| {
+                        let _ = slint::invoke_from_event_loop({
+                            let w = w_progress.clone();
+                            move || {
+                                if let Some(win) = w.upgrade() {
+                                    win.set_ocr_progress(p);
+                                }
+                            }
+                        });
+                    }
+                },
                 move |result| {
                     let w3 = w2.clone();
                     let _ = slint::invoke_from_event_loop(move || {
@@ -258,6 +268,7 @@ fn main() -> Result<()> {
                                     win.invoke_ocr_scroll_to_bottom();
                                 }
                                 win.set_ocr_status_message("OCR 完成!".into());
+                                win.set_ocr_progress(1.0);
                             }
                             Err(e) => {
                                 error!("OCR failed: {}", e);
@@ -269,6 +280,7 @@ fn main() -> Result<()> {
                                     win.invoke_ocr_scroll_to_bottom();
                                 }
                                 win.set_ocr_status_message("OCR 失败".into());
+                                win.set_ocr_progress(0.0);
                             }
                         }
                         win.set_ocr_is_running(false);
@@ -285,6 +297,7 @@ fn main() -> Result<()> {
             logic.stop();
             if let Some(win) = w.upgrade() {
                 win.set_ocr_is_running(false);
+                win.set_ocr_progress(0.0);
                 win.set_ocr_status_message("OCR 已停止".into());
                 let log_model = win.get_ocr_log_messages();
                 if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {

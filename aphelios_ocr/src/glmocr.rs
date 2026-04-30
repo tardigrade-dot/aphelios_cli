@@ -12,6 +12,7 @@ pub mod tokenizer;
 pub mod vision;
 
 use anyhow::Result;
+use aphelios_core::measure_time;
 use candle_core::quantized::GgmlDType;
 use candle_core::{DType, Device};
 use image::DynamicImage;
@@ -314,7 +315,7 @@ impl GlmOcr {
         image: &DynamicImage,
         layout: &mut LayoutDetector,
         max_tokens_per_region: usize,
-        batch_size: usize,
+        batch_size: Option<usize>,
     ) -> Result<String> {
         let doc = self.recognize_layout_structured_batched(
             image,
@@ -334,11 +335,9 @@ impl GlmOcr {
         image: &DynamicImage,
         layout: &mut LayoutDetector,
         max_tokens_per_region: usize,
-        batch_size: usize,
+        batch_size: Option<usize>,
     ) -> Result<DocumentLayout> {
-        if batch_size == 0 {
-            anyhow::bail!("batch_size must be at least 1");
-        }
+        let batch_size = batch_size.unwrap_or(8);
 
         let rgb = image.to_rgb8();
         let (img_w, img_h) = (rgb.width(), rgb.height());
@@ -598,7 +597,7 @@ impl GlmOcr {
     ) -> Result<DocumentLayout> {
         let rgb = image.to_rgb8();
         let (img_w, img_h) = (rgb.width(), rgb.height());
-        let detections = layout.detect(&rgb)?;
+        let detections = measure_time!("layout.detect", layout.detect(&rgb)?);
 
         if detections.is_empty() {
             tracing::warn!("No layout regions detected, falling back to strip-based processing");
@@ -632,6 +631,16 @@ impl GlmOcr {
 
         // Merge adjacent same-label text blocks to reduce VLM calls
         let merged = merge_adjacent_blocks(&detections);
+
+        // no merge for test
+        // let merged: Vec<MergedRegion> = detections
+        //     .iter()
+        //     .map(|x| MergedRegion {
+        //         label: x.label,
+        //         bbox: x.bbox,
+        //         score: x.score,
+        //     })
+        //     .collect();
 
         let mut sections: Vec<DocumentSection> = Vec::new();
         let pad = 4; // padding pixels around crop
@@ -673,7 +682,11 @@ impl GlmOcr {
                 prompt,
             );
 
-            match self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region) {
+            let result = measure_time!(
+                format!("OCR {} label {}", i, region.label),
+                self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region)
+            );
+            match result {
                 Ok(text) => {
                     let text = truncate_repetitive_content(text.trim());
                     let text = strip_empty_code_blocks(&text);

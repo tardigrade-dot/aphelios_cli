@@ -109,7 +109,8 @@ pub fn init_chrome_logging() -> Option<tracing_chrome::FlushGuard> {
     use tracing_chrome::ChromeLayerBuilder;
 
     let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let trace_file = format!("./logs/trace_profile_{}.json", ts);
+    let log_dir = get_log_dir();
+    let trace_file = log_dir.join(format!("trace_profile_{}.json", ts));
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
 

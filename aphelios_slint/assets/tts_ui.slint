@@ -6,7 +6,8 @@ import {
 } from "std-widgets.slint";
 
 export component TtsPage inherits Rectangle {
-    background: #eef1f6;
+    in-out property <bool> dark_mode: false;
+    background: dark_mode ? #1e1e2e : #eef1f6;
 
     in-out property <string> input_text;
     in-out property <int> input_text_length: 0;
@@ -24,6 +25,17 @@ export component TtsPage inherits Rectangle {
     in-out property <[string]> log_messages: ["Session Initialized"];
     in-out property <length> log_viewport_y: 0;
     in-out property <length> input_textViewportY: 0;
+
+    // Color palette
+    in-out property <color> text-primary: dark_mode ? #e0e0e0 : #1a2535;
+    in-out property <color> text-secondary: dark_mode ? #a0a0b0 : #6b7a8d;
+    in-out property <color> text-muted: dark_mode ? #7a7a8a : #8a9bb0;
+    in-out property <color> text-faint: dark_mode ? #5a5a6a : #b0bec5;
+    in-out property <color> label-color: dark_mode ? #c0c0d0 : #1a2535;
+    in-out property <color> panel-bg: dark_mode ? #2b2b3d : #ffffff;
+    in-out property <color> separator-color: dark_mode ? #3a3a4f : #d0d8e4;
+    in-out property <color> accent-color: dark_mode ? #4fc3f7 : #1565c0;
+    in-out property <color> input-bg: dark_mode ? #3a3a4f : #e4e9f0;
 
     callback scroll_to_bottom();
     scroll_to_bottom => {
@@ -53,7 +65,7 @@ export component TtsPage inherits Rectangle {
                 text: "Qwen3 TTS  语音合成中心";
                 font-size: 14px;
                 font-weight: 700;
-                color: #1a2535;
+                color: text-primary;
                 vertical-alignment: center;
             }
 
@@ -61,13 +73,13 @@ export component TtsPage inherits Rectangle {
                 width: 86px;
                 height: 20px;
                 border-radius: 10px;
-                background: is_running ? #1565c0 : #d0d8e4;
+                background: is_running ? #1565c0 : separator-color;
                 animate background { duration: 250ms; }
                 Text {
                     text: status_message;
                     font-size: 11px;
                     font-weight: 600;
-                    color: is_running ? #ffffff : #4e5f75;
+                    color: is_running ? #ffffff : text-secondary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -76,7 +88,7 @@ export component TtsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 模式切换
@@ -86,7 +98,7 @@ export component TtsPage inherits Rectangle {
                 text: "合成模式";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
                 vertical-alignment: center;
             }
 
@@ -110,14 +122,14 @@ export component TtsPage inherits Rectangle {
                     text: "TXT 文件";
                     font-size: 11px;
                     font-weight: 600;
-                    color: #6b7a8d;
+                    color: text-secondary;
                     vertical-alignment: center;
                 }
 
                 Text {
                     text: txt_line_count > 0 ? txt_line_count + " 行" : "";
                     font-size: 11px;
-                    color: #8a9bb0;
+                    color: text-muted;
                     vertical-alignment: center;
                 }
             }
@@ -149,7 +161,7 @@ export component TtsPage inherits Rectangle {
                     text: "输出目录";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -180,20 +192,20 @@ export component TtsPage inherits Rectangle {
                     text: "待合成文本";
                     font-size: 11px;
                     font-weight: 600;
-                    color: #6b7a8d;
+                    color: text-secondary;
                     vertical-alignment: center;
                 }
 
                 Text {
                     text: input_text_length + " / 200 字";
                     font-size: 11px;
-                    color: input_text_length > 200 ? #e53935 : #8a9bb0;
+                    color: input_text_length > 200 ? #e53935 : text-muted;
                     vertical-alignment: center;
                 }
             }
 
             Rectangle {
-                background: input_text_length > 200 ? #fff8e1 : #e4e9f0;
+                background: input_text_length > 200 ? #fff8e1 : input-bg;
                 border-radius: 6px;
                 height: 68px;
                 clip: true;
@@ -207,7 +219,7 @@ export component TtsPage inherits Rectangle {
                         TextInput {
                             text <=> input_text;
                             wrap: TextWrap.word-wrap;
-                            color: #1a2535;
+                            color: text-primary;
                             font-size: 13px;
                             enabled: !is_running;
                             edited => {
@@ -227,7 +239,7 @@ export component TtsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 路径配置
@@ -238,7 +250,7 @@ export component TtsPage inherits Rectangle {
                 text: "📂  路径配置";
                 font-size: 11px;
                 font-weight: 600;
-                color: #6b7a8d;
+                color: text-secondary;
             }
 
             HorizontalLayout {
@@ -248,7 +260,7 @@ export component TtsPage inherits Rectangle {
                     text: "模型路径";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -274,7 +286,7 @@ export component TtsPage inherits Rectangle {
                     text: "输出路径";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -296,7 +308,7 @@ export component TtsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 语音克隆
@@ -309,14 +321,14 @@ export component TtsPage inherits Rectangle {
                     text: "🧬  语音克隆";
                     font-size: 11px;
                     font-weight: 600;
-                    color: #6b7a8d;
+                    color: text-secondary;
                     vertical-alignment: center;
                 }
 
                 Text {
                     text: "Optional";
                     font-size: 10px;
-                    color: #b0bec5;
+                    color: text-faint;
                     vertical-alignment: center;
                 }
             }
@@ -328,7 +340,7 @@ export component TtsPage inherits Rectangle {
                     text: "参考音频";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -354,7 +366,7 @@ export component TtsPage inherits Rectangle {
                     text: "参考文本";
                     width: 52px;
                     font-size: 12px;
-                    color: #1a2535;
+                    color: label-color;
                     vertical-alignment: center;
                 }
 
@@ -369,7 +381,7 @@ export component TtsPage inherits Rectangle {
 
         Rectangle {
             height: 1px;
-            background: #d0d8e4;
+            background: separator-color;
         }
 
         // ── 进度（运行时）
@@ -386,7 +398,7 @@ export component TtsPage inherits Rectangle {
                 text: Math.round(progress * 100) + "%";
                 font-size: 11px;
                 font-weight: 600;
-                color: #1565c0;
+                color: accent-color;
                 width: 32px;
                 horizontal-alignment: right;
                 vertical-alignment: center;
@@ -443,7 +455,7 @@ export component TtsPage inherits Rectangle {
                 text: "系统日志";
                 font-size: 10px;
                 font-weight: 600;
-                color: #8a9bb0;
+                color: text-muted;
             }
 
             Rectangle {

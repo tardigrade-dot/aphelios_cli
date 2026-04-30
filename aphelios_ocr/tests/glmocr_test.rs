@@ -6,9 +6,12 @@ use aphelios_ocr::glmocr::layout::LayoutDetector;
 use aphelios_ocr::glmocr::GlmOcr;
 use futures_util::{pin_mut, StreamExt};
 use image::RgbImage;
+use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
+
+const DOCLAYOUT_MODEL_FILE_PATH: &str = "/Volumes/sw/onnx_models/PP-DocLayout/PP-DocLayout-M.onnx";
 
 #[test]
 fn test_glmocr_single_img() -> Result<()> {
@@ -23,7 +26,7 @@ fn test_glmocr_single_img() -> Result<()> {
 
     let layout = true;
     let json = false;
-    let max_tokens = 8192;
+    let max_tokens = 2048;
     let prompt = "Text Recognition:".to_string();
 
     // Initialize OCR model
@@ -39,7 +42,7 @@ fn test_glmocr_single_img() -> Result<()> {
     if layout {
         eprintln!("Loading layout detection model...");
         let layout_start = Instant::now();
-        let mut layout = LayoutDetector::new()?;
+        let mut layout = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
         eprintln!("Layout model loaded in {:.2?}", layout_start.elapsed());
 
         // Draw layout detections on the image for visualization
@@ -55,6 +58,8 @@ fn test_glmocr_single_img() -> Result<()> {
             println!("{json}");
         } else {
             let result = ocr.recognize_with_layout(&image, &mut layout, max_tokens)?;
+            // let result =
+            //     ocr.recognize_with_layout_batched(&image, &mut layout, max_tokens, Some(10))?;
             println!("{result}");
         }
     } else {
@@ -75,11 +80,19 @@ async fn test_layout_batch() -> Result<()> {
     init_logging();
 
     // Load PDF pages
-    let pdf_path = PathBuf::from("/Users/larry/Downloads/test_layout.pdf");
+    let pdf_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/test_pdf2.pdf");
+    let layout_output = PathBuf::from("/Users/larry/coderesp/aphelios_cli/output/test_pdf2_layout");
+
     if !pdf_path.exists() {
         eprintln!("PDF not found: {:?}, skipping test", pdf_path);
         return Ok(());
     }
+
+    let output_dir = PathBuf::from(layout_output);
+    if output_dir.exists() {
+        fs::remove_dir_all(&output_dir)?;
+    }
+    fs::create_dir_all(&output_dir)?;
 
     // Load PDF into memory
     eprintln!("Loading PDF: {:?}", pdf_path);
@@ -89,7 +102,7 @@ async fn test_layout_batch() -> Result<()> {
 
     let mut pages: Vec<image::DynamicImage> = Vec::new();
     while let Some(img_result) = img_stream.next().await {
-        pages.push(img_result?);
+        pages.push(img_result?.image);
     }
     let load_time = load_start.elapsed();
     eprintln!(
@@ -108,7 +121,7 @@ async fn test_layout_batch() -> Result<()> {
     let rgb_pages: Vec<RgbImage> = pages.iter().map(|p| p.to_rgb8()).collect();
 
     // Initialize layout detector
-    let mut layout = LayoutDetector::new()?;
+    let mut layout = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
 
     // Process in batches of 6
     let batch_size = 6;
@@ -147,16 +160,17 @@ async fn test_layout_batch() -> Result<()> {
         );
 
         // Save layout visualization of first page in each batch
-        if batch_idx == 0 && !results.is_empty() {
-            let output_path =
-                PathBuf::from("/Volumes/sw/MyDrive/data_src/test_layout_batch_layout.png");
-            dolphin_utils::draw_layout_detections(
-                &image::DynamicImage::ImageRgb8(batch[0].clone()),
-                &results[0],
-                4,
-                &output_path,
-            );
-            eprintln!("Layout visualization saved to {:?}", output_path);
+        if !results.is_empty() {
+            for (i, res) in results.iter().enumerate() {
+                let output_path = output_dir.join(format!("page_{}_layout.png", start_idx + i));
+                dolphin_utils::draw_layout_detections(
+                    &image::DynamicImage::ImageRgb8(batch[i].clone()),
+                    res,
+                    4,
+                    &output_path,
+                );
+                eprintln!("Layout visualization saved to {:?}", output_path);
+            }
         }
     }
 
@@ -197,7 +211,7 @@ fn test_glmocr_batched_single_page() -> Result<()> {
     let device = get_device();
     let model_id = Some("/Volumes/sw/pretrained_models/GLM-OCR");
     let ocr = GlmOcr::new_with_device(model_id, None, device)?;
-    let mut layout = LayoutDetector::new()?;
+    let mut layout = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
 
     let max_tokens = 256;
 
@@ -213,9 +227,10 @@ fn test_glmocr_batched_single_page() -> Result<()> {
 
     // Batched (batch_size=2)
     eprint!("start batch 2");
-    let mut layout2 = LayoutDetector::new()?;
+    let mut layout2 = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
     let start_batch = Instant::now();
-    let doc_batch = ocr.recognize_layout_structured_batched(&image, &mut layout2, max_tokens, 2)?;
+    let doc_batch =
+        ocr.recognize_layout_structured_batched(&image, &mut layout2, max_tokens, Some(2))?;
     let time_batch = start_batch.elapsed();
     eprintln!(
         "Batched (bs=2): {:?} ({} sections, speedup={:.2}x)",
@@ -226,10 +241,10 @@ fn test_glmocr_batched_single_page() -> Result<()> {
 
     // Batched (batch_size=4)
     eprint!("start batch 4");
-    let mut layout3 = LayoutDetector::new()?;
+    let mut layout3 = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
     let start_batch4 = Instant::now();
     let doc_batch4 =
-        ocr.recognize_layout_structured_batched(&image, &mut layout3, max_tokens, 4)?;
+        ocr.recognize_layout_structured_batched(&image, &mut layout3, max_tokens, Some(4))?;
     let time_batch4 = start_batch4.elapsed();
     eprintln!(
         "Batched (bs=4): {:?} ({} sections, speedup={:.2}x)",
