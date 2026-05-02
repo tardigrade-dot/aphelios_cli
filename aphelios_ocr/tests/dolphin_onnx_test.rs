@@ -1,11 +1,6 @@
-//! Dolphin ONNX Inference Example - Layout Recognition Stage
-//!
-//! This example demonstrates ONNX runtime inference for Dolphin OCR model.
-//! Reference implementation: /Users/larry/coderesp/aphelios_cli/aphelios_ocr/src/bin/dolphin_ocr.rs
-
 use anyhow::{Context, Result};
 use aphelios_core::utils::common;
-use aphelios_ocr::dolphin::dolphin_utils::{self, transform_to_pixel_dynamic};
+use aphelios_ocr::dolphin::dolphin_utils;
 use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
 use imageproc::drawing::draw_hollow_rect_mut;
 use imageproc::rect::Rect;
@@ -20,6 +15,11 @@ use tokenizers::Tokenizer;
 /// Dolphin model image dimensions (from preprocessor_config.json)
 const IMAGE_HEIGHT: usize = 896;
 const IMAGE_WIDTH: usize = 896;
+
+#[test]
+fn onnx_test() -> Result<()> {
+    start_ocr()
+}
 
 fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
     // 1. 按照 target 尺寸进行等比例缩放
@@ -337,7 +337,7 @@ fn draw_bboxes_and_save(
 }
 // optimum-cli export onnx --task image-to-text-with-past --num_channels 3 --model /Volumes/sw/pretrained_models/Dolphin-v1.5 ./Dolphin-1.5-onnx
 //  [78,59,514,239][half_para][PAIR_SEP][78,244,515,425][para][PAIR_SEP][164,456,398,485][sec_1][PAIR_SEP][81,507,517,687][para][PAIR_SEP][82,692,517,769][para][PAIR_SEP][103,780,149,792][foot][page_num]
-fn main() -> Result<()> {
+fn start_ocr() -> Result<()> {
     let encoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/encoder_model.onnx");
     let decoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/decoder_model.onnx");
     let test_image = Path::new("/Users/larry/coderesp/aphelios_cli/test_data/page_32.png");
@@ -427,7 +427,7 @@ fn main() -> Result<()> {
             label, bbox[0], bbox[1], bbox[2], bbox[3]
         );
 
-        let n_bbox = transform_to_pixel_dynamic(bbox, img_w, img_h, 896, 895);
+        let n_bbox = dolphin_utils::transform_to_pixel_dynamic(bbox, img_w, img_h, 896, 895);
         draw_bbox.push((n_bbox, label.to_string()));
 
         let clip = dolphin_utils::crop_image(&img, n_bbox, 5);

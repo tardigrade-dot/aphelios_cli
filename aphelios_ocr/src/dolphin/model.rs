@@ -264,7 +264,7 @@ impl DolphinModel {
 
         let img_iter = measure_time!(
             "load images from pdf",
-            dolphin_utils::load_pdf_images(Path::new(image_path).to_path_buf())
+            dolphin_utils::load_pdf_images(Path::new(image_path))
         );
         pin_mut!(img_iter);
 
@@ -304,17 +304,18 @@ impl DolphinModel {
                             exist_index_li.push(page_index);
                             continue;
                         }
-
                         let img = img_res.image;
-                        info!(
-                            "skiped exist pages [{}]",
-                            exist_index_li
-                                .iter()
-                                .map(|&x| x.to_string())
-                                .collect::<Vec<String>>()
-                                .join(",")
-                        );
-                        exist_index_li.clear();
+                        if !exist_index_li.is_empty() {
+                            info!(
+                                "skiped exist pages [{}]",
+                                exist_index_li
+                                    .iter()
+                                    .map(|&x| x.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(",")
+                            );
+                            exist_index_li.clear();
+                        }
                         pending_pages.push_back(PageTask {
                             idx: page_index,
                             image: Arc::new(img),
@@ -867,6 +868,13 @@ impl DolphinModel {
 
         Ok(outputs)
     }
+    pub fn generate_text_by_img(&mut self, img: &DynamicImage, prompt: &str) -> Result<String> {
+
+        let pixel_values = self
+            .preprocess_like_donut_sync(&img, self.dtype)
+            .unwrap();
+        self.generate_text(&pixel_values, prompt)
+    }
 
     fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str) -> Result<String> {
         self.model.clean_kv();
@@ -964,7 +972,7 @@ impl DolphinModel {
         let tensor = Tensor::from_vec(
             normalized.iter().cloned().collect(),
             (3, h, w),
-            &Device::Cpu,
+            &self.device,
         )?
         .to_dtype(dtype)?
         .unsqueeze(0)?;

@@ -11,10 +11,13 @@ use tracing::{error, info};
 
 const TEN_PAGES_PDF: &str = "/Users/larry/Downloads/test_pdf.pdf";
 const SMALL_PDF: &str = "/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf";
-const SINGLE_IMAGE: &str = "/Users/larry/coderesp/aphelios_cli/test_data/page_32.png";
+const SINGLE_IMAGE: &str = "/Volumes/sw/MyDrive/data_src/page_zht_49.png";
 
+// samply record cargo test --package aphelios_ocr --test dolphin_test --features metal --features profiling -- dolphin_single_image_test
+// dolphin 4.9s 5.2s 1.67s 4.7s 3s 1.5s  total:20s
+// GLM OCR 9.96s 9.16s 0.67s 10.28s 5.49s 0.20s total:35s
 #[tokio::test]
-#[ignore = "this is a slow test"]
+// #[ignore = "this is a slow test"]
 async fn dolphin_single_image_test() -> Result<()> {
     utils::init_logging();
     let model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";

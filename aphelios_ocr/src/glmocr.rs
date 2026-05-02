@@ -11,18 +11,27 @@ pub mod text;
 pub mod tokenizer;
 pub mod vision;
 
-use anyhow::Result;
+use anyhow::{Result};
 use aphelios_core::measure_time;
 use candle_core::quantized::GgmlDType;
 use candle_core::{DType, Device};
 use image::DynamicImage;
 use serde::Serialize;
-
 use config::GlmOcrConfig;
 use layout::LayoutDetector;
 use model::GlmOcrModel;
 use model_loader::ModelLoader;
 use tokenizer::GlmOcrTokenizer;
+
+use crate::glmocr::layout::LayoutDetection;
+
+#[derive(Debug, Clone)]
+pub struct ClipInfo {
+    pub page_index: usize,
+    pub reading_order: usize,
+    pub clip_img: DynamicImage,
+    pub label: String,
+}
 
 /// Structured representation of a full document page after layout OCR.
 #[derive(Debug, Clone, Serialize)]
@@ -37,7 +46,7 @@ pub struct DocumentLayout {
 
 /// A single recognized region within a document.
 #[derive(Debug, Clone, Serialize)]
-pub struct DocumentSection {
+        pub struct DocumentSection {
     /// Layout region type (e.g. "text", "table", "doc_title", "footer").
     pub label: String,
     /// Bounding box in image coordinates: [x1, y1, x2, y2].
@@ -630,17 +639,17 @@ impl GlmOcr {
         }
 
         // Merge adjacent same-label text blocks to reduce VLM calls
-        let merged = merge_adjacent_blocks(&detections);
+        // let merged = merge_adjacent_blocks(&detections);
 
         // no merge for test
-        // let merged: Vec<MergedRegion> = detections
-        //     .iter()
-        //     .map(|x| MergedRegion {
-        //         label: x.label,
-        //         bbox: x.bbox,
-        //         score: x.score,
-        //     })
-        //     .collect();
+        let merged: Vec<MergedRegion> = detections
+            .iter()
+            .map(|x| MergedRegion {
+                label: x.label,
+                bbox: x.bbox,
+                score: x.score,
+            })
+            .collect();
 
         let mut sections: Vec<DocumentSection> = Vec::new();
         let pad = 4; // padding pixels around crop
@@ -741,10 +750,86 @@ impl GlmOcr {
             sections,
         })
     }
+
+    pub fn recognize_by_layout(
+        &self,
+        image: &DynamicImage,
+        layout: &LayoutDetection,
+        max_tokens_per_region: usize,
+    ) -> Result<DocumentSection> {
+        let rgb = image.to_rgb8();
+        let (img_w, img_h) = (rgb.width(), rgb.height());
+
+        let pad = 4; // padding pixels around crop
+
+        let x1 = (layout.bbox[0] as u32).saturating_sub(pad);
+        let y1 = (layout.bbox[1] as u32).saturating_sub(pad);
+        let x2 = ((layout.bbox[2] as u32) + pad).min(img_w);
+        let y2 = ((layout.bbox[3] as u32) + pad).min(img_h);
+        let w = x2 - x1;
+        let h = y2 - y1;
+
+        if w < 10 || h < 10 {
+            anyhow::bail!("too small image")
+        }
+
+        let crop = image.crop_imm(x1, y1, w, h);
+        let crop = scale_to_patch_budget(&crop, MAX_MERGED_PATCHES);
+
+        let prompt = prompt_for_label(layout.label);
+
+        let result = measure_time!(
+            format!("OCR {} label {}", layout.class_id, layout.label),
+            self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region)
+        );
+        use std::result::Result::Ok;
+        match result {
+            Ok(text) => {
+                let text = truncate_repetitive_content(text.trim());
+                let text = strip_empty_code_blocks(&text);
+                if !text.is_empty() {
+                    // Parse table data for table regions
+                    let table = if layout.label == "table" {
+                        let (td, _) = parse_table_region(&text);
+                        td
+                    } else {
+                        None
+                    };
+
+                    // Extract key-value pairs from text-like regions
+                    let key_values = if layout.label != "table" {
+                        extract_key_values(&text)
+                    } else {
+                        Vec::new()
+                    };
+
+                    return Ok(DocumentSection {
+                        label: layout.label.to_string(),
+                        bbox: layout.bbox,
+                        text,
+                        key_values,
+                        table,
+                    });
+                }else{
+                    return Ok(DocumentSection {
+                        label: layout.label.to_string(),
+                        bbox: layout.bbox,
+                        text,
+                        key_values: vec![],
+                        table: todo!(),
+                    });
+                }
+            }
+            Err(e) => {
+                anyhow::bail!("");
+            }
+        }
+
+    }
 }
 
 /// Labels that should skip VLM OCR entirely (images, seals, decorative elements).
-const IMAGE_LABELS: &[&str] = &["image", "header_image", "footer_image", "seal"];
+pub const IMAGE_LABELS: &[&str] = &["image", "header_image", "footer_image", "seal"];
 
 /// Labels that should NOT be merged with adjacent blocks.
 const NON_MERGE_LABELS: &[&str] = &[
@@ -951,7 +1036,7 @@ fn merged_patch_count(image: &DynamicImage) -> u32 {
 /// "Table Recognition:" outputs HTML tables but is much slower on CPU due to verbose
 /// output. Use "Text Recognition:" for layout mode; users can pass "Table Recognition:"
 /// directly via --prompt for single-image mode.
-fn prompt_for_label(label: &str) -> &str {
+pub fn prompt_for_label(label: &str) -> &str {
     match label {
         "formula" => "Formula Recognition:",
         // Table regions often include surrounding text (headers, totals) in layout

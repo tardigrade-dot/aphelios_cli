@@ -52,15 +52,19 @@ impl Default for AudioConfig {
 pub fn load_wav(path: &Path, cfg: &AudioConfig) -> Result<Vec<f32>, AudioError> {
     // Use AudioLoader to support multiple formats (WAV, MP3, etc.)
     let loader = AudioLoader::new();
-    let buffer = loader.load(path).map_err(|e| AudioError::Resample(e.to_string()))?;
+    let buffer = loader
+        .load(path)
+        .map_err(|e| AudioError::Resample(e.to_string()))?;
 
     // Extract mono samples from AudioBuffer
     let (mono, loaded_sample_rate) = match buffer {
-        AudioBuffer::Mono(mono_buf) => {
-            (mono_buf.samples.clone(), mono_buf.sample_rate)
-        }
+        AudioBuffer::Mono(mono_buf) => (mono_buf.samples.clone(), mono_buf.sample_rate),
         // This should not happen as AudioLoader always returns mono
-        _ => return Err(AudioError::Resample("Unexpected multi-channel buffer".to_string())),
+        _ => {
+            return Err(AudioError::Resample(
+                "Unexpected multi-channel buffer".to_string(),
+            ))
+        }
     };
 
     // Resample if needed (AudioLoader already resamples to 16000, but check anyway)

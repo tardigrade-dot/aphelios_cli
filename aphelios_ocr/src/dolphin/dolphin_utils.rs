@@ -12,6 +12,7 @@ use pdfium_render::prelude::*;
 use tracing::info;
 
 use crate::ImageData;
+use crate::glmocr::layout::LayoutDetection;
 
 /// Get the directory where the running executable resides.
 fn get_exe_dir() -> PathBuf {
@@ -87,12 +88,12 @@ pub fn draw_bbox_and_save_multi(
 /// showing the region class name and confidence score.
 pub fn draw_layout_detections(
     img: &DynamicImage,
-    detections: &[crate::glmocr::layout::LayoutDetection],
+    detections: &[LayoutDetection],
     pad: u32,
-    save_path: &PathBuf,
+    save_path: impl AsRef<Path>,
 ) {
-    let (img_width, img_height) = img.dimensions();
     let mut canvas = img.to_rgb8();
+    let (img_width, img_height) = img.dimensions();
 
     // Load system font for label text
     let font_data =
@@ -174,10 +175,12 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-pub fn load_pdf_images(path: PathBuf) -> impl Stream<Item = Result<ImageData>> {
+pub fn load_pdf_images(path: impl AsRef<Path>) -> impl Stream<Item = Result<ImageData>>
+{
     try_stream! {
+        let path_buf = path.as_ref();
         let pdfium = bind_pdfium()?;
-        let document = pdfium.load_pdf_from_file(path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?, None)?;
+        let document = pdfium.load_pdf_from_file(&path_buf, None)?;
         let render_config = PdfRenderConfig::default();
         let pages = document.pages();
         let total_pages = pages.len() as usize;

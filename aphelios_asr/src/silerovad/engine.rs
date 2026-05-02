@@ -247,7 +247,6 @@ impl SileroVadEngine {
         let mut silence_frames = 0;
 
         let max_silence_frames = self.min_silence_samples / self.window_size;
-        let min_speech_frames = self.min_speech_samples / self.window_size;
 
         for (i, &prob) in probs.iter().enumerate() {
             if prob >= self.threshold {

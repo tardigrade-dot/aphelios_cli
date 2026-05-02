@@ -51,8 +51,8 @@ hf-hub = { workspace = true }
 itertools = { workspace = true }
 measureme = { workspace = true }
 rayon = { workspace = true }
-crossbeam-channel = "0.5"
-pdfium-render = { version = "0.9.0", features = ["bindings"] }
+crossbeam-channel = { workspace = true }
+pdfium-render = { workspace = true }
 dirs = { workspace = true }
 md5 = { workspace = true }
 

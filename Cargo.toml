@@ -9,7 +9,7 @@ members = [
     "aphelios_tts",
     "aphelios_asr",
     # "aphelios_models",
-    #"aphelios_wasm", 
+    #"aphelios_wasm",
     # "aphelios_device",
     # "aphelios_web",
 ]
@@ -116,7 +116,8 @@ ureq = { version = "3.2.0" }
 opusic-sys = { version = "0.6.0" }
 chinese-number = "0.7.8"
 tray-icon = "0.22.0"
-
+pdfium-render = { version = "0.9.0", features = ["pdfium_latest", "image_latest", "console_log"] }
+crossbeam-channel = "0.5"
 md5 = "0.8.0"
 
 # 3. 统一管理包信息（可选，Rust 1.64+ 支持）

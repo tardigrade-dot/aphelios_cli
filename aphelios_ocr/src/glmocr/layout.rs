@@ -3,7 +3,7 @@
 //! Detects 23 layout region classes in document images using ONNX Runtime.
 //! Ported from Kreuzberg's kreuzberg-paddle-ocr implementation.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use ndarray::Array4;
 use ort::session::Session;
 
@@ -30,6 +30,8 @@ pub struct LayoutDetection {
     pub label: &'static str,
 }
 
+///document title, paragraph title, text, page number, abstract, table of contents, references, footnotes, header, footer, algorithm, formula,
+/// formula number, image, figure caption, table, table caption, seal, figure title, figure, header image, footer image, and aside text
 /// PP-DocLayout-M class labels (23 classes).
 const LAYOUT_LABELS: &[&str] = &[
     "paragraph_title", // 0
@@ -79,7 +81,6 @@ impl LayoutDetector {
             nms_threshold: DEFAULT_NMS_THRESHOLD,
         })
     }
-
     /// Detect layout regions in an image.
     ///
     /// Returns detections sorted by reading order (top-to-bottom, left-to-right).
@@ -164,120 +165,6 @@ impl LayoutDetector {
         });
 
         Ok(detections)
-    }
-
-    /// Process multiple images in batch through layout detection.
-    ///
-    /// Each image is independently preprocessed, inferenced, and post-processed.
-    /// Inference runs sequentially (ONNX session requires `&mut self`).
-    /// Returns results in input order, one `Vec<LayoutDetection>` per image.
-    pub fn detect_batch(
-        &mut self,
-        images: &[image::RgbImage],
-    ) -> Result<Vec<Vec<LayoutDetection>>> {
-        let start = std::time::Instant::now();
-
-        // Preprocess all images
-        let preprocessed: Vec<(u32, u32, Array4<f32>, f32, f32)> = images
-            .iter()
-            .map(|img| {
-                let (w, h) = (img.width(), img.height());
-                let tensor = Self::preprocess(img);
-                let scale_y = INPUT_SIZE as f32 / h as f32;
-                let scale_x = INPUT_SIZE as f32 / w as f32;
-                (w, h, tensor, scale_y, scale_x)
-            })
-            .collect();
-
-        let prep_time = start.elapsed();
-        tracing::info!(
-            "Batch preprocessed {} images in {:?} ({:.1} img/s)",
-            images.len(),
-            prep_time,
-            images.len() as f64 / prep_time.as_secs_f64()
-        );
-
-        // Run inference sequentially
-        let mut results = Vec::with_capacity(images.len());
-        for (orig_w, orig_h, tensor, scale_y, scale_x) in preprocessed {
-            let image_tensor =
-                ort::value::Tensor::from_array(tensor).context("Failed to create image tensor")?;
-            let scale_array = ndarray::Array2::from_shape_vec((1, 2), vec![scale_y, scale_x])
-                .context("Failed to create scale array")?;
-            let scale_tensor = ort::value::Tensor::from_array(scale_array)?;
-
-            let outputs = self
-                .session
-                .run(ort::inputs!["image" => image_tensor, "scale_factor" => scale_tensor])
-                .context("Layout model inference failed")?;
-
-            let mut output_iter = outputs.iter();
-            let (_, det_output) = output_iter
-                .next()
-                .context("Missing layout detection output tensor")?;
-
-            let (shape, raw) = det_output
-                .try_extract_tensor::<f32>()
-                .context("Failed to extract layout detection tensor")?;
-            let num_dets = *shape.first().unwrap_or(&0) as usize;
-            let stride = *shape.get(1).unwrap_or(&6) as usize;
-
-            let mut raw_detections = Vec::with_capacity(num_dets);
-            for j in 0..num_dets {
-                let offset = j * stride;
-                if offset + 5 < raw.len() {
-                    let class_id = raw[offset] as u32;
-                    let score = raw[offset + 1];
-                    let x1 = raw[offset + 2].clamp(0.0, orig_w as f32);
-                    let y1 = raw[offset + 3].clamp(0.0, orig_h as f32);
-                    let x2 = raw[offset + 4].clamp(0.0, orig_w as f32);
-                    let y2 = raw[offset + 5].clamp(0.0, orig_h as f32);
-
-                    if score >= self.score_threshold && x2 > x1 && y2 > y1 {
-                        raw_detections.push((class_id, score, [x1, y1, x2, y2]));
-                    }
-                }
-            }
-
-            let kept = Self::nms(&raw_detections, self.nms_threshold);
-            let kept = Self::cross_class_filter(&kept);
-
-            let mut detections: Vec<LayoutDetection> = kept
-                .into_iter()
-                .map(|(class_id, score, bbox)| {
-                    let label = LAYOUT_LABELS
-                        .get(class_id as usize)
-                        .copied()
-                        .unwrap_or("unknown");
-                    LayoutDetection {
-                        bbox,
-                        class_id,
-                        score,
-                        label,
-                    }
-                })
-                .collect();
-
-            detections.sort_by(|a, b| {
-                a.bbox[1]
-                    .total_cmp(&b.bbox[1])
-                    .then(a.bbox[0].total_cmp(&b.bbox[0]))
-            });
-
-            results.push(detections);
-        }
-
-        let total_time = start.elapsed();
-        let per_image_ms = total_time.as_secs_f64() * 1000.0 / images.len() as f64;
-        tracing::info!(
-            "Batch {} images finished in {:?} ({:.1} ms/img, {:.1} img/s)",
-            images.len(),
-            total_time,
-            per_image_ms,
-            images.len() as f64 / total_time.as_secs_f64()
-        );
-
-        Ok(results)
     }
 
     /// Preprocess an image for PP-DocLayout-M: resize to 640x640, ImageNet normalize.

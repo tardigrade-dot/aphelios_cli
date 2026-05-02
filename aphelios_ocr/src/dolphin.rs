@@ -1,12 +1,11 @@
 use aphelios_core::measure_time;
+use image::DynamicImage;
 use tracing::info;
-
 use anyhow::{Error as E, Result};
 use glob::glob;
 use regex::Regex;
 use std::path::Path;
 use std::path::PathBuf;
-use std::result::Result::Ok;
 use std::{env, fs};
 
 use crate::dolphin::model::DolphinModel;
@@ -26,6 +25,11 @@ const IGNORED_TAGS: &[&str] = &[
     "cap",       //图片说明
     "reference", //引用
 ];
+
+pub fn run_ocr_image(mut model: DolphinModel, img: &DynamicImage, prompt: &str) -> Result<String> {
+
+    model.generate_text_by_img(img, prompt)
+}
 
 pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     info!("start run dolphin ocr task");

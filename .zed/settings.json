@@ -1,0 +1,15 @@
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "numThreads": 1,
+        "check": {
+          "features": ["metal", "profiling"]
+        },
+        "cargo": {
+          "features": ["metal", "profiling"]
+        }
+      }
+    }
+  }
+}

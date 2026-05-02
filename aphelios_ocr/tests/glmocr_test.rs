@@ -1,18 +1,45 @@
-use anyhow::Result;
-use aphelios_core::init_logging;
+use anyhow::{Result};
 use aphelios_core::utils::common::get_device;
+use aphelios_core::{init_logging, measure_time};
+use aphelios_ocr::doc_layout::{ImageInfo, run_pp_layout};
 use aphelios_ocr::dolphin::dolphin_utils::{self, load_pdf_images};
+use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_ocr::glmocr::layout::LayoutDetector;
-use aphelios_ocr::glmocr::GlmOcr;
+use aphelios_ocr::glmocr::{ClipInfo, GlmOcr, IMAGE_LABELS, prompt_for_label};
 use futures_util::{pin_mut, StreamExt};
-use image::RgbImage;
+use image::{RgbImage};
+use tracing::info;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
 const DOCLAYOUT_MODEL_FILE_PATH: &str = "/Volumes/sw/onnx_models/PP-DocLayout/PP-DocLayout-M.onnx";
+const TEST_IMG: &str = "/Volumes/sw/MyDrive/data_src/page_zht_49.png";
 
+//cargo test --package aphelios_ocr --test glmocr_test --features metal --features profiling -- test_1
+#[test]
+fn test_1() -> Result<()>{
+
+    init_logging();
+    let img_info = ImageInfo::new(TEST_IMG)?;
+    let layout_detections = run_pp_layout(DOCLAYOUT_MODEL_FILE_PATH, &img_info, None::<String>);
+
+    let model_id = Some("/Volumes/sw/pretrained_models/GLM-OCR");
+    let quantize = None; //Some("q8_0");
+    let ocr = GlmOcr::new_with_device(model_id, quantize, get_device())?;
+
+    for layout_det in layout_detections?{
+
+        if !IMAGE_LABELS.contains(&layout_det.label) {
+            let text = ocr.recognize_by_layout(&img_info.image, &layout_det, 512);
+            info!("class_id {}, score {}, , label {}, text {}", layout_det.class_id, layout_det.score,layout_det.label, text?.text)
+        }
+    }
+    Ok(())
+}
+
+// samply record cargo test --package aphelios_ocr --test glmocr_test --features metal --features profiling -- test_glmocr_single_img
 #[test]
 fn test_glmocr_single_img() -> Result<()> {
     init_logging();
@@ -76,11 +103,11 @@ fn test_glmocr_single_img() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_layout_batch() -> Result<()> {
+async fn test_pdf_layout_ocr() -> Result<()> {
     init_logging();
 
     // Load PDF pages
-    let pdf_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/test_pdf2.pdf");
+    let pdf_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf");
     let layout_output = PathBuf::from("/Users/larry/coderesp/aphelios_cli/output/test_pdf2_layout");
 
     if !pdf_path.exists() {
@@ -94,8 +121,8 @@ async fn test_layout_batch() -> Result<()> {
     }
     fs::create_dir_all(&output_dir)?;
 
-    // Load PDF into memory
     eprintln!("Loading PDF: {:?}", pdf_path);
+
     let load_start = Instant::now();
     let img_stream = load_pdf_images(pdf_path);
     pin_mut!(img_stream);
@@ -116,81 +143,68 @@ async fn test_layout_batch() -> Result<()> {
         eprintln!("No pages found in PDF, skipping test");
         return Ok(());
     }
-
     // Convert all pages to RGB for layout detection
     let rgb_pages: Vec<RgbImage> = pages.iter().map(|p| p.to_rgb8()).collect();
-
     // Initialize layout detector
-    let mut layout = LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?;
-
-    // Process in batches of 6
-    let batch_size = 6;
-    let total_pages = rgb_pages.len();
-    let total_batches = (total_pages + batch_size - 1) / batch_size;
-    eprintln!(
-        "Processing {} pages in {} batches (batch_size={})",
-        total_pages, total_batches, batch_size
+    let mut layout = measure_time!(
+        "load layout model",
+        LayoutDetector::new(DOCLAYOUT_MODEL_FILE_PATH)?
     );
 
-    let overall_start = Instant::now();
-    let mut total_detections = 0;
+    let pad = 4;
+    let mut clip_list: Vec<ClipInfo> = vec![];
 
-    for batch_idx in 0..total_batches {
-        let start_idx = batch_idx * batch_size;
-        let end_idx = (start_idx + batch_size).min(total_pages);
-        let batch = &rgb_pages[start_idx..end_idx];
+    measure_time!("prepare clip for ocr",
+    for ((page_index, page_img), original_img) in rgb_pages.iter().enumerate().zip(pages){
+        let layout_res = measure_time!(format!("layout model infer, page_index {}", page_index), layout.detect(&page_img)?);
+        for (reading_order, layout_clip) in layout_res.iter().enumerate(){
+            let (img_w, img_h) = (original_img.width(), original_img.height());
+            let x1 = (layout_clip.bbox[0] as u32).saturating_sub(pad);
+            let y1 = (layout_clip.bbox[1] as u32).saturating_sub(pad);
+            let x2 = ((layout_clip.bbox[2] as u32) + pad).min(img_w);
+            let y2 = ((layout_clip.bbox[3] as u32) + pad).min(img_h);
+            let w = x2 - x1;
+            let h = y2 - y1;
 
-        let batch_start = Instant::now();
-        let results = layout.detect_batch(batch)?;
-        let batch_time = batch_start.elapsed();
-
-        let batch_detections: usize = results.iter().map(|r| r.len()).sum();
-        total_detections += batch_detections;
-
-        eprintln!(
-            "Batch {}/{}: pages {}-{} ({} pages) in {:?} ({:.1} ms/page, {} total detections)",
-            batch_idx + 1,
-            total_batches,
-            start_idx,
-            end_idx - 1,
-            batch.len(),
-            batch_time,
-            batch_time.as_secs_f64() * 1000.0 / batch.len() as f64,
-            batch_detections,
-        );
-
-        // Save layout visualization of first page in each batch
-        if !results.is_empty() {
-            for (i, res) in results.iter().enumerate() {
-                let output_path = output_dir.join(format!("page_{}_layout.png", start_idx + i));
-                dolphin_utils::draw_layout_detections(
-                    &image::DynamicImage::ImageRgb8(batch[i].clone()),
-                    res,
-                    4,
-                    &output_path,
-                );
-                eprintln!("Layout visualization saved to {:?}", output_path);
+            if w < 10 || h < 10 {
+                continue;
             }
+            let crop = original_img.crop_imm(x1, y1, w, h);
+            clip_list.push(ClipInfo{
+                page_index: page_index,
+                reading_order: reading_order,
+                label: layout_clip.label.to_string(),
+                clip_img: crop
+            });
+        }
+    });
+    info!("start ocr");
+    let model_id = Some("/Volumes/sw/pretrained_models/GLM-OCR");
+    let device = get_device();
+
+    info!("device is metal {}", device.is_metal());
+    let dolphin_model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
+    let run_on_dolphin = true;
+
+    if run_on_dolphin{
+        let mut dolphin_model = measure_time!("load model", DolphinModel::load_model(&dolphin_model_id)?);
+        for clip in &clip_list{
+
+            let _ = &clip.clip_img.save("/Users/larry/coderesp/aphelios_cli/output/xxx.png");
+            let res = dolphin_model.generate_text_by_img(&clip.clip_img, "<s>Read text in the image. <Answer/>")?;
+            info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+        }
+    }else {
+        let ocr = measure_time!("load OCR model", GlmOcr::new_with_device(model_id, None, device)?);
+        for clip in &clip_list{
+            let prompt = prompt_for_label(clip.label.as_str());
+            let res = measure_time!(
+                format!("page_index {}, reading_order {}, label {}", clip.page_index, clip.reading_order, clip.label),
+                ocr.recognize_with_max_tokens(&clip.clip_img, prompt, 512)?
+            );
+            info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
         }
     }
-
-    let overall_time = overall_start.elapsed();
-    eprintln!(
-        "\n--- Layout Batch Summary ---\n\
-         Pages: {}\n\
-         Batches: {}\n\
-         Total time: {:?}\n\
-         Avg: {:.1} ms/page ({:.1} img/s)\n\
-         Total detections: {}\n\
-         Avg detections/page: {:.1}",
-        total_pages,
-        total_batches,
-        overall_time,
-        overall_time.as_secs_f64() * 1000.0 / total_pages as f64,
-        total_pages as f64 / overall_time.as_secs_f64(),
-        total_detections,
-        total_detections as f64 / total_pages as f64,
-    );
 
     Ok(())
 }

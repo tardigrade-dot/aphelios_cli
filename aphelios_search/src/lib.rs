@@ -71,9 +71,11 @@ pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
     // Try "书名 (作者)"  with ASCII parens
     if let Some(paren_pos) = filename.find('(') {
         let title = filename[..paren_pos].trim().to_string();
-        let author = filename[paren_pos + 1..]
-            .find(')')
-            .map(|end| filename[paren_pos + 1..paren_pos + 1 + end].trim().to_string());
+        let author = filename[paren_pos + 1..].find(')').map(|end| {
+            filename[paren_pos + 1..paren_pos + 1 + end]
+                .trim()
+                .to_string()
+        });
         // Strip English subtitle after " = "
         let title = if let Some(eq_pos) = title.find(" = ") {
             title[..eq_pos].trim().to_string()
@@ -87,9 +89,11 @@ pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
     if let Some(paren_pos) = filename.find('（') {
         let content_start = paren_pos + '（'.len_utf8();
         let title = filename[..paren_pos].trim().to_string();
-        let author = filename[content_start..]
-            .find('）')
-            .map(|end| filename[content_start..content_start + end].trim().to_string());
+        let author = filename[content_start..].find('）').map(|end| {
+            filename[content_start..content_start + end]
+                .trim()
+                .to_string()
+        });
         let title = if let Some(eq_pos) = title.find(" = ") {
             title[..eq_pos].trim().to_string()
         } else {

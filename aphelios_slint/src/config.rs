@@ -145,11 +145,7 @@ impl AppSettings {
     }
 
     /// 更新并保存搜索设置
-    pub fn update_search_settings(
-        &mut self,
-        books_dir: Option<&str>,
-        search_mode: Option<&str>,
-    ) {
+    pub fn update_search_settings(&mut self, books_dir: Option<&str>, search_mode: Option<&str>) {
         if let Some(dir) = books_dir {
             self.books_dir = Some(dir.to_string());
         }
