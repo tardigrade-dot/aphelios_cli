@@ -129,7 +129,6 @@ pub fn parse_quantization(s: Option<&str>) -> Result<Option<GgmlDType>> {
 pub struct GlmOcr {
     model: GlmOcrModel,
     tokenizer: GlmOcrTokenizer,
-    #[allow(dead_code)]
     config: GlmOcrConfig,
 }
 
@@ -336,6 +335,16 @@ impl GlmOcr {
         Ok(doc.to_markdown())
     }
 
+    pub fn ocr_batched(&self, images: &Vec<DynamicImage>, prompts: &[&str]) -> Result<Vec<String>>{
+        let r = generation_batched::generate_batched(
+            &self.model,
+            &self.tokenizer,
+            &images,
+            &prompts,
+            512,
+        );
+        r
+    }
     /// Like [`recognize_layout_structured`] but processes regions in batches.
     ///
     /// Collects region crops up to `batch_size` at a time and runs batched

@@ -567,7 +567,7 @@ impl DolphinModel {
             self.dtype,
         );
         let task_prompt = "<s>Parse the reading order of this document. <Answer/>";
-        let mut layout_str = self.generate_text(&img_tensor, &task_prompt)?;
+        let mut layout_str = self.generate_text(&img_tensor, &task_prompt, None)?;
 
         layout_str = layout_str.replace(task_prompt, "").replace("</s>", "");
         Ok(layout_str)
@@ -750,7 +750,7 @@ impl DolphinModel {
         for ((pixel_values, prompt), label) in pixel_values_li.iter().zip(prompt_li).zip(&labels) {
             res.push(measure_time!(
                 format!("generate text for {} second stage", label),
-                self.generate_text(&pixel_values, &prompt.to_string())?
+                self.generate_text(&pixel_values, &prompt.to_string(), None)?
             ));
         }
 
@@ -800,12 +800,14 @@ impl DolphinModel {
             }
 
             let max_prompt_len = token_ids_batch.iter().map(|v| v.len()).max().unwrap();
-
-            // padding
-            for ids in &mut token_ids_batch {
-                while ids.len() < max_prompt_len {
-                    ids.push(self.config.decoder.pad_token_id);
+            let same_prompt_len = token_ids_batch
+                .iter()
+                .all(|ids| ids.len() == max_prompt_len);
+            if !same_prompt_len {
+                for (pixel_values, prompt) in batch_pixels.iter().zip(batch_prompts.iter()) {
+                    outputs.push(self.generate_text(pixel_values, prompt, None)?);
                 }
+                continue;
             }
 
             // flatten 成连续数组
@@ -819,28 +821,14 @@ impl DolphinModel {
             // ------------------------------------------------------------
             // 3️⃣ 一次性初始化 KV cache
             // ------------------------------------------------------------
-            self.model.decode(&input_tensor, &encoder_output, 0)?;
+            let logits = self.model.decode(&input_tensor, &encoder_output, 0)?;
+            let mut logits = logits.get_on_dim(1, max_prompt_len - 1)?;
 
             let mut finished = vec![false; bsz];
             // ------------------------------------------------------------
             // 4️⃣ 自回归生成
             // ------------------------------------------------------------
             for step in 0..2048 {
-                // 取每个序列最后一个 token
-                let mut last_tokens = Vec::with_capacity(bsz);
-                for ids in &token_ids_batch {
-                    last_tokens.push(*ids.last().unwrap());
-                }
-
-                let input_tensor = Tensor::new(last_tokens, &self.device)?.unsqueeze(1)?; // [B,1]
-
-                let logits =
-                    self.model
-                        .decode(&input_tensor, &encoder_output, max_prompt_len + step - 1)?;
-
-                // logits: [B,1,V]
-                let logits = logits.squeeze(1)?; // [B,V]
-
                 let next_tokens = logits.argmax(D::Minus1)?.to_vec1::<u32>()?;
 
                 for i in 0..bsz {
@@ -859,6 +847,21 @@ impl DolphinModel {
                 if finished.iter().all(|&f| f) {
                     break;
                 }
+
+                let mut input_tokens = Vec::with_capacity(bsz);
+                for i in 0..bsz {
+                    if finished[i] {
+                        input_tokens.push(self.config.decoder.eos_token_id);
+                    } else {
+                        input_tokens.push(*token_ids_batch[i].last().unwrap());
+                    }
+                }
+
+                let input_tensor = Tensor::new(input_tokens, &self.device)?.unsqueeze(1)?;
+                logits = self
+                    .model
+                    .decode(&input_tensor, &encoder_output, max_prompt_len + step)?
+                    .squeeze(1)?;
             }
 
             // ------------------------------------------------------------
@@ -878,24 +881,30 @@ impl DolphinModel {
 
         Ok(outputs)
     }
-    pub fn generate_text_by_img(&mut self, img: &DynamicImage, prompt: &str) -> Result<String> {
+    pub fn generate_text_by_img(&mut self, img: &DynamicImage, prompt: &str, patch_count: Option<u32>) -> Result<String> {
 
         let pixel_values = self
             .preprocess_like_donut_sync(&img, self.dtype)
             .unwrap();
-        self.generate_text(&pixel_values, prompt)
+        self.generate_text(&pixel_values, prompt, patch_count)
     }
 
-    fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str) -> Result<String> {
+    fn generate_text(&mut self, pixel_values: &Tensor, prompt: &str, patch_count: Option<u32>) -> Result<String> {
         self.model.clean_kv();
 
+        let mut max_step = 2048;
+        if let Some(step) = patch_count{
+            max_step = step / 12
+        }
+
+        info!("max_step : {}", max_step);
         let decoded = {
             let tokens = self.tokenizer.encode(prompt, false).map_err(E::msg)?;
             let mut token_ids = tokens.get_ids().to_vec(); // 编码图像
             let encoder_output = self.model.encode(&pixel_values)?;
 
             // 解码循环 (带 KV Cache 优化)
-            for i in 0..2048 {
+            for i in 0..max_step {
                 let last_token_only = i > 0;
                 let decoder_input = if last_token_only {
                     &token_ids[token_ids.len() - 1..]

@@ -379,7 +379,52 @@ pub fn count_patches(img: &DynamicImage, patch_size: u32) -> u32 {
     patches_x * patches_y
 }
 
-pub fn group_clips_by_patches(clips: &[ClipInfo], ratio_threshold: u32, max_patches: u32) -> Vec<Vec<&ClipInfo>> {
+pub fn group_clips_by_patches(
+    clips: &[ClipInfo],
+    ratio_threshold: u32,
+    max_patches_per_batch: u32,
+    max_batch_size: usize, // 新增：防止单批过大导致 OOM/调度失控
+) -> Vec<Vec<&ClipInfo>> {
+    if clips.is_empty() {
+        return Vec::new();
+    }
+    let mut groups = Vec::new();
+    let mut current_group = Vec::new();
+    let mut current_patches_sum = 0u32;
+    let mut group_min_patches = u32::MAX;
+
+    for clip in clips {
+        let p_count = clip.patches_count;
+
+        // 2️⃣ 组内同质性检查：新 clip 不能超过组内最小值的 ratio_threshold 倍
+        let is_first = current_group.is_empty();
+        let ratio_exceeded = !is_first && p_count > ratio_threshold * group_min_patches.max(1);
+        let capacity_exceeded = current_patches_sum + p_count > max_patches_per_batch;
+        let size_exceeded = current_group.len() >= max_batch_size;
+
+        // 触发拆分条件：任一限制被突破
+        if !is_first && (ratio_exceeded || capacity_exceeded || size_exceeded) {
+            groups.push(std::mem::take(&mut current_group));
+            current_patches_sum = 0;
+            group_min_patches = u32::MAX;
+        }
+
+        // 加入当前组
+        current_group.push(clip);
+        current_patches_sum += p_count;
+        if group_min_patches == u32::MAX || p_count < group_min_patches {
+            group_min_patches = p_count;
+        }
+    }
+
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    groups
+}
+
+pub fn group_clips_by_patches2(clips: &[ClipInfo], ratio_threshold: u32, max_patches: u32) -> Vec<Vec<&ClipInfo>> {
     let mut groups: Vec<Vec<&ClipInfo>> = Vec::new();
     let mut current: Vec<&ClipInfo> = Vec::new();
     let mut current_sum: u32 = 0;

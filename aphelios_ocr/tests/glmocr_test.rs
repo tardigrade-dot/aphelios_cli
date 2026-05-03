@@ -160,35 +160,36 @@ async fn test_pdf_layout_ocr() -> Result<()> {
     let mut clip_list: Vec<ClipInfo> = vec![];
 
     measure_time!("prepare clip for ocr",
-    for ((page_index, page_img), original_img) in rgb_pages.iter().enumerate().zip(pages){
-        let layout_res = measure_time!(format!("layout model infer, page_index {}", page_index), layout.detect(&page_img)?);
-        for (reading_order, layout_clip) in layout_res.iter().enumerate(){
-            let (img_w, img_h) = (original_img.width(), original_img.height());
-            let x1 = (layout_clip.bbox[0] as u32).saturating_sub(pad);
-            let y1 = (layout_clip.bbox[1] as u32).saturating_sub(pad);
-            let x2 = ((layout_clip.bbox[2] as u32) + pad).min(img_w);
-            let y2 = ((layout_clip.bbox[3] as u32) + pad).min(img_h);
-            let w = x2 - x1;
-            let h = y2 - y1;
+        for ((page_index, page_img), original_img) in rgb_pages.iter().enumerate().zip(pages){
+            let layout_res = measure_time!(format!("layout model infer, page_index {}", page_index), layout.detect(&page_img)?);
+            for (reading_order, layout_clip) in layout_res.iter().enumerate(){
+                let (img_w, img_h) = (original_img.width(), original_img.height());
+                let x1 = (layout_clip.bbox[0] as u32).saturating_sub(pad);
+                let y1 = (layout_clip.bbox[1] as u32).saturating_sub(pad);
+                let x2 = ((layout_clip.bbox[2] as u32) + pad).min(img_w);
+                let y2 = ((layout_clip.bbox[3] as u32) + pad).min(img_h);
+                let w = x2 - x1;
+                let h = y2 - y1;
 
-            if w < 10 || h < 10 {
-                continue;
+                if w < 10 || h < 10 {
+                    continue;
+                }
+                let crop = original_img.crop_imm(x1, y1, w, h);
+
+                clip_list.push(ClipInfo{
+                    page_index: page_index,
+                    reading_order: reading_order,
+                    label: layout_clip.label.to_string(),
+                    patches_count: dolphin_utils::count_patches(&crop, 4),
+                    clip_img: crop,
+                });
             }
-            let crop = original_img.crop_imm(x1, y1, w, h);
-
-            clip_list.push(ClipInfo{
-                page_index: page_index,
-                reading_order: reading_order,
-                label: layout_clip.label.to_string(),
-                patches_count: dolphin_utils::count_patches(&crop, 4),
-                clip_img: crop,
-            });
         }
-    });
+    );
 
     clip_list.sort_by_key(|clip| {clip.patches_count});
 
-    let g_clips = group_clips_by_patches(&clip_list, 10, 1024 * 6);
+    let g_clips = group_clips_by_patches(&clip_list, 0.8 as u32, 1024 * 20, 5);
 
     for c in &clip_list{
         eprintln!("{}, {}, {}, {}", c.page_index, c.reading_order, c.label, c.patches_count);
@@ -198,7 +199,7 @@ async fn test_pdf_layout_ocr() -> Result<()> {
 
     info!("device is metal {}", device.is_metal());
     let dolphin_model_id = "/Volumes/sw/pretrained_models/Dolphin-v1.5";
-    let run_on_dolphin = true;
+    let run_on_dolphin = false;
 
     if run_on_dolphin{
         let mut dolphin_model = measure_time!("load model", DolphinModel::load_model(&dolphin_model_id)?);
@@ -206,28 +207,48 @@ async fn test_pdf_layout_ocr() -> Result<()> {
         let start = Instant::now();
         for g_clip in &g_clips{
 
-            info!("batch size {}", g_clip.len());
-            let res = dolphin_model.run_clip_ocr_batch(g_clip)?;//148s - batch:1024 * 6
-            for (r,c) in res.iter().zip(g_clip){
-                info!("{}, {}, {}, {}", r, c.page_index, c.reading_order, c.label);
-            }
-
-            // for clip in g_clip{ // 65s
-            //     let res = dolphin_model.generate_text_by_img(&clip.clip_img, "<s>Read text in the image. <Answer/>")?;
-            //     info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+            // one by one 68s - batch:1024 * 6
+            // info!("batch size {}", g_clip.len());
+            // let res = dolphin_model.run_clip_ocr_batch(g_clip)?;
+            // for (r,c) in res.iter().zip(g_clip){
+            //     info!("{}, {}, {}, {}", r, c.page_index, c.reading_order, c.label);
             // }
+
+            //batch
+            for clip in g_clip{ // 65s
+                let res = dolphin_model.generate_text_by_img(&clip.clip_img, "<s>Read text in the image. <Answer/>", Some(clip.patches_count))?;
+                info!("patches_count {}, page_index {}, reading_order {}, label {}, text {}", clip.patches_count, clip.page_index, clip.reading_order, clip.label, res);
+            }
         }
         info!("dolphin - {}s", start.elapsed().as_secs_f64());
     }else {
-        let ocr = measure_time!("load OCR model", GlmOcr::new_with_device(model_id, None, device)?);
-        for clip in &clip_list{
-            let prompt = prompt_for_label(clip.label.as_str());
-            let res = measure_time!(
-                format!("page_index {}, reading_order {}, label {}", clip.page_index, clip.reading_order, clip.label),
-                ocr.recognize_with_max_tokens(&clip.clip_img, prompt, 512)?
-            );
-            info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+        let glm_ocr = measure_time!("load GLM OCR model", GlmOcr::new_with_device(model_id, None, device)?);
+
+        let start = Instant::now();
+        //batch
+        for clips in g_clips{
+            let mut images = Vec::with_capacity(clips.len());
+            let mut prompts = Vec::with_capacity(clips.len());
+            for c in &clips{
+                images.push(c.clip_img.clone());
+                prompts.push(prompt_for_label(&c.label));
+            }
+            let result = glm_ocr.ocr_batched(&images, &prompts)?;
+            for (res, clip) in result.iter().zip(&clips){
+                info!("patches_count {}, page_index {}, reading_order {}, label {}, text {}", clip.patches_count, clip.page_index, clip.reading_order, clip.label, res);
+            }
         }
+
+        // one by one 129s
+        // for clip in &clip_list{
+        //     let prompt = prompt_for_label(clip.label.as_str());
+        //     let res = measure_time!(
+        //         format!("page_index {}, reading_order {}, label {}", clip.page_index, clip.reading_order, clip.label),
+        //         glm_ocr.recognize_with_max_tokens(&clip.clip_img, prompt, 512)?
+        //     );
+        //     info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+        // }
+        info!("GLM OCR - {}s", start.elapsed().as_secs_f64());
     }
 
     Ok(())

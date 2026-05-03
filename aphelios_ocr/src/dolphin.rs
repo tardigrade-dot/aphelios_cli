@@ -28,7 +28,7 @@ const IGNORED_TAGS: &[&str] = &[
 
 pub fn run_ocr_image(mut model: DolphinModel, img: &DynamicImage, prompt: &str) -> Result<String> {
 
-    model.generate_text_by_img(img, prompt)
+    model.generate_text_by_img(img, prompt, None)
 }
 
 pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
