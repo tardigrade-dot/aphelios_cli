@@ -2,7 +2,7 @@ use anyhow::{Result};
 use aphelios_core::utils::common::get_device;
 use aphelios_core::{init_logging, measure_time};
 use aphelios_ocr::doc_layout::{ImageInfo, run_pp_layout};
-use aphelios_ocr::dolphin::dolphin_utils::{self, load_pdf_images};
+use aphelios_ocr::dolphin::dolphin_utils::{self, group_clips_by_patches, load_pdf_images};
 use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_ocr::glmocr::layout::LayoutDetector;
 use aphelios_ocr::glmocr::{ClipInfo, GlmOcr, IMAGE_LABELS, prompt_for_label};
@@ -17,9 +17,15 @@ use std::time::Instant;
 const DOCLAYOUT_MODEL_FILE_PATH: &str = "/Volumes/sw/onnx_models/PP-DocLayout/PP-DocLayout-M.onnx";
 const TEST_IMG: &str = "/Volumes/sw/MyDrive/data_src/page_zht_49.png";
 
+#[test]
+fn test_features() {
+    init_logging();
+    info!("end");
+}
+
 //cargo test --package aphelios_ocr --test glmocr_test --features metal --features profiling -- test_1
 #[test]
-fn test_1() -> Result<()>{
+fn test_single_ocr() -> Result<()>{
 
     init_logging();
     let img_info = ImageInfo::new(TEST_IMG)?;
@@ -30,7 +36,6 @@ fn test_1() -> Result<()>{
     let ocr = GlmOcr::new_with_device(model_id, quantize, get_device())?;
 
     for layout_det in layout_detections?{
-
         if !IMAGE_LABELS.contains(&layout_det.label) {
             let text = ocr.recognize_by_layout(&img_info.image, &layout_det, 512);
             info!("class_id {}, score {}, , label {}, text {}", layout_det.class_id, layout_det.score,layout_det.label, text?.text)
@@ -170,15 +175,24 @@ async fn test_pdf_layout_ocr() -> Result<()> {
                 continue;
             }
             let crop = original_img.crop_imm(x1, y1, w, h);
+
             clip_list.push(ClipInfo{
                 page_index: page_index,
                 reading_order: reading_order,
                 label: layout_clip.label.to_string(),
-                clip_img: crop
+                patches_count: dolphin_utils::count_patches(&crop, 4),
+                clip_img: crop,
             });
         }
     });
-    info!("start ocr");
+
+    clip_list.sort_by_key(|clip| {clip.patches_count});
+
+    let g_clips = group_clips_by_patches(&clip_list, 10, 1024 * 6);
+
+    for c in &clip_list{
+        eprintln!("{}, {}, {}, {}", c.page_index, c.reading_order, c.label, c.patches_count);
+    }
     let model_id = Some("/Volumes/sw/pretrained_models/GLM-OCR");
     let device = get_device();
 
@@ -188,12 +202,22 @@ async fn test_pdf_layout_ocr() -> Result<()> {
 
     if run_on_dolphin{
         let mut dolphin_model = measure_time!("load model", DolphinModel::load_model(&dolphin_model_id)?);
-        for clip in &clip_list{
 
-            let _ = &clip.clip_img.save("/Users/larry/coderesp/aphelios_cli/output/xxx.png");
-            let res = dolphin_model.generate_text_by_img(&clip.clip_img, "<s>Read text in the image. <Answer/>")?;
-            info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+        let start = Instant::now();
+        for g_clip in &g_clips{
+
+            info!("batch size {}", g_clip.len());
+            let res = dolphin_model.run_clip_ocr_batch(g_clip)?;//148s - batch:1024 * 6
+            for (r,c) in res.iter().zip(g_clip){
+                info!("{}, {}, {}, {}", r, c.page_index, c.reading_order, c.label);
+            }
+
+            // for clip in g_clip{ // 65s
+            //     let res = dolphin_model.generate_text_by_img(&clip.clip_img, "<s>Read text in the image. <Answer/>")?;
+            //     info!("page_index {}, reading_order {}, label {}, text {}", clip.page_index, clip.reading_order, clip.label, res);
+            // }
         }
+        info!("dolphin - {}s", start.elapsed().as_secs_f64());
     }else {
         let ocr = measure_time!("load OCR model", GlmOcr::new_with_device(model_id, None, device)?);
         for clip in &clip_list{

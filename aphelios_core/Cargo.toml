@@ -5,10 +5,6 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
-# [[test]]
-# name = "tracing_rest"
-# harness = true
-
 [dependencies]
 
 # Audio processing dependencies
@@ -79,6 +75,7 @@ tracing-appender = { workspace = true }
 tracing-tree = { workspace = true }
 
 [features]
+default = ["profiling", "metal"]
 profiling = []
 cpu = []
 metal = [

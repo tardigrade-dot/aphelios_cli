@@ -31,9 +31,8 @@ pub fn qwen3asr_simple(
     input: &str,
     language: &str,
 ) -> Result<()> {
-    let device = get_device();
     let mut pipeline =
-        transcribe::Pipeline::load_with_device(Path::new(qwen3asr_model), device.clone())
+        transcribe::Pipeline::load_with_device(Path::new(qwen3asr_model))
             .unwrap_or_else(|e| {
                 eprintln!("error: {e}");
                 std::process::exit(1)
@@ -47,7 +46,7 @@ pub fn qwen3asr_simple(
     info!("{text}");
 
     let aligner =
-        ForcedAligner::load_with_device(Path::new(aligner_model), device).unwrap_or_else(|e| {
+        ForcedAligner::load_with_device(Path::new(aligner_model)).unwrap_or_else(|e| {
             eprintln!("error loading aligner: {e}");
             std::process::exit(1)
         });
@@ -139,7 +138,7 @@ pub async fn qwen3asr_with_vad(
         "[Phase 1] Loading QwenASR model from {} on {:?}",
         qwen3asr_model, device
     );
-    let mut pipeline = Pipeline::load_with_device(Path::new(qwen3asr_model), device.clone())?;
+    let mut pipeline = Pipeline::load_with_device(Path::new(qwen3asr_model))?;
 
     // Load entire audio as float samples
     let samples = audio::load_wav(Path::new(audio_path), &pipeline.audio_cfg)?;
@@ -213,7 +212,7 @@ pub async fn qwen3asr_with_vad(
         "[Phase 2] Loading ForcedAligner model from {} on {:?}",
         aligner_model, device
     );
-    let aligner = ForcedAligner::load_with_device(Path::new(aligner_model), device.clone())?;
+    let aligner = ForcedAligner::load_with_device(Path::new(aligner_model))?;
 
     let mut total_aligned_items = Vec::new();
     let mut aligned_batches = Vec::new();

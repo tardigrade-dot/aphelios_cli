@@ -8,6 +8,9 @@
         },
         "cargo": {
           "features": ["metal", "profiling"]
+        },
+        "runnables": {
+          "extraArgs": ["--features", "metal,profiling"]
         }
       }
     }

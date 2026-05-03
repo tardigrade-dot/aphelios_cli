@@ -4,6 +4,7 @@
 
 use anyhow::{bail, Result};
 use hound::{SampleFormat, WavReader};
+use tracing::info;
 use std::path::Path;
 
 use symphonia::core::audio::Signal;
@@ -88,10 +89,23 @@ impl AudioLoader {
 
         let mut format = probed.format;
 
+        for t in format.tracks() {
+            info!(
+                "track id={} codec={:?} channels={:?} sample_rate={:?}",
+                t.id,
+                t.codec_params.codec,
+                t.codec_params.channels,
+                t.codec_params.sample_rate,
+            );
+        }
         let track = format
             .tracks()
             .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .find(|t| {
+                    t.codec_params.codec != CODEC_TYPE_NULL
+                        && t.codec_params.channels.is_some()      // 必须有 channel 信息
+                        && t.codec_params.sample_rate.is_some()   // 必须有采样率
+                })
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no supported audio tracks"))?;
 

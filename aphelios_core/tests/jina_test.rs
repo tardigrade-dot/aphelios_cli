@@ -1,10 +1,17 @@
-use aphelios_core::utils::common;
+use aphelios_core::{init_logging, utils::common};
 use candle_transformers::models::jina_bert::{BertModel, Config, PositionEmbeddingType};
 
 use anyhow::Error as E;
 use candle_core::{DType, Module, Tensor};
 use candle_nn::VarBuilder;
 use clap::Parser;
+use tracing::info;
+
+#[test]
+fn test_features() {
+    init_logging();
+    info!("end");
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

@@ -45,11 +45,11 @@ tracing-subscriber = { workspace = true }
 test-log = { workspace = true }
 
 [features]
-profiling = []
+default = ["profiling", "metal"]
+profiling = ["aphelios_core/profiling",]
 cpu = ["aphelios_core/cpu"]
 metal = [
     "aphelios_core/metal",
-    "aphelios_core/profiling",
     #"whisper-rs/metal",
     "ort/coreml",
 ]

@@ -12,6 +12,7 @@ use pdfium_render::prelude::*;
 use tracing::info;
 
 use crate::ImageData;
+use crate::glmocr::ClipInfo;
 use crate::glmocr::layout::LayoutDetection;
 
 /// Get the directory where the running executable resides.
@@ -369,4 +370,40 @@ pub fn pdf_extract_from(
     );
 
     Ok(())
+}
+
+pub fn count_patches(img: &DynamicImage, patch_size: u32) -> u32 {
+    let (width, height) = (img.width(), img.height());
+    let patches_x = width / patch_size;
+    let patches_y = height / patch_size;
+    patches_x * patches_y
+}
+
+pub fn group_clips_by_patches(clips: &[ClipInfo], ratio_threshold: u32, max_patches: u32) -> Vec<Vec<&ClipInfo>> {
+    let mut groups: Vec<Vec<&ClipInfo>> = Vec::new();
+    let mut current: Vec<&ClipInfo> = Vec::new();
+    let mut current_sum: u32 = 0;
+
+    for clip in clips {
+        let should_split_ratio = current
+            .last()
+            .map(|prev| clip.patches_count as u32 / prev.patches_count.max(1) as u32 > ratio_threshold)
+            .unwrap_or(false);
+
+        let should_split_capacity = current_sum + clip.patches_count > max_patches;
+
+        if !current.is_empty() && (should_split_ratio || should_split_capacity) {
+            groups.push(std::mem::take(&mut current));
+            current_sum = 0;
+        }
+
+        current.push(clip);
+        current_sum += clip.patches_count;
+    }
+
+    if !current.is_empty() {
+        groups.push(current);
+    }
+
+    groups
 }

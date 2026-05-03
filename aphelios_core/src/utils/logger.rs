@@ -78,7 +78,19 @@ pub fn init_logging() {
             .try_init();
 
         // Log initialization
-        tracing::info!("Logging initialized. Log file: {:?}", log_file);
+        info!("Logging initialized. Log file: {:?}", log_file);
+
+        #[cfg(feature = "profiling")]
+        info!("profiling feature enabled");
+
+        #[cfg(not(feature = "profiling"))]
+        info!("profiling feature disabled");
+
+        #[cfg(feature = "metal")]
+        info!("metal feature enabled");
+
+        #[cfg(not(feature = "metal"))]
+        info!("metal feature disabled");
     });
 }
 

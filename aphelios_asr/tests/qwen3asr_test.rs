@@ -1,6 +1,13 @@
 use anyhow::Result;
 use aphelios_asr::qwenasr::qwen3asr_with_vad;
 use aphelios_core::init_logging;
+use tracing::info;
+
+#[test]
+fn test_features() {
+    init_logging();
+    info!("end");
+}
 
 #[tokio::test]
 async fn vad_and_qwenasr_test() -> Result<()> {
@@ -8,7 +15,7 @@ async fn vad_and_qwenasr_test() -> Result<()> {
     init_logging();
     tracing::info!("Starting vad_and_qwenasr_test");
 
-    let audio_path = "/Volumes/sw/video/AdtLxlttrHg.mp3";
+    let audio_path = "/Volumes/sw/video/Why Does Joseph Stalin Matter？.mp4";
     let language = "English";
 
     // let audio_path = "/Volumes/sw/video/中国人为何容易陷入无限内斗？中国社会为何盛行猎巫思维？一集讲透中国社会“驱魔仪式”的底层逻辑｜文革｜中国文化｜哲学｜心理学｜.wav";

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use aphelios_core::utils::common::get_device;
 use candle_core::{DType, Device, Tensor};
 use thiserror::Error;
 use tracing::info;
@@ -48,16 +49,17 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn load(model_dir: &Path) -> Result<Self, TranscribeError> {
-        Self::load_with_device(model_dir, Device::Cpu)
+        Self::load_with_device(model_dir)
     }
 
-    pub fn load_with_device(model_dir: &Path, dev: Device) -> Result<Self, TranscribeError> {
+    pub fn load_with_device(model_dir: &Path) -> Result<Self, TranscribeError> {
+        let device = get_device();
         let preset = ModelPreset::from_dir(model_dir);
         let cfg = preset.config();
         let shards = collect_shards(model_dir)?;
 
-        let encoder = Encoder::load(&shards, cfg.encoder, &dev)?;
-        let decoder = Decoder::load(&shards, &cfg.decoder, &dev)?;
+        let encoder = Encoder::load(&shards, cfg.encoder, &device)?;
+        let decoder = Decoder::load(&shards, &cfg.decoder, &device)?;
         let tokenizer = Tokenizer::load(model_dir)?;
 
         Ok(Self {
@@ -65,7 +67,7 @@ impl Pipeline {
             decoder,
             tokenizer,
             audio_cfg: cfg.audio,
-            device: dev,
+            device: device,
         })
     }
 

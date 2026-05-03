@@ -1,5 +1,6 @@
 use crate::dolphin::donut::CusDonutModel;
 use crate::dolphin::{dolphin_utils, full_in_one, IGNORED_TAGS};
+use crate::glmocr::ClipInfo;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
 use aphelios_core::measure_time;
@@ -417,6 +418,22 @@ impl DolphinModel {
         Ok(())
     }
 
+    pub fn run_clip_ocr_batch(&mut self, clip_list: &Vec<&ClipInfo>) -> Result<Vec<String>>{
+
+        let mut pixel_values_li = Vec::with_capacity(clip_list.len());
+        let mut prompts = Vec::with_capacity(clip_list.len());
+
+        for c in clip_list{
+            pixel_values_li.push(self.preprocess_like_donut_sync(&c.clip_img, self.dtype)?);
+            prompts.push("<s>Read text in the image. <Answer/>");
+        }
+        let results = measure_time!(
+            "second stage",
+            self.generate_text_batch(&pixel_values_li, &prompts, pixel_values_li.len())
+        );
+        results
+    }
+
     fn run_stage2_clip_batch(
         &mut self,
         pending_clips: &mut VecDeque<ClipTask>,
@@ -637,13 +654,6 @@ impl DolphinModel {
         Ok(clips)
     }
 
-    fn count_patches(&self, img: &DynamicImage, patch_size: u32) -> u32 {
-        let (width, height) = (img.width(), img.height());
-        let patches_x = width / patch_size;
-        let patches_y = height / patch_size;
-        patches_x * patches_y
-    }
-
     fn run_ocr_second_stage(
         &mut self,
         full_image: &DynamicImage,
@@ -653,7 +663,7 @@ impl DolphinModel {
     ) -> Result<Vec<String>> {
         info!(
             " full image count patches: {}",
-            self.count_patches(full_image, 4)
+            dolphin_utils::count_patches(full_image, 4)
         );
         let (img_w, img_h) = full_image.dimensions();
         let target_width = self.config.image_width() as u32;
@@ -699,7 +709,7 @@ impl DolphinModel {
                     info!(
                         " cropped image count patches: {} {}",
                         order,
-                        self.count_patches(&cropped_img, 4)
+                        dolphin_utils::count_patches(&cropped_img, 4)
                     );
                     let pixel_values = self
                         .preprocess_like_donut_sync(&cropped_img, dtype)

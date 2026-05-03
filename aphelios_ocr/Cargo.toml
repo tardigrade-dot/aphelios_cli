@@ -57,6 +57,7 @@ dirs = { workspace = true }
 md5 = { workspace = true }
 
 [features]
+default = ["profiling", "metal"]
 profiling = ["aphelios_core/profiling"]
 cpu = ["aphelios_core/cpu"]
 metal = [

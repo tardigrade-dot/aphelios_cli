@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use aphelios_core::utils::common::get_device;
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{
     embedding, linear_no_bias, ops::softmax_last_dim, rms_norm, rotary_emb::rope, Embedding,
@@ -527,14 +528,14 @@ pub struct ForcedAligner {
 impl ForcedAligner {
     pub fn load_with_device(
         model_dir: &Path,
-        dev: Device,
     ) -> std::result::Result<Self, AlignerError> {
+        let device = get_device();
         let preset = ModelPreset::from_dir_aligner(model_dir);
         let cfg = preset.config();
         let shards = collect_shards(model_dir)?;
 
-        let encoder = Encoder::load(&shards, cfg.encoder, &dev)?;
-        let decoder = AlignerDecoder::load(&shards, &cfg.decoder, CLASSIFY_NUM, &dev)?;
+        let encoder = Encoder::load(&shards, cfg.encoder, &device)?;
+        let decoder = AlignerDecoder::load(&shards, &cfg.decoder, CLASSIFY_NUM, &device)?;
         let tokenizer = Tokenizer::load(model_dir)?;
 
         Ok(Self {
@@ -542,7 +543,7 @@ impl ForcedAligner {
             decoder,
             tokenizer,
             audio_cfg: cfg.audio,
-            device: dev,
+            device: device,
         })
     }
 

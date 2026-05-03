@@ -31,6 +31,7 @@ pub struct ClipInfo {
     pub reading_order: usize,
     pub clip_img: DynamicImage,
     pub label: String,
+    pub patches_count: u32,
 }
 
 /// Structured representation of a full document page after layout OCR.
