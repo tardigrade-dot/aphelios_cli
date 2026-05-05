@@ -381,7 +381,7 @@ pub fn count_patches(img: &DynamicImage, patch_size: u32) -> u32 {
 
 pub fn group_clips_by_patches(
     clips: &[ClipInfo],
-    ratio_threshold: u32,
+    ratio_threshold: f32,
     max_patches_per_batch: u32,
     max_batch_size: usize, // 新增：防止单批过大导致 OOM/调度失控
 ) -> Vec<Vec<&ClipInfo>> {
@@ -396,9 +396,11 @@ pub fn group_clips_by_patches(
     for clip in clips {
         let p_count = clip.patches_count;
 
-        // 2️⃣ 组内同质性检查：新 clip 不能超过组内最小值的 ratio_threshold 倍
+        // 组内同质性检查：新 clip 不能超过组内最小值的 (1 + ratio_threshold) 倍
+        // 例如 ratio_threshold=0.8 表示允许比组内最小大 80%
         let is_first = current_group.is_empty();
-        let ratio_exceeded = !is_first && p_count > ratio_threshold * group_min_patches.max(1);
+        let ratio_exceeded = !is_first
+            && (p_count as f32) > (1.0 + ratio_threshold) * (group_min_patches.max(1) as f32);
         let capacity_exceeded = current_patches_sum + p_count > max_patches_per_batch;
         let size_exceeded = current_group.len() >= max_batch_size;
 

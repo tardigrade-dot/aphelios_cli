@@ -103,8 +103,7 @@ impl AudioLoader {
             .iter()
             .find(|t| {
                     t.codec_params.codec != CODEC_TYPE_NULL
-                        && t.codec_params.channels.is_some()      // 必须有 channel 信息
-                        && t.codec_params.sample_rate.is_some()   // 必须有采样率
+                        && t.codec_params.sample_rate.is_some()
                 })
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no supported audio tracks"))?;
@@ -114,11 +113,13 @@ impl AudioLoader {
             .sample_rate
             .ok_or_else(|| anyhow::anyhow!("missing sample rate"))?;
 
+        // Some codecs (e.g. AAC in MP4) may not report channel count in container metadata.
+        // In practice, most multi-channel content is stereo (2 channels).
         let channels = track
             .codec_params
             .channels
-            .ok_or_else(|| anyhow::anyhow!("missing channels"))?
-            .count();
+            .map(|c| c.count())
+            .unwrap_or(2);
 
         let mut decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &DecoderOptions::default())?;
@@ -144,9 +145,17 @@ impl AudioLoader {
 
             let spec_val = *decoded.spec();
 
+            let chans = decoded.spec().channels.count();
+            // Adjust per_channel to match the actual decoded channel count.
+            // Some containers (e.g. some AAC in MP4) may not report channels,
+            // so we use a default (2) and correct it after the first decoded frame.
+            if chans > per_channel.len() {
+                per_channel.resize_with(chans, Vec::new);
+            } else if chans < per_channel.len() {
+                per_channel.truncate(chans);
+            }
             match decoded {
                 symphonia::core::audio::AudioBufferRef::F32(buf) => {
-                    let chans = buf.spec().channels.count();
                     for ch in 0..chans {
                         per_channel[ch].extend(buf.chan(ch));
                     }
@@ -157,7 +166,6 @@ impl AudioLoader {
                         spec_val,
                     );
                     other.convert(&mut buf);
-                    let chans = buf.spec().channels.count();
                     for ch in 0..chans {
                         per_channel[ch].extend(buf.chan(ch));
                     }

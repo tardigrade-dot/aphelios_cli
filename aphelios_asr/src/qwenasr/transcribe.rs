@@ -105,7 +105,7 @@ impl Pipeline {
         let encode_ms = t_enc.elapsed().as_secs_f64() * 1000.0;
 
         let (n_audio, _) = enc_out.dims2()?;
-        eprintln!("encoder: {n_audio} audio tokens");
+        info!("ASR encoder: {n_audio} audio tokens");
 
         // ── Build prompt embeddings ───────────────────────────────────────────
         let t_dec = Instant::now();

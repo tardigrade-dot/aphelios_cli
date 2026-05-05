@@ -1,11 +1,12 @@
-use std::path::Path;
+use std::{cmp::min, ops::Add, path::Path};
 
 use anyhow::Result;
 use aphelios_core::{
     measure_time,
     utils::common::{get_device, truncate_by_chars},
 };
-use candle_core::Tensor;
+use candle_core::{Context, Tensor};
+use tracing::error;
 use tracing::info;
 
 use crate::{
@@ -26,37 +27,27 @@ pub mod tokenizer;
 pub mod transcribe;
 
 pub fn qwen3asr_simple(
-    qwen3asr_model: &str,
+    asr_model: &str,
     aligner_model: &str,
     input: &str,
     language: &str,
 ) -> Result<()> {
     let mut pipeline =
-        transcribe::Pipeline::load_with_device(Path::new(qwen3asr_model))
+        transcribe::Pipeline::load_with_device(Path::new(asr_model))
             .unwrap_or_else(|e| {
-                eprintln!("error: {e}");
+                error!("error: {e}");
                 std::process::exit(1)
             });
 
-    let text = pipeline.transcribe(input).unwrap_or_else(|e| {
-        eprintln!("error: {e}");
-        std::process::exit(1)
-    });
+    let text = measure_time!("Qwen3ASR", pipeline.transcribe(input).context("Qwen3ASR task"))?;
 
     info!("{text}");
 
-    let aligner =
-        ForcedAligner::load_with_device(Path::new(aligner_model)).unwrap_or_else(|e| {
-            eprintln!("error loading aligner: {e}");
-            std::process::exit(1)
-        });
+    let aligner = ForcedAligner::load_with_device(Path::new(aligner_model))?;
 
     let items = aligner
         .align(Path::new(input), &text, language)
-        .unwrap_or_else(|e| {
-            eprintln!("error during alignment: {e}");
-            std::process::exit(1)
-        });
+        .context("Qwen3ForcedAligner error")?;
 
     info!("\nAlignment results:");
     let mut items_info = Vec::new();
@@ -96,22 +87,13 @@ pub async fn qwen3asr_with_vad(
     language: &str,
 ) -> Result<Vec<AlignItem>> {
     // ==================== Phase 1: VAD + ASR Transcription ====================
-    info!("[Phase 1] Loading VAD model from {}", vad_model_dir);
-    let mut vad = VadProcessor::new_default(vad_model_dir)?;
-    info!("[Phase 1] Running VAD on {}", audio_path);
+    let mut vad = measure_time!("load VAD model", VadProcessor::new_default(vad_model_dir)?);
 
-    #[cfg(feature = "profiling")]
-    let vad_start = std::time::Instant::now();
 
-    let segments = vad.process_from_file(audio_path)?;
+    let segments = measure_time!("VAD process", vad.process_from_file(audio_path)?);
 
     #[cfg(feature = "profiling")]
     {
-        let vad_duration = vad_start.elapsed();
-        info!(
-            "[profiling] VAD duration: {:.2}s",
-            vad_duration.as_secs_f64()
-        );
         let output_path = Path::new(audio_path)
             .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
             .with_extension("vad.srt")
@@ -138,12 +120,12 @@ pub async fn qwen3asr_with_vad(
         "[Phase 1] Loading QwenASR model from {} on {:?}",
         qwen3asr_model, device
     );
-    let mut pipeline = Pipeline::load_with_device(Path::new(qwen3asr_model))?;
+    let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_device(Path::new(qwen3asr_model))?);
 
     // Load entire audio as float samples
     let samples = audio::load_wav(Path::new(audio_path), &pipeline.audio_cfg)?;
     let sample_rate = pipeline.audio_cfg.sample_rate as f64;
-    let padding_duration = 0.2; // 200ms padding
+    let padding_duration = 0.1; // 200ms padding
 
     // Phase 1: Transcribe all batches (no alignment yet)
     let mut transcription_batches: Vec<TranscribeBatch> = Vec::new();
@@ -167,17 +149,14 @@ pub async fn qwen3asr_with_vad(
                 let audio_ms = batch_pcm.len() as f64 / sample_rate * 1000.0;
                 let (flat, n_frames) = audio::mel_spectrogram(&batch_pcm, &pipeline.audio_cfg);
                 let mel_bins = pipeline.audio_cfg.mel_bins;
-                let mel = Tensor::from_vec(flat, (mel_bins, n_frames), &device)?;
+                let mel_device = pipeline.device.clone();
+                let mel = Tensor::from_vec(flat, (mel_bins, n_frames), &mel_device)?;
 
-                info!(
-                    "[Phase 1] Batch {}/{}: duration {:.2}s",
-                    i + 1,
-                    batch_size,
-                    audio_ms / 1000.0
+                let (text, timings) = measure_time!(
+                    format!("transcribe Batch {}/{}: duration {:.2}s", i + 1, batch_size, audio_ms / 1000.0),
+                    pipeline.transcribe_mel(&mel, audio_ms)?
                 );
 
-                let desc = format!("{}, {},", i + 1, batch_size,);
-                let (text, timings) = measure_time!(desc, pipeline.transcribe_mel(&mel, audio_ms)?);
                 let preview = truncate_by_chars(&text, 20);
                 info!(
                     "[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...",
@@ -222,9 +201,10 @@ pub async fn qwen3asr_with_vad(
     );
 
     for (i, batch) in transcription_batches.iter().enumerate() {
-        info!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size);
-
-        let mut items = measure_time!(aligner.align_samples(&batch.pcm, &batch.text, language)?);
+        let mut items = measure_time!(
+            format!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size),
+            aligner.align_samples(&batch.pcm, &batch.text, language)?
+        );
 
         // Convert to absolute timestamps by adding the segment start time
         for item in &mut items {
@@ -243,9 +223,8 @@ pub async fn qwen3asr_with_vad(
         "[Phase 2] Alignment complete. Total aligned items: {}",
         total_aligned_items.len()
     );
-    let mut items_info = Vec::new();
     for (_, item) in total_aligned_items.iter().enumerate() {
-        items_info.push(format!(
+        info!("{}", format!(
             "[{:.3} - {:.3}] {}",
             item.start_time, item.end_time, item.text
         ));
@@ -404,8 +383,8 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
         return Vec::new();
     }
 
-    const MIN_CHARS: usize = 40;
-    const MAX_CHARS: usize = 100;
+    const MIN_CHARS: usize = 20;
+    const MAX_CHARS: usize = 70;
 
     let finalize_range =
         |entries: &mut Vec<SubtitleEntry>, tokens: &[SubtitleToken], start: usize, end: usize| {
@@ -420,10 +399,15 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
             if trimmed.is_empty() {
                 return;
             }
+            let mut end_time = tokens[end].end_time;
+            if end + 1 < tokens.len(){
+                let next_start_time = tokens[end + 1].start_time;
+                end_time = next_start_time.min(end_time + 0.3); //对句尾添加补偿, 避免字幕提前消失
+            }
             entries.push(SubtitleEntry {
                 text: trimmed.to_string(),
                 start_time: tokens[start].start_time,
-                end_time: tokens[end].end_time,
+                end_time: end_time,
             });
         };
 

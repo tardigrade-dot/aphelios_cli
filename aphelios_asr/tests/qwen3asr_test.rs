@@ -1,41 +1,40 @@
-use anyhow::Result;
-use aphelios_asr::qwenasr::qwen3asr_with_vad;
+use anyhow::{Context, Result};
+use aphelios_asr::qwenasr;
 use aphelios_core::init_logging;
 use tracing::info;
 
-#[test]
-fn test_features() {
-    init_logging();
-    info!("end");
+struct AudioInfo {
+    pub path_str: String,
+    pub language_str: String,
 }
 
 #[tokio::test]
-async fn vad_and_qwenasr_test() -> Result<()> {
-    // Initialize logging - will write to file in release mode, console in dev mode
+async fn vad_and_qwenasr() -> Result<()> {
     init_logging();
-    tracing::info!("Starting vad_and_qwenasr_test");
-
-    let audio_path = "/Volumes/sw/video/Why Does Joseph Stalin Matter？.mp4";
-    let language = "English";
-
-    // let audio_path = "/Volumes/sw/video/中国人为何容易陷入无限内斗？中国社会为何盛行猎巫思维？一集讲透中国社会“驱魔仪式”的底层逻辑｜文革｜中国文化｜哲学｜心理学｜.wav";
-    // let language = "Chinese";
+    info!("Starting vad_and_qwenasr_test");
 
     const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/Qwen3-ASR-0.6B";
     const ALIGNER_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/Qwen3-ForcedAligner-0.6B";
+    let audio_li = vec![
+        // AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
+        // AudioInfo{path_str:"/Volumes/sw/video/mQlxALUw3h4.wav".to_string(), language_str:"English".to_string()},
+        AudioInfo{path_str:"/Volumes/sw/video/j3UDNtjvv7E-This Is Fascism.mp4".to_string(), language_str:"English".to_string()}
+    ];
 
-    tracing::info!("Running ASR with audio: {}", audio_path);
-    // qwen3asr_with_vad now returns Vec<AlignItem> and saves SRT file automatically
-    let _items = qwen3asr_with_vad(
-        ASR_MODEL_DIR,
-        ALIGNER_MODEL_DIR,
-        "/Volumes/sw/onnx_models/silero-vad/onnx",
-        audio_path,
-        language,
-    )
-    .await?;
+    for au in audio_li{
+        info!("Running ASR with audio: {}", au.path_str);
+        let items = qwenasr::qwen3asr_with_vad(
+            ASR_MODEL_DIR,
+            ALIGNER_MODEL_DIR,
+            "/Volumes/sw/onnx_models/silero-vad/onnx",
+            &au.path_str,
+            &au.language_str,
+        )
+        .await?;
 
-    tracing::info!("vad_and_qwenasr_test completed successfully");
+        let final_text: Vec<String> = items.iter().map(|i|{i.text.to_string()}).collect();
+        info!("final_text : {}", final_text.join(" "));
+    }
     Ok(())
 }
 
@@ -56,7 +55,7 @@ fn qwen3asr_simple_test() -> Result<()> {
     let language = "Chinese";
 
     tracing::info!("Running simple ASR with audio: {}", input);
-    aphelios_asr::qwenasr::qwen3asr_simple(&qwen3asr_model, &aligner_model, &input, language)?;
+    qwenasr::qwen3asr_simple(&qwen3asr_model, &aligner_model, &input, language).context("qwen3asr_simple error")?;
     tracing::info!("qwen3asr_simple_test completed successfully");
     Ok(())
 }

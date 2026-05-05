@@ -43,7 +43,7 @@ export component AppWindow inherits Window {
     in-out property <string> asr-vad-model-path;
     in-out property <string> asr-audio-file-path;
     in-out property <string> asr-output-path;
-    in-out property <string> asr-language: "Chinese";
+    in-out property <string> asr-language: "English";
     in-out property <string> asr-status-message: "就绪";
     in-out property <bool> asr-is-running: false;
     in-out property <float> asr-progress: 0.0;
@@ -319,23 +319,6 @@ export component AppWindow inherits Window {
                             Text {
                                 text: "🎵  Demucs 人声分离";
                                 color: current_page == "demucs" ? #ffffff : #b0c4d8;
-                                vertical-alignment: center;
-                                horizontal-alignment: left;
-                                font-size: 13px;
-                            }
-                        }
-                    }
-
-                    // EPUB 阅读器
-                    Rectangle {
-                        height: 36px;
-                        border-radius: 6px;
-                        background: current_page == "epub_reader" ? #2a4a6a : transparent;
-                        TouchArea {
-                            clicked => { current_page = "epub_reader"; }
-                            Text {
-                                text: "📖  EPUB 阅读器";
-                                color: current_page == "epub_reader" ? #ffffff : #b0c4d8;
                                 vertical-alignment: center;
                                 horizontal-alignment: left;
                                 font-size: 13px;

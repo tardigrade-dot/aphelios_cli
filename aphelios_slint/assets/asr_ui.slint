@@ -15,7 +15,7 @@ export component AsrPage inherits Rectangle {
     in-out property <string> vad_model_path;
     in-out property <string> audio_file_path;
     in-out property <string> output_path;
-    in-out property <string> language: "English";
+    in-out property <string> language;
     in-out property <string> status_message: "Ready";
     in-out property <bool> is_running: false;
     in-out property <float> progress: 0.0;
@@ -163,7 +163,7 @@ export component AsrPage inherits Rectangle {
                     }
 
                     ComboBox {
-                        current-value <=> root.language;
+                        current-value <=> language;
                         enabled: !is_running;
                         model: ["English", "Chinese", "Japanese", "Korean"];
                         width: 120px;

@@ -60,6 +60,7 @@ name = "aphelios_slint"
 path = "src/main.rs"
 
 [features]
+default = ["metal", "profiling"]
 profiling = [
     "aphelios_ocr/profiling",
     "aphelios_asr/profiling",
