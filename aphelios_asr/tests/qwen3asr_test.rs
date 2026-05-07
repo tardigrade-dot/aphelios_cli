@@ -18,9 +18,9 @@ async fn vad_and_qwenasr() -> Result<()> {
     let audio_li = vec![
         // AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
         // AudioInfo{path_str:"/Volumes/sw/video/mQlxALUw3h4.wav".to_string(), language_str:"English".to_string()},
-        AudioInfo{path_str:"/Volumes/sw/video/j3UDNtjvv7E-This Is Fascism.mp4".to_string(), language_str:"English".to_string()}
+        AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/output/download/A Beginner's Guide to Kobo Abe (Speculative Reader).mp4".to_string(), language_str:"English".to_string()}
     ];
-
+    let context = "this is the title of this audio : A Beginner's Guide to Kobo Abe";
     for au in audio_li{
         info!("Running ASR with audio: {}", au.path_str);
         let items = qwenasr::qwen3asr_with_vad(
@@ -29,6 +29,7 @@ async fn vad_and_qwenasr() -> Result<()> {
             "/Volumes/sw/onnx_models/silero-vad/onnx",
             &au.path_str,
             &au.language_str,
+            Some(context)
         )
         .await?;
 

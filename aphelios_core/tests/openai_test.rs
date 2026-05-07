@@ -1,6 +1,8 @@
 use anyhow::Result;
-use aphelios_core::openai::infer::{translate_file_zh_hant_zh_hans, translate_zh_hant_zh_hans};
+use aphelios_core::openai::infer::{simple_chat, translate_file_zh_hant_zh_hans, translate_zh_hant_zh_hans};
 use aphelios_core::utils::logger;
+use async_openai::Client;
+use async_openai::config::OpenAIConfig;
 use tracing::info;
 
 #[tokio::test]
@@ -20,5 +22,19 @@ async fn translategemma_test() -> Result<()> {
     for r in result {
         info!("result : {}", r);
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn simple_chat_test() -> Result<()> {
+    logger::init_logging();
+    let prompt = "介绍你自己";
+
+    let api_base = "http://localhost:1234/v1";
+    let model_id = "qwen/qwen3.5-9b";
+    let config = OpenAIConfig::new().with_api_base(api_base);
+    let client = Client::with_config(config);
+    let res = simple_chat(&client, model_id, prompt).await;
+    info!("{}", res?);
     Ok(())
 }

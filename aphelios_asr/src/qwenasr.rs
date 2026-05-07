@@ -1,4 +1,4 @@
-use std::{cmp::min, ops::Add, path::Path};
+use std::{path::Path};
 
 use anyhow::Result;
 use aphelios_core::{
@@ -85,6 +85,7 @@ pub async fn qwen3asr_with_vad(
     vad_model_dir: &str,
     audio_path: &str,
     language: &str,
+    ctx: Option<&str>
 ) -> Result<Vec<AlignItem>> {
     // ==================== Phase 1: VAD + ASR Transcription ====================
     let mut vad = measure_time!("load VAD model", VadProcessor::new_default(vad_model_dir)?);
@@ -120,7 +121,7 @@ pub async fn qwen3asr_with_vad(
         "[Phase 1] Loading QwenASR model from {} on {:?}",
         qwen3asr_model, device
     );
-    let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_device(Path::new(qwen3asr_model))?);
+    let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_prompt(Path::new(qwen3asr_model), ctx)?);
 
     // Load entire audio as float samples
     let samples = audio::load_wav(Path::new(audio_path), &pipeline.audio_cfg)?;
@@ -154,10 +155,10 @@ pub async fn qwen3asr_with_vad(
 
                 let (text, timings) = measure_time!(
                     format!("transcribe Batch {}/{}: duration {:.2}s", i + 1, batch_size, audio_ms / 1000.0),
-                    pipeline.transcribe_mel(&mel, audio_ms)?
+                    pipeline.transcribe_mel_with_context(&mel, audio_ms, ctx)?
                 );
 
-                let preview = truncate_by_chars(&text, 20);
+                let preview = truncate_by_chars(&text, 30);
                 info!(
                     "[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...",
                     i + 1,

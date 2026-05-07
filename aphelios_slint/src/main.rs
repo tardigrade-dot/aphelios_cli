@@ -6,6 +6,7 @@ mod controllers;
 mod services;
 
 use anyhow::Result;
+use aphelios_asr::qwenasr;
 use aphelios_core::traits::{OcrEngine, SearchEngine, SearchMode, TtsEngine};
 use aphelios_core::utils::logger;
 use config::AppSettings;
@@ -387,6 +388,7 @@ fn main() -> Result<()> {
                     &vad_model,
                     &audio_file,
                     &language,
+                    None
                 ));
 
                 let _ = slint::invoke_from_event_loop(move || {

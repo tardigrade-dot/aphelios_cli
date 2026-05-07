@@ -93,6 +93,36 @@ pub async fn translate_file_zh_hant_zh_hans(txt_path: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn simple_infer<S>(client: &Client<OpenAIConfig>, model_id: &str, prompt: S) -> Result<String>
+where
+    S: AsRef<str> + Send + Clone,
+{
+
+    simple_chat(&client, model_id, prompt).await
+}
+
+pub async fn simple_chat<S>(client: &Client<OpenAIConfig>, model_id: &str, input: S) -> Result<String>
+where
+    S: AsRef<str> + Send + Clone,
+{
+
+    let messages: Vec<ChatCompletionRequestMessage> =
+        vec![ChatCompletionRequestUserMessage::from(format!("{}", input.as_ref().to_string())).into()];
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(20480u32)
+        .model(model_id)
+        .messages(messages)
+        .build()?;
+
+    let response = client.chat().create(request).await?;
+    if let Some(msg) = &response.choices[0].message.content{
+        Ok(msg.to_string())
+    }else {
+        Ok("None".to_string())
+    }
+}
+
+
 pub async fn translate_zh_hant_zh_hans<S>(inputs: Vec<S>) -> Result<Vec<String>>
 where
     S: AsRef<str> + Send + Clone,

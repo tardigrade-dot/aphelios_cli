@@ -16,7 +16,7 @@ use candle_nn::{
 };
 use candle_transformers::models::qwen3::Config as Qwen3Config;
 use thiserror::Error;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::qwenasr::audio::{self, AudioConfig, AudioError};
 use crate::qwenasr::encoder::Encoder;
@@ -611,7 +611,7 @@ impl ForcedAligner {
 
         let combined = Tensor::cat(&[&audio_start_emb, &audio_emb, &suffix_emb], 1)?;
         let total_len = combined.dims()[1];
-        info!("aligner: total sequence length = {total_len}");
+        debug!("aligner: total sequence length = {total_len}");
 
         // 5. Forward (NAR, single pass)
         let logits = self.decoder.forward_all(&combined)?; // [1, total_len, 5000]

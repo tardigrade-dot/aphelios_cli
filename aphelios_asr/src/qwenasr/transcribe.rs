@@ -12,7 +12,7 @@ use crate::qwenasr::encoder::Encoder;
 use crate::qwenasr::preset::ModelPreset;
 use crate::qwenasr::tokenizer::{
     Tokenizer, TokenizerError, PROMPT_PREFIX_HEAD, PROMPT_PREFIX_TAIL, PROMPT_SUFFIX_BASE,
-    TOKEN_ASR_TEXT, TOKEN_IM_END,
+    TOKEN_ASR_TEXT, TOKEN_AUDIO_START, TOKEN_IM_END,
 };
 
 #[derive(Debug, Error)]
@@ -45,11 +45,21 @@ pub struct Pipeline {
     pub tokenizer: Tokenizer,
     pub audio_cfg: AudioConfig,
     pub device: Device,
+    pub ctx: Option<String>
 }
 
 impl Pipeline {
     pub fn load(model_dir: &Path) -> Result<Self, TranscribeError> {
         Self::load_with_device(model_dir)
+    }
+
+    fn with_prompt(mut self, ctx: Option<&str>) -> Self {
+        self.ctx = ctx.map(String::from);
+        self
+    }
+
+    pub fn load_with_prompt(model_dir: &Path, ctx: Option<&str>) -> Result<Self, TranscribeError> {
+        Self::load_with_device(model_dir).map(|s| s.with_prompt(ctx))
     }
 
     pub fn load_with_device(model_dir: &Path) -> Result<Self, TranscribeError> {
@@ -68,6 +78,7 @@ impl Pipeline {
             tokenizer,
             audio_cfg: cfg.audio,
             device: device,
+            ctx: None
         })
     }
 
@@ -90,12 +101,20 @@ impl Pipeline {
         self.transcribe_mel(&mel, audio_ms)
     }
 
-    /// Run the full pipeline on a pre-built mel tensor.
-    /// Used internally and by the bench tool so audio loading isn't re-timed.
     pub fn transcribe_mel(
         &mut self,
         mel: &Tensor,
         audio_ms: f64,
+    ) -> Result<(String, TimingInfo), TranscribeError> {
+        self.transcribe_mel_with_context(mel, audio_ms, None)
+    }
+    /// Run the full pipeline on a pre-built mel tensor.
+    /// Used internally and by the bench tool so audio loading isn't re-timed.
+    pub fn transcribe_mel_with_context(
+        &mut self,
+        mel: &Tensor,
+        audio_ms: f64,
+        context_prompt: Option<&str>,
     ) -> Result<(String, TimingInfo), TranscribeError> {
         let dev = &self.device;
 
@@ -105,22 +124,47 @@ impl Pipeline {
         let encode_ms = t_enc.elapsed().as_secs_f64() * 1000.0;
 
         let (n_audio, _) = enc_out.dims2()?;
-        info!("ASR encoder: {n_audio} audio tokens");
+        info!("encoder: {n_audio} audio tokens");
 
         // ── Build prompt embeddings ───────────────────────────────────────────
         let t_dec = Instant::now();
 
-        let prefix_ids: Vec<u32> = PROMPT_PREFIX_HEAD
+        // 1. Prefix HEAD: [<|im_start|>system\n]
+        let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
+        let prefix_head_len = prefix_head_ids.len();
+        let prefix_head_t = Tensor::from_vec(prefix_head_ids, (1, prefix_head_len), &dev)?;
+        let prefix_head_emb = self.decoder.embed(&prefix_head_t)?;
+
+        // 2. Prefix MID: [<|im_end|>\n<|im_start|>user\n]  (PREFIX_TAIL without <|audio_start|>)
+        let prefix_mid_ids: Vec<u32> = PROMPT_PREFIX_TAIL[..PROMPT_PREFIX_TAIL.len() - 1]
             .iter()
-            .chain(PROMPT_PREFIX_TAIL.iter())
             .copied()
             .collect();
-        let prefix_len = prefix_ids.len();
-        let prefix_t = Tensor::from_vec(prefix_ids, (1, prefix_len), &dev)?;
-        let prefix_emb = self.decoder.embed(&prefix_t)?;
+        let prefix_mid_len = prefix_mid_ids.len();
+        let prefix_mid_t = Tensor::from_vec(prefix_mid_ids, (1, prefix_mid_len), &dev)?;
+        let prefix_mid_emb = self.decoder.embed(&prefix_mid_t)?;
 
+        // 3. Context text (tokenized plain text, between "user\n" and "<|audio_start|>")
+        let context_emb = if let Some(ctx) = context_prompt {
+            let mut ctx_ids = self.tokenizer.encode(ctx)?;
+            ctx_ids.push(198); // trailing \n before <|audio_start|>
+            let ctx_len = ctx_ids.len();
+            let ctx_t = Tensor::from_vec(ctx_ids, (1, ctx_len), dev)?;
+            Some(self.decoder.embed(&ctx_t)?)
+        } else {
+            None
+        };
+
+        // 4. Audio start: [<|audio_start|>]
+        let audio_start_emb = {
+            let t = Tensor::from_vec(vec![TOKEN_AUDIO_START], (1, 1), &dev)?;
+            self.decoder.embed(&t)?
+        };
+
+        // 5. Audio embeddings from encoder
         let audio_emb = enc_out.unsqueeze(0)?;
 
+        // 6. Suffix: [<|audio_end|><|im_end|>\n<|im_start|>assistant\n<asr_text>]
         let suffix_ids: Vec<u32> = PROMPT_SUFFIX_BASE
             .iter()
             .copied()
@@ -130,7 +174,16 @@ impl Pipeline {
         let suffix_t = Tensor::from_vec(suffix_ids, (1, suffix_len), &dev)?;
         let suffix_emb = self.decoder.embed(&suffix_t)?;
 
-        let prompt_emb = Tensor::cat(&[&prefix_emb, &audio_emb, &suffix_emb], 1)?;
+        // 7. Concat all parts
+        let mut prompt_parts: Vec<&Tensor> = vec![&prefix_head_emb, &prefix_mid_emb];
+        if let Some(ref ctx_emb) = context_emb {
+            prompt_parts.push(ctx_emb);
+        }
+        prompt_parts.push(&audio_start_emb);
+        prompt_parts.push(&audio_emb);
+        prompt_parts.push(&suffix_emb);
+
+        let prompt_emb = Tensor::cat(&prompt_parts, 1)?;
         let prompt_len = prompt_emb.dims()[1];
 
         // ── Prefill ───────────────────────────────────────────────────────────
@@ -141,7 +194,7 @@ impl Pipeline {
         // ── Autoregressive loop ───────────────────────────────────────────────
         let max_new_tokens = 448;
         let mut output_ids: Vec<u32> = Vec::new();
-        let mut offset = prompt_len;
+        let mut offset = prompt_len;  // 自动适配新长度，无需修改
 
         loop {
             if token == TOKEN_IM_END || output_ids.len() >= max_new_tokens {
