@@ -75,3 +75,10 @@ metal = [
     "aphelios_tts/metal",
     "aphelios_core/metal",
 ]
+cuda = [
+    "aphelios_search/cuda",
+    "aphelios_ocr/cuda",
+    "aphelios_asr/cuda",
+    "aphelios_tts/cuda",
+    "aphelios_core/cuda",
+]
