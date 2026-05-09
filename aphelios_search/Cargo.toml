@@ -14,3 +14,4 @@ tracing = { workspace = true }
 profiling = []
 cpu = []
 metal = []
+cuda = []
