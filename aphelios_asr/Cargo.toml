@@ -50,6 +50,12 @@ profiling = ["aphelios_core/profiling",]
 cpu = ["aphelios_core/cpu"]
 metal = [
     "aphelios_core/metal",
-    #"whisper-rs/metal",
     "ort/coreml",
+]
+cuda = [
+    "aphelios_core/cuda",
+    "candle-core/cuda",
+    "candle-nn/cuda",
+    "candle-transformers/cuda",
+    "ort/cuda",
 ]
