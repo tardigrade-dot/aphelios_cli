@@ -75,7 +75,7 @@ tracing-appender = { workspace = true }
 tracing-tree = { workspace = true }
 
 [features]
-default = ["profiling", "metal"]
+default = ["profiling"]
 profiling = []
 cpu = []
 metal = [

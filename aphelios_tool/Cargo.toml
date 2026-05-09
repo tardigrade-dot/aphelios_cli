@@ -67,6 +67,7 @@ name = "aphelios_tool"
 path = "src/main.rs"
 
 [features]
+default = ["profiling"]
 profiling = [
     "aphelios_ocr/profiling",
     "aphelios_core/profiling",

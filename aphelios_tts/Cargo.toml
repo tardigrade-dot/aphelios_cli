@@ -64,8 +64,8 @@ tempfile = { workspace = true }
 strum_macros = { workspace = true }
 sentencepiece = "0.13.1"
 
-
 [features]
+default = ["profiling"]
 cpu = ["aphelios_core/cpu"]
 metal = [
     "aphelios_core/metal",

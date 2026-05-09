@@ -3,8 +3,18 @@ set -e
 PROJECT_ROOT=$(cd "$(dirname "$0")" && pwd)
 cd "$PROJECT_ROOT"
 
-# 接收外部传入的 features，默认为 metal
-FEATURES=${1:-"metal,profiling"}
+# 🎯 根据平台设置默认 features
+if [[ "$OSTYPE" == darwin* ]]; then
+    DEFAULT_FEATURES="metal,profiling"
+    echo "🍎 检测到 macOS，默认启用 Metal 后端"
+elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
+    DEFAULT_FEATURES="cuda,profiling"
+    echo "🐧 检测到 Linux，默认启用 CUDA 后端"
+else
+    DEFAULT_FEATURES="profiling"
+    echo "🔍 未知平台，仅启用基础 profiling"
+fi
+FEATURES=${1:-"$DEFAULT_FEATURES"}
 
 echo "🚀 开始构建 (Features: $FEATURES)..."
 echo "📝 日志配置说明："
@@ -14,7 +24,7 @@ echo "   - Release 版本（CLI）：日志输出到可执行文件同级的 log
 echo ""
 
 # 编译指定子项目 (包含 bundle 生成)
-cargo build --release -p aphelios_tool --features "$FEATURES"
+cargo build --release -p aphelios_tool --features "$FEATURES" --no-default-features
 
 # 使用 cargo-bundle 生成 .app bundle (仅 macOS)
 if [[ "$OSTYPE" == darwin* ]]; then
@@ -38,13 +48,13 @@ EXT=""
 # 复制 CLI 工具
 cp "target/release/aphelios_tool$EXT" "$OUTPUT_DIR/"
 
-#TODO 
-# download pdfium from https://github.com/bblanchon/pdfium-binaries/releases/latest 
+#TODO
+# download pdfium from https://github.com/bblanchon/pdfium-binaries/releases/latest
 # https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/7789
 # 根据latest获取真实的地址, 然后拼接实际下载地址
 # https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7789/pdfium-mac-arm64.tgz
 # macOS : pdfium-mac-arm64.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/pdfium-mac-arm64.tgz
-# linux : pdfium-linux-x64.tgz 
+# linux : pdfium-linux-x64.tgz
 # windows : pdfium-win-x64.tgz
 
 # 复制 .app bundle (cargo-bundle 生成到 target/release/bundle/osx/)
