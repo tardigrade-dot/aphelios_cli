@@ -79,6 +79,7 @@ metal = [
     "ort/coreml",
 ]
 cuda = [
+    "aphelios_core/cuda",
     "candle-core/cuda",
     "candle-nn/cuda",
     "candle-transformers/cuda",

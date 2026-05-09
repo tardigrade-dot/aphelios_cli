@@ -67,7 +67,6 @@ metal = [
     "candle-nn/accelerate",
     "candle-transformers/metal",
     "candle-transformers/accelerate",
-    #"mistralrs/metal",
     "ort/coreml",
     "aphelios_core/metal",
     "aphelios_core/profiling",
@@ -76,7 +75,6 @@ cuda = [
     "candle-core/cuda",
     "candle-nn/cuda",
     "candle-transformers/cuda",
-    #"mistralrs/cuda",
-    "ort/coreml",
+    "ort/cuda",
     "aphelios_core/cuda",
 ]

@@ -85,7 +85,6 @@ metal = [
     "candle-nn/accelerate",
     "candle-transformers/metal",
     "candle-transformers/accelerate",
-    #"mistralrs/metal",
     "ort/coreml",
     "usls/coreml",
 ]
@@ -93,6 +92,5 @@ cuda = [
     "candle-core/cuda",
     "candle-nn/cuda",
     "candle-transformers/cuda",
-    #"mistralrs/cuda",
     "ort/cuda",
 ]
