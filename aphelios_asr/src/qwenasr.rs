@@ -1,4 +1,4 @@
-use std::{path::Path};
+use std::path::Path;
 
 use anyhow::Result;
 use aphelios_core::{
@@ -9,13 +9,14 @@ use candle_core::{Context, Tensor};
 use tracing::error;
 use tracing::info;
 
+#[cfg(feature = "profiling")]
+use crate::whisper::generate_vad;
 use crate::{
     qwenasr::{
         aligner::{tokenize_for_alignment, AlignItem, ForcedAligner},
         transcribe::Pipeline,
     },
     silerovad::VadProcessor,
-    whisper::generate_vad,
 };
 pub mod aligner;
 pub mod audio;
@@ -33,13 +34,15 @@ pub fn qwen3asr_simple(
     language: &str,
 ) -> Result<()> {
     let mut pipeline =
-        transcribe::Pipeline::load_with_device(Path::new(asr_model))
-            .unwrap_or_else(|e| {
-                error!("error: {e}");
-                std::process::exit(1)
-            });
+        transcribe::Pipeline::load_with_device(Path::new(asr_model)).unwrap_or_else(|e| {
+            error!("error: {e}");
+            std::process::exit(1)
+        });
 
-    let text = measure_time!("Qwen3ASR", pipeline.transcribe(input).context("Qwen3ASR task"))?;
+    let text = measure_time!(
+        "Qwen3ASR",
+        pipeline.transcribe(input).context("Qwen3ASR task")
+    )?;
 
     info!("{text}");
 
@@ -67,8 +70,8 @@ struct TranscribeBatch {
     pcm: Vec<f32>,
     /// batch起始时间（绝对时间，秒）
     start_time: f64,
-    /// batch结束时间（绝对时间，秒）
-    end_time: f64,
+    /// VAD speech batch结束时间（绝对时间，秒，不含ASR上下文padding）
+    speech_end_time: f64,
     /// 转录文本
     text: String,
 }
@@ -76,7 +79,7 @@ struct TranscribeBatch {
 struct AlignedBatch {
     text: String,
     items: Vec<AlignItem>,
-    end_time: f64,
+    speech_end_time: f64,
 }
 
 pub async fn qwen3asr_with_vad(
@@ -85,11 +88,10 @@ pub async fn qwen3asr_with_vad(
     vad_model_dir: &str,
     audio_path: &str,
     language: &str,
-    ctx: Option<&str>
+    ctx: Option<&str>,
 ) -> Result<Vec<AlignItem>> {
     // ==================== Phase 1: VAD + ASR Transcription ====================
     let mut vad = measure_time!("load VAD model", VadProcessor::new_default(vad_model_dir)?);
-
 
     let segments = measure_time!("VAD process", vad.process_from_file(audio_path)?);
 
@@ -121,12 +123,15 @@ pub async fn qwen3asr_with_vad(
         "[Phase 1] Loading QwenASR model from {} on {:?}",
         qwen3asr_model, device
     );
-    let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_prompt(Path::new(qwen3asr_model), ctx)?);
+    let mut pipeline = measure_time!(
+        "load ASR model",
+        Pipeline::load_with_prompt(Path::new(qwen3asr_model), ctx)?
+    );
 
     // Load entire audio as float samples
     let samples = audio::load_wav(Path::new(audio_path), &pipeline.audio_cfg)?;
     let sample_rate = pipeline.audio_cfg.sample_rate as f64;
-    let padding_duration = 0.1; // 200ms padding
+    let padding_duration = 0.01; // 200ms padding
 
     // Phase 1: Transcribe all batches (no alignment yet)
     let mut transcription_batches: Vec<TranscribeBatch> = Vec::new();
@@ -137,7 +142,7 @@ pub async fn qwen3asr_with_vad(
     for (i, batch) in batches.iter().enumerate() {
         // Include padding context
         let padded_start = f64::max(0.0, batch.start - padding_duration);
-        let padded_end = batch.end + padding_duration;
+        let padded_end = (batch.end + padding_duration).min(samples.len() as f64 / sample_rate);
 
         let start_sample = (padded_start * sample_rate) as usize;
         let end_sample = (padded_end * sample_rate) as usize;
@@ -154,7 +159,12 @@ pub async fn qwen3asr_with_vad(
                 let mel = Tensor::from_vec(flat, (mel_bins, n_frames), &mel_device)?;
 
                 let (text, timings) = measure_time!(
-                    format!("transcribe Batch {}/{}: duration {:.2}s", i + 1, batch_size, audio_ms / 1000.0),
+                    format!(
+                        "transcribe Batch {}/{}: duration {:.2}s",
+                        i + 1,
+                        batch_size,
+                        audio_ms / 1000.0
+                    ),
                     pipeline.transcribe_mel_with_context(&mel, audio_ms, ctx)?
                 );
 
@@ -174,7 +184,7 @@ pub async fn qwen3asr_with_vad(
                     transcription_batches.push(TranscribeBatch {
                         pcm: batch_pcm,
                         start_time: padded_start,
-                        end_time: padded_end,
+                        speech_end_time: batch.end,
                         text: text_str.to_string(),
                     });
                 }
@@ -202,6 +212,8 @@ pub async fn qwen3asr_with_vad(
     );
 
     for (i, batch) in transcription_batches.iter().enumerate() {
+        #[cfg(not(feature = "profiling"))]
+        let _ = i;
         let mut items = measure_time!(
             format!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size),
             aligner.align_samples(&batch.pcm, &batch.text, language)?
@@ -216,7 +228,7 @@ pub async fn qwen3asr_with_vad(
         aligned_batches.push(AlignedBatch {
             text: batch.text.clone(),
             items,
-            end_time: batch.end_time,
+            speech_end_time: batch.speech_end_time,
         });
     }
 
@@ -225,10 +237,13 @@ pub async fn qwen3asr_with_vad(
         total_aligned_items.len()
     );
     for (_, item) in total_aligned_items.iter().enumerate() {
-        info!("{}", format!(
-            "[{:.3} - {:.3}] {}",
-            item.start_time, item.end_time, item.text
-        ));
+        info!(
+            "{}",
+            format!(
+                "[{:.3} - {:.3}] {}",
+                item.start_time, item.end_time, item.text
+            )
+        );
     }
 
     // Generate SRT file
@@ -401,7 +416,7 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
                 return;
             }
             let mut end_time = tokens[end].end_time;
-            if end + 1 < tokens.len(){
+            if end + 1 < tokens.len() {
                 let next_start_time = tokens[end + 1].start_time;
                 end_time = next_start_time.min(end_time + 0.3); //对句尾添加补偿, 避免字幕提前消失
             }
@@ -477,9 +492,12 @@ fn generate_srt_from_aligned_batches(batches: &[AlignedBatch]) -> String {
             batch_tokens.push(SubtitleToken {
                 text: batch.text.clone(),
                 start_time: batch.items[0].start_time,
-                end_time: batch.end_time,
+                end_time: batch.speech_end_time,
                 segment_boundary_after: true,
             });
+        }
+        if let Some(last) = batch_tokens.last_mut() {
+            last.end_time = last.end_time.max(batch.speech_end_time);
         }
         tokens.extend(batch_tokens);
     }
@@ -717,7 +735,7 @@ mod tests {
                     end_time: 1.6,
                 },
             ],
-            end_time: 1.6,
+            speech_end_time: 1.6,
         };
 
         let tokens = restore_tokens_from_text(&batch.text, &batch.items, true);
@@ -743,6 +761,29 @@ mod tests {
         let srt = generate_srt_from_align_items(&items);
         assert!(srt.contains("00:00:00,000 --> 00:00:00,750"));
         assert!(srt.contains("00:00:10,200 --> 00:00:10,850"));
+    }
+
+    #[test]
+    fn generate_srt_extends_batch_tail_to_vad_end() {
+        let batches = vec![AlignedBatch {
+            text: "hello world".into(),
+            items: vec![
+                AlignItem {
+                    text: "hello".into(),
+                    start_time: 0.0,
+                    end_time: 0.4,
+                },
+                AlignItem {
+                    text: "world".into(),
+                    start_time: 0.5,
+                    end_time: 0.9,
+                },
+            ],
+            speech_end_time: 1.4,
+        }];
+
+        let srt = generate_srt_from_aligned_batches(&batches);
+        assert!(srt.contains("00:00:00,000 --> 00:00:01,650"));
     }
 
     #[test]

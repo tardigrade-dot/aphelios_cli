@@ -107,7 +107,7 @@ impl DolphinModel {
         let (device, dtype) = common::get_device_dtype();
 
         // 1. Determine model file paths
-        let (tokenizer_path, safetensors_path, config_path) = if model_id.starts_with('/') {
+        let (tokenizer_path, safetensors_path, config_path) = if Path::new(model_id).is_dir() {
             info!("Loading model from local path: {}", model_id);
             let model_path = PathBuf::from(model_id);
             (

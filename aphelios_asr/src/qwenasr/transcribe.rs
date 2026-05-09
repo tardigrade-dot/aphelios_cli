@@ -12,7 +12,7 @@ use crate::qwenasr::encoder::Encoder;
 use crate::qwenasr::preset::ModelPreset;
 use crate::qwenasr::tokenizer::{
     Tokenizer, TokenizerError, PROMPT_PREFIX_HEAD, PROMPT_PREFIX_TAIL, PROMPT_SUFFIX_BASE,
-    TOKEN_ASR_TEXT, TOKEN_AUDIO_START, TOKEN_IM_END,
+    TOKEN_ASR_TEXT, TOKEN_IM_END,
 };
 
 #[derive(Debug, Error)]
@@ -129,25 +129,22 @@ impl Pipeline {
         // ── Build prompt embeddings ───────────────────────────────────────────
         let t_dec = Instant::now();
 
-        // 1. Prefix HEAD: [<|im_start|>system\n]
-        let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
+        // Prompt layout:
+        //   [HEAD]   <|im_start|>system\n
+        //   [CONTEXT?] {context text}\n          ← in system prompt (optional)
+        //   [TAIL]   <|im_end|>\n<|im_start|>user\n<|audio_start|>
+        //   [AUDIO]  <|AUDIO|> × n
+        //   [SUFFIX] <|audio_end|><|im_end|>\n<|im_start|>assistant\n<asr_text>
+
+let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
         let prefix_head_len = prefix_head_ids.len();
         let prefix_head_t = Tensor::from_vec(prefix_head_ids, (1, prefix_head_len), &dev)?;
         let prefix_head_emb = self.decoder.embed(&prefix_head_t)?;
 
-        // 2. Prefix MID: [<|im_end|>\n<|im_start|>user\n]  (PREFIX_TAIL without <|audio_start|>)
-        let prefix_mid_ids: Vec<u32> = PROMPT_PREFIX_TAIL[..PROMPT_PREFIX_TAIL.len() - 1]
-            .iter()
-            .copied()
-            .collect();
-        let prefix_mid_len = prefix_mid_ids.len();
-        let prefix_mid_t = Tensor::from_vec(prefix_mid_ids, (1, prefix_mid_len), &dev)?;
-        let prefix_mid_emb = self.decoder.embed(&prefix_mid_t)?;
-
-        // 3. Context text (tokenized plain text, between "user\n" and "<|audio_start|>")
+        // 2. Context text (in system prompt, between "system\n" and <|im_end|>)
         let context_emb = if let Some(ctx) = context_prompt {
             let mut ctx_ids = self.tokenizer.encode(ctx)?;
-            ctx_ids.push(198); // trailing \n before <|audio_start|>
+            ctx_ids.push(198); // trailing \n
             let ctx_len = ctx_ids.len();
             let ctx_t = Tensor::from_vec(ctx_ids, (1, ctx_len), dev)?;
             Some(self.decoder.embed(&ctx_t)?)
@@ -155,16 +152,16 @@ impl Pipeline {
             None
         };
 
-        // 4. Audio start: [<|audio_start|>]
-        let audio_start_emb = {
-            let t = Tensor::from_vec(vec![TOKEN_AUDIO_START], (1, 1), &dev)?;
-            self.decoder.embed(&t)?
-        };
+        // 3. Prefix TAIL: [<|im_end|>\n<|im_start|>user\n<|audio_start|>]
+        let prefix_tail_ids: Vec<u32> = PROMPT_PREFIX_TAIL.iter().copied().collect();
+        let prefix_tail_len = prefix_tail_ids.len();
+        let prefix_tail_t = Tensor::from_vec(prefix_tail_ids, (1, prefix_tail_len), &dev)?;
+        let prefix_tail_emb = self.decoder.embed(&prefix_tail_t)?;
 
-        // 5. Audio embeddings from encoder
+        // 4. Audio embeddings from encoder
         let audio_emb = enc_out.unsqueeze(0)?;
 
-        // 6. Suffix: [<|audio_end|><|im_end|>\n<|im_start|>assistant\n<asr_text>]
+        // 5. Suffix: [<|audio_end|><|im_end|>\n<|im_start|>assistant\n<asr_text>]
         let suffix_ids: Vec<u32> = PROMPT_SUFFIX_BASE
             .iter()
             .copied()
@@ -174,12 +171,12 @@ impl Pipeline {
         let suffix_t = Tensor::from_vec(suffix_ids, (1, suffix_len), &dev)?;
         let suffix_emb = self.decoder.embed(&suffix_t)?;
 
-        // 7. Concat all parts
-        let mut prompt_parts: Vec<&Tensor> = vec![&prefix_head_emb, &prefix_mid_emb];
+        // 6. Concat: [HEAD] + [context?] + [TAIL] + [AUDIO] + [SUFFIX]
+        let mut prompt_parts: Vec<&Tensor> = vec![&prefix_head_emb];
         if let Some(ref ctx_emb) = context_emb {
             prompt_parts.push(ctx_emb);
         }
-        prompt_parts.push(&audio_start_emb);
+        prompt_parts.push(&prefix_tail_emb);
         prompt_parts.push(&audio_emb);
         prompt_parts.push(&suffix_emb);
 

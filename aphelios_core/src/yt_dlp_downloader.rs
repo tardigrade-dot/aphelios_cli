@@ -85,12 +85,36 @@ pub fn download_with_progress(url: &str, output_dir: &str) -> Result<(), String>
         .spawn()
         .map_err(|e| format!("❌ 无法启动 yt-dlp: {}", e))?;
 
+    let stdout = child.stdout.take();
     let stderr = child.stderr.take()
         .ok_or("❌ 无法捕获标准错误输出")?;
-    let reader = BufReader::new(stderr);
+
+    // 用线程同时读取 stdout 和 stderr
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let tx2 = tx.clone();
+    std::thread::spawn(move || {
+        if let Some(stdout) = stdout {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(l) = line {
+                    let _ = tx2.send(l);
+                }
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(l) = tx.send(line.unwrap()) {
+                // continue
+            } else {
+                break;
+            }
+        }
+    });
 
     // 创建 indicatif 进度条
-    let pb = ProgressBar::new(100); // 初始 100%，动态更新
+    let pb = ProgressBar::new(100);
     pb.set_style(ProgressStyle::with_template(
         "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent:>3}% {msg}",
     ).unwrap().progress_chars("█▉▊▋▌▍▎▏  "));
@@ -101,33 +125,23 @@ pub fn download_with_progress(url: &str, output_dir: &str) -> Result<(), String>
         "   📦 {bytes}/{total_bytes} | ⚡ {speed} | ⏱️  ETA: {eta}",
     ).unwrap().progress_chars("##>-"));
 
-    for line_result in reader.lines() {
-        let line = line_result.map_err(|e| format!("读取输出失败: {}", e))?;
-
+    for line in rx {
         if let Some(progress) = parse_progress(&line) {
-            // 更新主进度条 (0-100)
             pb.set_position(progress.percent as u64);
 
-            // 计算总大小 (反推)
             let total_bytes = if progress.percent > 0.0 {
                 (progress.downloaded_bytes / progress.percent * 100.0) as u64
             } else {
                 0
             };
 
-            // 更新详细信息
             pb_details.set_length(total_bytes);
             pb_details.set_position(progress.downloaded_bytes as u64);
-            pb_details.set_message(format!(
-                "speed: {} | eta: {}",
-                progress.speed,
-                progress.eta
-            ));
         } else if !line.trim().is_empty() {
-            // 输出其他日志信息
             if line.contains("Destination") || line.contains("Downloading") {
                 pb.println(format!("   ℹ️  {}", line));
             }
+            pb.println(format!("  {}", line));
         }
     }
 

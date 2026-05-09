@@ -1,4 +1,4 @@
-use std::{fs, thread::sleep, time::Duration};
+use std::{env, fs, thread::sleep, time::Duration};
 use anyhow::{Context, Result};
 use async_openai::{Client, config::OpenAIConfig};
 use tracing::{error, info};
@@ -49,7 +49,7 @@ fn process_block(blocks: &mut Vec<SrtBlock>, lines: &[&str]) -> Result<()> {
     blocks.push(SrtBlock {
         index,
         timestamp,
-        text,
+        text: text.replace("\n", " "),
         translated_text: String::new(),
     });
     Ok(())
@@ -117,6 +117,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
             规则：\n\
             - 输出必须恰好 {} 行，与输入行数完全一致\n\
             - 每行只翻译对应的原文，不合并不拆分\n\
+            - 译文必须与原文有对应关系，或语义上的对应关系\n\
             - 如果某行语义不完整，保留断句，译文可以是半句\n\
             - 不需要其他解释，只输出翻译后的序号和译文\n\
             输入：\n{}\n\n",
@@ -128,7 +129,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
     info!("prompt {}", &prompt);
     let response = simple_infer(client, model_id, prompt).await?;
 
-    info!("response {}", &response);
+    info!("response\n{}", &response);
     // 解析响应：按行分割，提取 "数字. 译文" 中的译文部分
     let mut translations = Vec::new();
     for line in response.lines() {
@@ -157,6 +158,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
         );
         // 如果多了，截取前 N 个；如果少了，用空字符串填充
         translations.resize_with(batch.len(), || "[翻译缺失]".to_string());
+        std::process::exit(1);
     }
 
     Ok(translations)
@@ -182,13 +184,22 @@ pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) ->
     let mut blocks = parse_srt(&input_content)?;
 
     // 配置：最大批次大小，建议 10~20
-    const MAX_BATCH_SIZE: usize = 10;
+    const MAX_BATCH_SIZE: usize = 8;
     let batches = group_into_batches(&blocks, MAX_BATCH_SIZE);
 
     info!("✅ 解析完成，共 {} 条字幕，分为 {} 个批次翻译...", blocks.len(), batches.len());
-    let api_base = "http://localhost:1234/v1";
-    let model_id = "google/gemma-4-e2b"; //"hy-mt1.5-1.8b";//"qwen/qwen3.5-9b";
-    let config = OpenAIConfig::new().with_api_base(api_base);
+    // let api_base = "http://localhost:1234/v1";
+    // let model_id = "google/gemma-4-e2b"; //"hy-mt1.5-1.8b";//"qwen/qwen3.5-9b";
+    // let config = OpenAIConfig::new().with_api_base(api_base);
+
+    let api_base = "https://api-inference.modelscope.cn/v1";
+    let model_id = "inclusionAI/Ling-2.6-1T";
+    let api_key = env::var("MODELSCOPE_API_KEY")?;
+
+    info!("{}", api_key);
+
+    let config = OpenAIConfig::new().with_api_base(api_base).with_header("Authorization", format!("Bearer {}", api_key))?;
+
     let client = Client::with_config(config);
 
     for (batch_idx, indices) in batches.iter().enumerate() {
