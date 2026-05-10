@@ -19,7 +19,7 @@ jobs:
           - os: macos-latest
             arch: "arm64"
             suffix: "macos-arm64" # Apple Silicon
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             suffix: "linux-x64"
           # - os: windows-latest
           #   suffix: "windows-x64"
@@ -64,8 +64,8 @@ jobs:
       - name: Run Build Script (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
-          export CC=gcc-12
-          export CXX=g++-12
+          export CC=gcc-13
+          export CXX=g++-13
           bash ./build_release.sh
 
       - name: Run Build Script (macOS)

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use aphelios_core::utils::common;
 use aphelios_ocr::dolphin::dolphin_utils;
 use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
@@ -93,7 +93,8 @@ fn load_model(model_path: &Path) -> Result<Session> {
     let execution_providers = common::get_cpu_ep();
 
     let session = Session::builder()?
-        .with_execution_providers(execution_providers)?
+        .with_execution_providers(execution_providers)
+        .map_err(|e| anyhow!("ORT execution providers error: {e}"))?
         .commit_from_file(model_path)
         .with_context(|| format!("Failed to load model: {:?}", model_path))?;
 

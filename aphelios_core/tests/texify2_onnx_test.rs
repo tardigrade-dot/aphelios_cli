@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use aphelios_core::utils::common::{
     TEXIFY2_MODEL_DECODER_PATH, TEXIFY2_MODEL_ENCODER_PATH, TEXIFY2_TOKENIZER_PATH,
 };
@@ -61,7 +61,8 @@ fn load_model(
     execution_providers: Vec<ExecutionProviderDispatch>,
 ) -> Result<Session> {
     let session = Session::builder()?
-        .with_execution_providers(execution_providers)?
+        .with_execution_providers(execution_providers)
+        .map_err(|e| anyhow!("ORT execution providers error: {e}"))?
         .commit_from_file(model_path)
         .with_context(|| format!("Failed to load model: {:?}", model_path))?;
 

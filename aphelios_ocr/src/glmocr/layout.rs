@@ -3,7 +3,7 @@
 //! Detects 23 layout region classes in document images using ONNX Runtime.
 //! Ported from Kreuzberg's kreuzberg-paddle-ocr implementation.
 
-use anyhow::{Context, Ok, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 use ndarray::Array4;
 use ort::session::Session;
 
@@ -69,9 +69,12 @@ pub struct LayoutDetector {
 impl LayoutDetector {
     /// Create a new layout detector, downloading the ONNX model if needed.
     pub fn new(model_file_path: &str) -> Result<Self> {
-        let session = Session::builder()?
-            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
-            .with_intra_threads(4)?
+        let session = Session::builder()
+            .map_err(|e| anyhow!("ORT session builder error: {e}"))?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            .map_err(|e| anyhow!("ORT optimization level error: {e}"))?
+            .with_intra_threads(4)
+            .map_err(|e| anyhow!("ORT intra threads error: {e}"))?
             .commit_from_file(model_file_path)
             .context("Failed to load layout ONNX model")?;
 

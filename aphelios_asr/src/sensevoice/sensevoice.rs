@@ -203,7 +203,8 @@ fn build_session_with_ort_cache(model_path: &Path, intra_threads: usize) -> Resu
 
     if let Ok(builder_with_cache) = builder.with_optimized_model_path(&ort_path) {
         match builder_with_cache
-            .with_execution_providers(get_available_ep())?
+            .with_execution_providers(get_available_ep())
+            .map_err(|e| anyhow!("ORT execution providers error: {e}"))?
             .commit_from_file(model_path)
         {
             Ok(session) => return Ok(session),
@@ -219,7 +220,7 @@ fn build_session_with_ort_cache(model_path: &Path, intra_threads: usize) -> Resu
         }
     }
 
-    let fallback_builder = Session::builder()
+    let mut fallback_builder = Session::builder()
         .map_err(|e| anyhow!("ORT session builder error: {e}"))?
         .with_optimization_level(GraphOptimizationLevel::Level2)
         .map_err(|e| anyhow!("ORT optimization level error: {e}"))?
