@@ -45,14 +45,6 @@ jobs:
           # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
           sudo apt-get install -y gcc-13 g++-13
 
-      # - name: Run Build Script (Linux with GCC 13)
-      #   if: startsWith(matrix.os, 'ubuntu')
-      #   run: |
-      #     # Use GCC 13 to support avx512fp16 while keeping GLIBC 2.35 compatibility
-      #     export CC=gcc-13
-      #     export CXX=g++-13
-      #     bash ./build_release.sh "${{ matrix.features }}"
-
       - name: Install CUDA Toolkit
         if: startsWith(matrix.os, 'ubuntu')
         uses: Jimver/cuda-toolkit@v0.2.19  # 或 mjun0812/setup-cuda [[32]]
@@ -78,8 +70,16 @@ jobs:
       - name: Use UPX
         run: upx --version
 
-      - name: Run Build Script
-        if: "!startsWith(matrix.os, 'ubuntu')"
+      - name: Run Build Script (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          # Use GCC 13 to support avx512fp16 while keeping GLIBC 2.35 compatibility
+          # export CC=gcc-13
+          # export CXX=g++-13
+          bash ./build_release.sh "${{ matrix.features }}"
+
+      - name: Run Build Script (macOS)
+        if: matrix.os == 'macos-latest'
         run: bash ./build_release.sh "${{ matrix.features }}"
 
       - name: Package Assets (macOS)
