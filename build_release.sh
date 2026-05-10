@@ -8,7 +8,6 @@ if [[ "$OSTYPE" == darwin* ]]; then
     DEFAULT_FEATURES="metal,profiling"
     echo "🍎 检测到 macOS，默认启用 Metal 后端"
 elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
-    apt-get install -y libasound2-dev
     DEFAULT_FEATURES="cuda,profiling"
     echo "🐧 检测到 Linux，默认启用 CUDA 后端"
 else
