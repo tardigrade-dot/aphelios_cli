@@ -154,7 +154,7 @@ candle-metal-kernels = { git = "https://github.com/tardigrade-dot/candle.git", v
 
 [profile.release]
 opt-level = "z"   # 优化代码体积 (也可选 "s")
-lto = true        # 启用全量链路优化 (Link Time Optimization)
+lto = false        # TODO 绕过muda构建出错
 codegen-units = 1 # 减少编译单元，增加优化空间
 panic = "abort"   # 发生 panic 时直接退出，减少 unwind 栈回溯代码体积
 strip = true      # 自动移除符号信息 (symbols)
