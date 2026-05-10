@@ -2,6 +2,7 @@ use crate::commands::cli::{Cli, Commands};
 use anyhow::Result;
 use aphelios_core::init_logging;
 use aphelios_ocr::dolphin::run_ocr;
+use tracing::info;
 pub mod commands;
 
 #[allow(unused_variables, unused_imports)]
@@ -17,6 +18,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             name,
         } => {
             // commands::base::run(path, name)?;
+            info!("this is a log");
         }
         Commands::Base { path: None, name } => {
             // commands::base::run(path, name)?;
