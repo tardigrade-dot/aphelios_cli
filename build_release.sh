@@ -9,7 +9,8 @@ if [[ "$OSTYPE" == darwin* ]]; then
     echo "🍎 检测到 macOS，默认启用 Metal 后端"
 elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
     DEFAULT_FEATURES="cuda,profiling"
-    echo "🐧 检测到 Linux，默认启用 CUDA 后端"
+    export CUDA_COMPUTE_CAP=${CUDA_COMPUTE_CAP:-86}
+    echo "🐧 检测到 Linux，默认启用 CUDA 后端 (compute cap: $CUDA_COMPUTE_CAP)"
 else
     DEFAULT_FEATURES="cpu,profiling"
     echo "🔍 未知平台，仅启用基础 profiling"
