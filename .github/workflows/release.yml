@@ -73,9 +73,8 @@ jobs:
       - name: Run Build Script (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
-          # Use GCC 13 to support avx512fp16 while keeping GLIBC 2.35 compatibility
-          # export CC=gcc-13
-          # export CXX=g++-13
+          export CC=gcc-12
+          export CXX=g++-12
           bash ./build_release.sh "${{ matrix.features }}"
 
       - name: Run Build Script (macOS)
