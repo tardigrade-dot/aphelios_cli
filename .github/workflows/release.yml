@@ -44,9 +44,9 @@ jobs:
 
       - name: Install CUDA Toolkit
         if: startsWith(matrix.os, 'ubuntu')
-        uses: Jimver/cuda-toolkit@v0.2.19  # 或 mjun0812/setup-cuda [[32]]
+        uses: Jimver/cuda-toolkit@v0.2.19
         with:
-          cuda: '12.1.0'  # 指定版本
+          cuda: '12.4.0' # 或 12.5.0 / 12.6.0
           method: 'network'  # 快速安装，仅含编译器
 
       - name: Install UPX (macOS)
