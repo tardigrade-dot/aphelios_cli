@@ -40,7 +40,7 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
           # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
-          sudo apt-get install -y gcc-12 g++-12 upx-ucl
+          sudo apt-get install -y gcc-13 g++-13 upx-ucl
 
       # - name: Install CUDA Toolkit
       #   if: startsWith(matrix.os, 'ubuntu')
@@ -54,10 +54,16 @@ jobs:
 
       - name: Install CUDA Toolkit
         if: startsWith(matrix.os, 'ubuntu')
-        uses: Jimver/cuda-toolkit@v0.2.19
-        with:
-          cuda: '12.6.0'
-          method: 'network'  # 快速安装，仅含编译器
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cuda-cudart-dev-12-6 \
+            libcublas-dev-12-6 \
+            cuda-nvcc-12-6
+          echo "/usr/local/cuda-12.6/bin" >> $GITHUB_PATH
+          echo "CUDA_PATH=/usr/local/cuda-12.6" >> $GITHUB_ENV
 
       - name: Install UPX (macOS)
         if: matrix.os == 'macos-latest'
