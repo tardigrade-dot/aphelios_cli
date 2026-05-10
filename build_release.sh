@@ -12,7 +12,7 @@ elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
     DEFAULT_FEATURES="cuda,profiling"
     echo "🐧 检测到 Linux，默认启用 CUDA 后端"
 else
-    DEFAULT_FEATURES="profiling"
+    DEFAULT_FEATURES="cpu,profiling"
     echo "🔍 未知平台，仅启用基础 profiling"
 fi
 FEATURES=${1:-"$DEFAULT_FEATURES"}

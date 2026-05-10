@@ -17,14 +17,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            features: "metal"
             arch: "arm64"
             suffix: "macos-arm64" # Apple Silicon
           - os: ubuntu-22.04
-            features: "cpu"
             suffix: "linux-x64"
           # - os: windows-latest
-          #   features: "cpu"
           #   suffix: "windows-x64"
           # Windows 暂时禁用：usearch crate MSVC 编译不兼容 (MAP_FAILED 未定义)
 
@@ -75,11 +72,11 @@ jobs:
         run: |
           export CC=gcc-12
           export CXX=g++-12
-          bash ./build_release.sh "${{ matrix.features }}"
+          bash ./build_release.sh
 
       - name: Run Build Script (macOS)
         if: matrix.os == 'macos-latest'
-        run: bash ./build_release.sh "${{ matrix.features }}"
+        run: bash ./build_release.sh
 
       - name: Package Assets (macOS)
         if: matrix.os == 'macos-latest'
