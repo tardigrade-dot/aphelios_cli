@@ -40,7 +40,7 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
           # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
-          sudo apt-get install -y gcc-12 g++-12
+          sudo apt-get install -y gcc-12 g++-12 upx-ucl
 
       - name: Install CUDA Toolkit
         if: startsWith(matrix.os, 'ubuntu')
@@ -52,12 +52,6 @@ jobs:
       - name: Install UPX (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install upx
-
-      - name: Install UPX (Linux)
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y upx-ucl
 
       # - name: Install UPX (Windows)
       #   if: matrix.os == 'windows-latest'
