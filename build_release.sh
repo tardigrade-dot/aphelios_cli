@@ -9,6 +9,16 @@ if [[ "$OSTYPE" == darwin* ]]; then
     echo "🍎 检测到 macOS，默认启用 Metal 后端"
 elif [[ "$OSTYPE" == "linux-gnu" || "$OSTYPE" == "linux-musl" ]]; then
     DEFAULT_FEATURES="cuda,profiling"
+
+    sudo apt-get update
+    sudo apt install libgtk-3-dev -y
+    sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+    sudo apt-get install -y libwayland-dev libxkbcommon-dev libfontconfig1-dev libasound2-dev # Slint/音频/字体 编译依赖
+    # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
+    sudo apt-get install -y gcc-13 g++-13 upx-ucl
+
+    export CC=gcc-13
+    export CXX=g++-13
     export CUDA_COMPUTE_CAP=${CUDA_COMPUTE_CAP:-86}
     echo "🐧 检测到 Linux，默认启用 CUDA 后端 (compute cap: $CUDA_COMPUTE_CAP)"
 else

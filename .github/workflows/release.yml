@@ -42,16 +42,6 @@ jobs:
           # Install GCC 13 to support avx512fp16 (GCC 11 on Ubuntu 22.04 doesn't support it)
           sudo apt-get install -y gcc-13 g++-13 upx-ucl
 
-      # - name: Install CUDA Toolkit
-      #   if: startsWith(matrix.os, 'ubuntu')
-      #   run: |
-      #     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-      #     sudo dpkg -i cuda-keyring_1.1-1_all.deb
-      #     sudo apt-get update
-      #     sudo apt-get -y install cuda-cudart-dev-12-6 libcublas-dev-12-6
-      #     echo "/usr/local/cuda-12.6/bin" >> $GITHUB_PATH
-      #     echo "CUDA_PATH=/usr/local/cuda-12.6" >> $GITHUB_ENV
-
       - name: Install CUDA Toolkit (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
