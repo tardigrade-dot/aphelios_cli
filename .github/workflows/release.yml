@@ -53,6 +53,13 @@ jobs:
           export CXX=g++-13
           bash ./build_release.sh "${{ matrix.features }}"
 
+      - name: Install CUDA Toolkit
+        if: startsWith(matrix.os, 'ubuntu')
+        uses: Jimver/cuda-toolkit@v0.2.19  # 或 mjun0812/setup-cuda [[32]]
+        with:
+          cuda: '12.1.0'  # 指定版本
+          method: 'network'  # 快速安装，仅含编译器
+
       - name: Install UPX (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install upx
