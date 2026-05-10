@@ -52,7 +52,8 @@ jobs:
       #     echo "/usr/local/cuda-12.6/bin" >> $GITHUB_PATH
       #     echo "CUDA_PATH=/usr/local/cuda-12.6" >> $GITHUB_ENV
 
-      - name: Install CUDA Toolkit
+      - name: Install CUDA Toolkit (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
@@ -74,7 +75,7 @@ jobs:
       - name: Use UPX
         run: upx --version
 
-      - name: Run Build Script (Linux)
+      - name: Run Build Script (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           export CC=gcc-13
@@ -93,7 +94,7 @@ jobs:
           # 打包 .app bundle (压缩为 zip 以保持 .app 结构)
           cd release_bin && zip -rq ../aphelios-${{ matrix.suffix }}.zip Aphelios.app
 
-      - name: Package Assets (Linux)
+      - name: Package Assets (Ubuntu)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           tar -czf aphelios-tool-${{ matrix.suffix }}.tar.gz -C release_bin aphelios_tool
