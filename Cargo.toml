@@ -120,7 +120,7 @@ knf-rs-sys = "0.3.2"
 ureq = { version = "3.2.0" }
 opusic-sys = { version = "0.6.0" }
 chinese-number = "0.7.8"
-tray-icon = "0.22.0"
+tray-icon = "0.22.2"
 pdfium-render = { version = "0.9.0", features = ["pdfium_latest", "image_latest", "console_log"] }
 crossbeam-channel = "0.5"
 md5 = "0.8.0"
