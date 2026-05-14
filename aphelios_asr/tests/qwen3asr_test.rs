@@ -18,10 +18,10 @@ async fn vad_and_qwenasr() -> Result<()> {
     let audio_li = vec![
         // AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
         // AudioInfo{path_str:"/Volumes/sw/video/mQlxALUw3h4.wav".to_string(), language_str:"English".to_string()},
-        AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/output/download/Robert Service on Trotsky 07⧸26⧸2010.mp4".to_string(), language_str:"English".to_string()}
+        AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/output/download/Sarah Paine — Why Japan lost WWII (lecture & interview).mp4".to_string(), language_str:"English".to_string()}
     ];
     // let context = "the title of this audio : 1917 Centennial Series: War, Revolution, Socialism, War. Stephen Kotkin";
-    let context = "this audio is about: Robert Service of Stanford University's Hoover Institution and the University of Oxford talks with EconTalk host Russ Roberts about the life and death of Leon Trotsky. Based on Service's biography of Trotsky, the conversation covers Trotsky's influence on the Russian Revolution, his influence on policy alongside Lenin, his expulsion from Soviet Union in 1928 and his murder in 1940 by Stalin's order";
+    let context = "the audio is about Why Japan lost WWII (Sarah Paine)";
     for au in audio_li{
         info!("Running ASR with audio: {}", au.path_str);
         let items = qwenasr::qwen3asr_with_vad(

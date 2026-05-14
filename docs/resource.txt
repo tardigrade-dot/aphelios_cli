@@ -4,3 +4,6 @@
 贝克莱的努力并未产生有形的结果
 /Volumes/sw/video/voice-design-2.wav
 写这本书的目的在于通过我的走访和观察
+
+https://huggingface.co/lfaviate/sherpa-onnx-sense-voice-small/tree/main
+https://huggingface.co/aoiandroid/sherpa-onnx-sense-voice-funasr-nano-2025-12-17/tree/main

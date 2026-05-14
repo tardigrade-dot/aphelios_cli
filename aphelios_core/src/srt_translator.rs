@@ -192,9 +192,15 @@ pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) ->
     // let model_id = "google/gemma-4-e2b"; //"hy-mt1.5-1.8b";//"qwen/qwen3.5-9b";
     // let config = OpenAIConfig::new().with_api_base(api_base);
 
-    let api_base = "https://api-inference.modelscope.cn/v1";
-    let model_id = "inclusionAI/Ling-2.6-1T";
-    let api_key = env::var("MODELSCOPE_API_KEY")?;
+    // modelscope
+    // let api_base = "https://api-inference.modelscope.cn/v1";
+    // let model_id = "inclusionAI/Ling-2.6-1T";
+    // let api_key = env::var("MODELSCOPE_API_KEY")?;
+
+    // deepseek
+    let api_base = "https://api.deepseek.com/v1";
+    let model_id = "deepseek-v4-pro";//"deepseek-v4-flash"; //"deepseek-v4-pro";
+    let api_key = env::var("DEEPSEEK_API_KEY")?;
 
     info!("{}", api_key);
 

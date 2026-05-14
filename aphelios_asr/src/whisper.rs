@@ -8,8 +8,7 @@ use candle_nn::{
     VarBuilder,
 };
 use candle_transformers::models::whisper::{self as m, audio, Config};
-use rand::distr::weighted::WeightedIndex;
-use rand::distr::Distribution;
+use rand::distributions::{WeightedIndex, Distribution};
 use rand::SeedableRng;
 use std::path::Path;
 use tokenizers::Tokenizer;
