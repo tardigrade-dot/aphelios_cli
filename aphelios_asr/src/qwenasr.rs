@@ -28,13 +28,13 @@ pub mod tokenizer;
 pub mod transcribe;
 
 pub fn qwen3asr_simple(
-    asr_model: &str,
-    aligner_model: &str,
+    asr_model: Option<&str>,
+    aligner_model: Option<&str>,
     input: &str,
     language: &str,
 ) -> Result<()> {
     let mut pipeline =
-        transcribe::Pipeline::load_with_device(Path::new(asr_model)).unwrap_or_else(|e| {
+        transcribe::Pipeline::load_with_device(asr_model).unwrap_or_else(|e| {
             error!("error: {e}");
             std::process::exit(1)
         });
@@ -46,7 +46,7 @@ pub fn qwen3asr_simple(
 
     info!("{text}");
 
-    let aligner = ForcedAligner::load_with_device(Path::new(aligner_model))?;
+    let aligner = ForcedAligner::load_with_device(aligner_model)?;
 
     let items = aligner
         .align(Path::new(input), &text, language)
@@ -83,13 +83,15 @@ struct AlignedBatch {
 }
 
 pub async fn qwen3asr_with_vad(
-    qwen3asr_model: &str,
-    aligner_model: &str,
-    vad_model_dir: &str,
+    qwen3asr_model: Option<&str>,
+    aligner_model: Option<&str>,
+    vad_model_dir: Option<&str>,
     audio_path: &str,
     language: &str,
     ctx: Option<&str>,
 ) -> Result<Vec<AlignItem>> {
+
+    assert!(Path::new(audio_path).exists(), "file not exists!");
     // ==================== Phase 1: VAD + ASR Transcription ====================
     let mut vad = measure_time!("load VAD model", VadProcessor::new_default(vad_model_dir)?);
 
@@ -119,13 +121,9 @@ pub async fn qwen3asr_with_vad(
 
     let device = get_device();
 
-    info!(
-        "[Phase 1] Loading QwenASR model from {} on {:?}",
-        qwen3asr_model, device
-    );
     let mut pipeline = measure_time!(
         "load ASR model",
-        Pipeline::load_with_prompt(Path::new(qwen3asr_model), ctx)?
+        Pipeline::load_with_prompt(qwen3asr_model, ctx)?
     );
 
     // Load entire audio as float samples
@@ -198,11 +196,7 @@ pub async fn qwen3asr_with_vad(
     );
 
     // ==================== Phase 2: Alignment ====================
-    info!(
-        "[Phase 2] Loading ForcedAligner model from {} on {:?}",
-        aligner_model, device
-    );
-    let aligner = ForcedAligner::load_with_device(Path::new(aligner_model))?;
+    let aligner = ForcedAligner::load_with_device(aligner_model)?;
 
     let mut total_aligned_items = Vec::new();
     let mut aligned_batches = Vec::new();
@@ -236,15 +230,15 @@ pub async fn qwen3asr_with_vad(
         "[Phase 2] Alignment complete. Total aligned items: {}",
         total_aligned_items.len()
     );
-    for (_, item) in total_aligned_items.iter().enumerate() {
-        info!(
-            "{}",
-            format!(
-                "[{:.3} - {:.3}] {}",
-                item.start_time, item.end_time, item.text
-            )
-        );
-    }
+    // for (_, item) in total_aligned_items.iter().enumerate() {
+    //     info!(
+    //         "{}",
+    //         format!(
+    //             "[{:.3} - {:.3}] {}",
+    //             item.start_time, item.end_time, item.text
+    //         )
+    //     );
+    // }
 
     // Generate SRT file
     let srt_content = generate_srt_from_aligned_batches(&aligned_batches);

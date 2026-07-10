@@ -199,10 +199,8 @@ pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) ->
 
     // deepseek
     let api_base = "https://api.deepseek.com/v1";
-    let model_id = "deepseek-v4-pro";//"deepseek-v4-flash"; //"deepseek-v4-pro";
+    let model_id = "deepseek-v4-flash";//"deepseek-v4-flash"; //"deepseek-v4-pro";
     let api_key = env::var("DEEPSEEK_API_KEY")?;
-
-    info!("{}", api_key);
 
     let config = OpenAIConfig::new().with_api_base(api_base).with_header("Authorization", format!("Bearer {}", api_key))?;
 

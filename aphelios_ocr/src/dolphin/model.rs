@@ -3,13 +3,13 @@ use crate::dolphin::{dolphin_utils, full_in_one, IGNORED_TAGS};
 use crate::glmocr::ClipInfo;
 use anyhow::Context;
 use anyhow::{Error as E, Result};
+use aphelios_core::hub::load_file_local_or_download;
 use aphelios_core::measure_time;
 use aphelios_core::utils::{common, AppProgressBar};
 use candle_core::{safetensors, DType, Device, Tensor, D};
 use candle_transformers::models::donut::DonutConfig;
 use futures_util::{pin_mut, StreamExt};
 use glob::glob;
-use hf_hub::api::sync::ApiBuilder;
 use image::{DynamicImage, GenericImageView, RgbImage};
 use itertools::izip;
 use ndarray::Array;
@@ -117,28 +117,10 @@ impl DolphinModel {
             )
         } else {
             info!("Loading model from HuggingFace hub: {}", model_id);
-            let hf_api = ApiBuilder::new()
-                .with_progress(false)
-                // .with_cache_dir(PathBuf::from(".cache"))
-                // .with_endpoint("https://hf-mirror.com".to_string())
-                .build()
-                .unwrap();
-            let api = hf_api; //Api::new().context("Failed to create HuggingFace API")?;
-            let dolphin_repo = api.repo(hf_hub::Repo::with_revision(
-                model_id.to_string(),
-                hf_hub::RepoType::Model,
-                "main".to_string(),
-            ));
 
-            let tokenizer_path = dolphin_repo
-                .get("tokenizer.json")
-                .context("Failed to load tokenizer.json")?;
-            let safetensors_path = dolphin_repo
-                .get("model.safetensors")
-                .context("Failed to load model.safetensors")?;
-            let config_path = dolphin_repo
-                .get("config.json")
-                .context("Failed to load config.json")?;
+            let tokenizer_path = load_file_local_or_download(model_id, "tokenizer.json");
+            let safetensors_path = load_file_local_or_download(model_id, "model.safetensors");
+            let config_path = load_file_local_or_download(model_id, "config.json");
 
             (tokenizer_path, safetensors_path, config_path)
         };

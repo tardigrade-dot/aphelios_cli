@@ -80,6 +80,12 @@ impl AudioLoader {
             limit_metadata_bytes: Limit::Maximum(0), // Disable metadata reading to avoid ID3v2 issues
             ..Default::default()
         };
+
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() == 0 {
+            return Err(anyhow::anyhow!("The audio file is empty (0 bytes): {:?}", path));
+        }
+
         let probed = symphonia::default::get_probe().format(
             &hint,
             mss,
@@ -89,6 +95,7 @@ impl AudioLoader {
 
         let mut format = probed.format;
 
+        info!("file tracks {}", &format.tracks().len());
         for t in format.tracks() {
             info!(
                 "track id={} codec={:?} channels={:?} sample_rate={:?}",

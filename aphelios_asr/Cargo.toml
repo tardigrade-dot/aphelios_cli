@@ -45,7 +45,7 @@ tracing-subscriber = { workspace = true }
 test-log = { workspace = true }
 
 [features]
-default = ["profiling"]
+default = ["metal", "profiling"]
 profiling = ["aphelios_core/profiling",]
 cpu = ["aphelios_core/cpu"]
 metal = [

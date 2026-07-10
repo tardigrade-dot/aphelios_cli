@@ -1,15 +1,18 @@
 //! Full VAD detection pipeline: audio loading → resampling → inference → segments.
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use aphelios_core::{
-    audio::{MonoBuffer, ResampleQuality},
-    AudioLoader, Resampler,
+    AudioLoader, Resampler, audio::{MonoBuffer, ResampleQuality}, hub::load_file_local_or_download,
 };
 use tracing::info;
 
 use crate::{AudioBatch, VadSegment};
 
 use super::engine::{SileroVadEngine, VadConfig};
+
+const SILERO_VAD_ONNX: &str = "tardigrade-doc/silero-vad-onnx";
 
 /// VAD detector with full audio file processing pipeline.
 pub struct VadDetector {
@@ -94,15 +97,16 @@ pub struct VadProcessor {
 }
 
 impl VadProcessor {
-    pub fn new_default(model_dir: &str) -> Result<Self> {
-        let model_path = format!("{}/model.onnx", model_dir);
+    pub fn new_default(model_dir: Option<impl Into<String>>) -> Result<Self> {
         let config = VadConfig::for_pipeline();
-        Self::new(&model_path, config)
+        let model_id = model_dir
+                    .map(|m| m.into())
+                    .unwrap_or_else(|| SILERO_VAD_ONNX.to_string());
+        Self::new(&load_file_local_or_download(&model_id, "model.onnx"), config)
     }
 
-    pub fn new(model_path: &str, config: VadConfig) -> Result<Self> {
+    pub fn new(model_path: &PathBuf, config: VadConfig) -> Result<Self> {
         let sample_rate = 16000usize;
-        info!("Loading VAD model from: {}", model_path);
         let engine = SileroVadEngine::new(model_path, sample_rate, 1, config)?;
         info!("VAD model loaded successfully");
         Ok(Self {
@@ -115,6 +119,7 @@ impl VadProcessor {
     /// Audio is loaded at 16kHz mono - no additional resampling needed.
     pub fn process_from_file(&mut self, audio_path: &str) -> Result<Vec<VadSegment>> {
         // AudioLoader always returns 16kHz mono, no resampling needed
+        info!("process file {}", audio_path);
         let audio = AudioLoader::new().load(audio_path)?;
         let mono = audio.into_mono();
 

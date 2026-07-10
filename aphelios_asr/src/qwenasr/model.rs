@@ -1,6 +1,8 @@
-use crate::qwenasr::audio::AudioConfig;
+use crate::qwenasr::transcribe::collect_shards;
+use crate::{QWEN3_ASR_MODEL_ID, qwenasr::audio::AudioConfig};
 use crate::qwenasr::encoder::EncoderConfig;
 use crate::qwenasr::preset::ModelPreset;
+use aphelios_core::hub::load_or_download;
 use candle_transformers::models::qwen3::Config as Qwen3Config;
 
 use std::path::{Path, PathBuf};
@@ -38,95 +40,63 @@ pub struct Model {
     pub config: ModelConfig,
 }
 
-impl Model {
-    fn load_from_dir(model_dir: &Path) -> Result<Self, ModelError> {
-        println!("Loading model from {:?}", model_dir);
-        // searching for a safetensors json index
-        let index = model_dir.join("model.safetensors.index.json");
-        if index.exists() {
-            // Reading the json
-            let content = std::fs::read_to_string(index)?;
-            let jsonv: serde_json::Value = serde_json::from_str(&content)?;
-            let weight_map = jsonv
-                .get("weight_map")
-                .and_then(|v| v.as_object())
-                .ok_or_else(|| {
-                    ModelError::InvalidIndex("missing or invalid weight_map".to_string())
-                })?;
+// impl Model {
+//     fn load_from_dir(model_dir: Option<&str>) -> Result<Self, ModelError> {
+//         println!("Loading model from {:?}", model_dir);
+//         // searching for a safetensors json index
+//         let index = load_or_download(QWEN3_ASR_MODEL_ID, model_dir, "model.safetensors.index.json");
 
-            // println!("{:#?}", weight_map);
+//         let s = collect_shards(QWEN3_ASR_MODEL_ID, model_dir);
+//         if index.exists() {
+//             // Reading the json
+//             let content = std::fs::read_to_string(index)?;
+//             let jsonv: serde_json::Value = serde_json::from_str(&content)?;
+//             let weight_map = jsonv
+//                 .get("weight_map")
+//                 .and_then(|v| v.as_object())
+//                 .ok_or_else(|| {
+//                     ModelError::InvalidIndex("missing or invalid weight_map".to_string())
+//                 })?;
 
-            let mut shards: Vec<String> = weight_map
-                .values()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-            // no need to use proper sort
-            shards.sort_unstable();
-            // since we deduplicate right after
-            shards.dedup();
+//             // println!("{:#?}", weight_map);
 
-            // we finally have a list of shards
-            let shards: Vec<PathBuf> = shards.into_iter().map(|s| model_dir.join(s)).collect();
+//             let mut shards: Vec<String> = weight_map
+//                 .values()
+//                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
+//                 .collect();
+//             // no need to use proper sort
+//             shards.sort_unstable();
+//             // since we deduplicate right after
+//             shards.dedup();
 
-            // are we sure the files are actually there?
-            for shard_path in &shards {
-                if !shard_path.exists() {
-                    return Err(ModelError::MissingWeights(shard_path.display().to_string()));
-                }
-            }
+//             // we finally have a list of shards
+//             let shards: Vec<PathBuf> = shards.into_iter().map(|s| model_dir.join(s)).collect();
 
-            println!("{:#?}", shards);
-            // fine, we can proceed
-            // We could get everything
-            // let weights = Weights::from_files(&shards);
+//             // are we sure the files are actually there?
+//             for shard_path in &shards {
+//                 if !shard_path.exists() {
+//                     return Err(ModelError::MissingWeights(shard_path.display().to_string()));
+//                 }
+//             }
 
-            Ok(Model {
-                config: ModelPreset::from_dir(model_dir).config(),
-            })
-        } else {
-            // no index? let's go for a single shard
-            let single_shard = model_dir.join("model.safetensors");
-            if !single_shard.exists() {
-                return Err(ModelError::MissingWeights(format!("{:?}", model_dir)));
-            }
+//             println!("{:#?}", shards);
+//             // fine, we can proceed
+//             // We could get everything
+//             // let weights = Weights::from_files(&shards);
 
-            Ok(Model {
-                config: ModelPreset::from_dir(model_dir).config(),
-            })
-        }
-    }
-}
+//             Ok(Model {
+//                 config: ModelPreset::from_dir(model_dir).config(),
+//             })
+//         } else {
+//             // no index? let's go for a single shard
+//             let single_shard = model_dir.join("model.safetensors");
+//             if !single_shard.exists() {
+//                 return Err(ModelError::MissingWeights(format!("{:?}", model_dir)));
+//             }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use std::path::PathBuf;
-
-    fn smoke_model_dir() -> PathBuf {
-        if let Ok(model_dir) = env::var("QWEN_ASR_MODEL_DIR") {
-            let p = PathBuf::from(model_dir);
-            return if p.is_file() {
-                p.parent().map_or_else(|| p.clone(), PathBuf::from)
-            } else {
-                p
-            };
-        }
-        if let Ok(root) = env::var("QWEN_ASR_ROOT") {
-            return PathBuf::from(root).join("qwen3-asr-1.7b");
-        }
-        panic!(
-            "Set QWEN_ASR_MODEL_DIR=/abs/path/to/model-dir \
-or QWEN_ASR_ROOT=/abs/path/to/repo-root"
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn load_from_dir_smoke() {
-        let model_dir = smoke_model_dir();
-        let model = Model::load_from_dir(&model_dir);
-        println!("{:#?}", model);
-        assert!(model.is_ok());
-    }
-}
+//             Ok(Model {
+//                 config: ModelPreset::from_dir(model_dir).config(),
+//             })
+//         }
+//     }
+// }

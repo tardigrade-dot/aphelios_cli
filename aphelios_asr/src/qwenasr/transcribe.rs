@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use aphelios_core::hub::load_or_download;
 use aphelios_core::utils::common::get_device;
 use candle_core::{DType, Device, Tensor};
 use thiserror::Error;
 use tracing::info;
 
+use crate::QWEN3_ASR_MODEL_ID;
 use crate::qwenasr::audio::{self, AudioConfig, AudioError};
 use crate::qwenasr::decoder::Decoder;
 use crate::qwenasr::encoder::Encoder;
@@ -49,7 +51,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn load(model_dir: &Path) -> Result<Self, TranscribeError> {
+    pub fn load(model_dir: Option<&str>) -> Result<Self, TranscribeError> {
         Self::load_with_device(model_dir)
     }
 
@@ -58,15 +60,15 @@ impl Pipeline {
         self
     }
 
-    pub fn load_with_prompt(model_dir: &Path, ctx: Option<&str>) -> Result<Self, TranscribeError> {
+    pub fn load_with_prompt(model_dir: Option<&str>, ctx: Option<&str>) -> Result<Self, TranscribeError> {
         Self::load_with_device(model_dir).map(|s| s.with_prompt(ctx))
     }
 
-    pub fn load_with_device(model_dir: &Path) -> Result<Self, TranscribeError> {
+    pub fn load_with_device(model_dir: Option<&str>) -> Result<Self, TranscribeError> {
         let device = get_device();
         let preset = ModelPreset::from_dir(model_dir);
         let cfg = preset.config();
-        let shards = collect_shards(model_dir)?;
+        let shards = collect_shards(QWEN3_ASR_MODEL_ID, model_dir)?;
 
         let encoder = Encoder::load(&shards, cfg.encoder, &device)?;
         let decoder = Decoder::load(&shards, &cfg.decoder, &device)?;
@@ -248,8 +250,21 @@ let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
 }
 
 /// Collect weight shard paths from a model directory.
-pub fn collect_shards(model_dir: &Path) -> Result<Vec<PathBuf>, TranscribeError> {
-    let index = model_dir.join("model.safetensors.index.json");
+pub fn collect_shards(
+    remote_model_id: &str,
+    model_dir: Option<&str>,
+) -> Result<Vec<PathBuf>, TranscribeError> {
+    // 统一的文件解析:本地直接拼路径,远端走 load_or_download
+    let resolve = |file_name: &str| -> PathBuf {
+        if let Some(dir) = model_dir {
+            PathBuf::from(dir).join(file_name)
+        } else {
+            load_or_download(remote_model_id, Some(remote_model_id), file_name)
+        }
+    };
+
+    let index = resolve("model.safetensors.index.json");
+
     if index.exists() {
         let content = std::fs::read_to_string(&index)?;
         let jsonv: serde_json::Value = serde_json::from_str(&content)?;
@@ -263,19 +278,23 @@ pub fn collect_shards(model_dir: &Path) -> Result<Vec<PathBuf>, TranscribeError>
             .collect();
         shards.sort_unstable();
         shards.dedup();
-        let paths: Vec<PathBuf> = shards.into_iter().map(|s| model_dir.join(s)).collect();
-        for p in &paths {
-            if !p.exists() {
-                return Err(TranscribeError::MissingWeights(p.display().to_string()));
+
+        let paths: Vec<PathBuf> = shards.into_iter().map(|s| resolve(&s)).collect();
+
+        // 仅本地模式需要校验文件存在性;远端由 load_or_download 保证
+        if model_dir.is_some() {
+            for p in &paths {
+                if !p.exists() {
+                    return Err(TranscribeError::MissingWeights(p.display().to_string()));
+                }
             }
         }
         Ok(paths)
     } else {
-        let single = model_dir.join("model.safetensors");
-        if !single.exists() {
-            return Err(TranscribeError::MissingWeights(
-                model_dir.display().to_string(),
-            ));
+        // 单文件回退
+        let single = resolve("model.safetensors");
+        if model_dir.is_some() && !single.exists() {
+            return Err(TranscribeError::MissingWeights(single.display().to_string()));
         }
         Ok(vec![single])
     }

@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
+use aphelios_core::hub::load_file_local_or_download;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
-use hf_hub::{api::sync::Api, Repo, RepoType};
 use std::path::PathBuf;
 
 use crate::glmocr::config::GlmOcrConfig;
@@ -62,13 +62,7 @@ impl ModelLoader {
                 bail!("load local model error");
             }
         } else {
-            let api = Api::new().context("Failed to create HF API")?;
-
-            let repo = api.repo(Repo::new(self.model_id.clone(), RepoType::Model));
-            let path = repo
-                .get(filename)
-                .with_context(|| format!("Failed to download {filename} from {}", self.model_id))?;
-            Ok(path)
+            Ok(load_file_local_or_download(self.model_id.clone(), filename))
         }
     }
 }

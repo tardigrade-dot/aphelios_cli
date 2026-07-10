@@ -18,6 +18,7 @@ use candle_transformers::models::qwen3::Config as Qwen3Config;
 use thiserror::Error;
 use tracing::{debug, info};
 
+use crate::QWEN_ALIGNER_MODEL_ID;
 use crate::qwenasr::audio::{self, AudioConfig, AudioError};
 use crate::qwenasr::encoder::Encoder;
 use crate::qwenasr::preset::ModelPreset;
@@ -527,12 +528,12 @@ pub struct ForcedAligner {
 
 impl ForcedAligner {
     pub fn load_with_device(
-        model_dir: &Path,
+        model_dir: Option<&str>,
     ) -> std::result::Result<Self, AlignerError> {
         let device = get_device();
         let preset = ModelPreset::from_dir_aligner(model_dir);
         let cfg = preset.config();
-        let shards = collect_shards(model_dir)?;
+        let shards = collect_shards(QWEN_ALIGNER_MODEL_ID, model_dir)?;
 
         let encoder = Encoder::load(&shards, cfg.encoder, &device)?;
         let decoder = AlignerDecoder::load(&shards, &cfg.decoder, CLASSIFY_NUM, &device)?;

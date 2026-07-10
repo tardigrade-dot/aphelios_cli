@@ -383,9 +383,9 @@ fn main() -> Result<()> {
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 let result = rt.block_on(aphelios_asr::qwenasr::qwen3asr_with_vad(
-                    &asr_model,
-                    &aligner_model,
-                    &vad_model,
+                    Some(&asr_model),
+                    Some(&aligner_model),
+                    Some(&vad_model),
                     &audio_file,
                     &language,
                     None

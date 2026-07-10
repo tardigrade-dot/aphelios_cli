@@ -1,15 +1,14 @@
 use anyhow::Result;
-use std::path::PathBuf;
 use std::fs;
 use std::mem;
+use std::path::PathBuf;
 
 use aphelios_tts::supertonic3::helper::{
-    load_text_to_speech, load_voice_style, timer, write_wav_file, sanitize_filename,
+    load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file,
 };
 
 impl Args {
-
-    fn default() -> Self{
+    fn default() -> Self {
         Args { use_gpu: false, onnx_dir: "/Volumes/sw/onnx_models/supertonic-3/onnx".to_string(), total_step: 8,
             speed: 1.05f32, n_test: 1, voice_style: vec!["/Volumes/sw/onnx_models/supertonic-3/voice_styles/F1.json".to_string()],
             text: vec!["This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.".to_string()],

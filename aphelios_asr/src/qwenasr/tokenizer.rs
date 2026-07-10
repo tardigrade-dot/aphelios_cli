@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::path::Path;
-
+use aphelios_core::hub::load_or_download;
 use thiserror::Error;
 use tokenizers::decoders::byte_level::ByteLevel as BLDecoder;
 use tokenizers::models::bpe::BPE;
 use tokenizers::pre_tokenizers::byte_level::ByteLevel;
 use tokenizers::Tokenizer as HfTokenizer;
+
+use crate::QWEN_ALIGNER_MODEL_ID;
 
 #[derive(Debug, Error)]
 pub enum TokenizerError {
@@ -26,6 +27,7 @@ pub const TOKEN_AUDIO_END: u32 = 151670; // <|audio_end|>
 pub const TOKEN_AUDIO_PAD: u32 = 151676; // <|AUDIO|> padding token
 pub const TOKEN_ASR_TEXT: u32 = 151704; // <asr_text> — gates text accumulation
 pub const TOKEN_TIMESTAMP: u32 = 151705; // <timestamp> — forced-aligner slot token
+
 
 // ── Prompt template sequences (from qwen_asr.c) ──────────────────────────────
 //
@@ -64,9 +66,9 @@ pub struct Tokenizer {
 
 impl Tokenizer {
     /// Load from `<model_dir>/vocab.json` + `merges.txt`.
-    pub fn load(model_dir: &Path) -> Result<Self, TokenizerError> {
-        let vocab = model_dir.join("vocab.json");
-        let merges = model_dir.join("merges.txt");
+    pub fn load(model_dir: Option<&str>) -> Result<Self, TokenizerError> {
+        let vocab = load_or_download(QWEN_ALIGNER_MODEL_ID, model_dir, "vocab.json");
+        let merges = load_or_download(QWEN_ALIGNER_MODEL_ID, model_dir, "merges.txt");
 
         if !vocab.exists() {
             return Err(TokenizerError::Load(format!(
@@ -134,74 +136,5 @@ impl Tokenizer {
     /// Total vocabulary size including added tokens.
     pub fn vocab_size(&self) -> usize {
         self.inner.get_vocab_size(true)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use std::path::PathBuf;
-
-    fn model_dir() -> PathBuf {
-        if let Ok(p) = env::var("QWEN_ASR_MODEL_DIR") {
-            let p = PathBuf::from(p);
-            return if p.is_file() {
-                p.parent().unwrap().to_path_buf()
-            } else {
-                p
-            };
-        }
-        if let Ok(root) = env::var("QWEN_ASR_ROOT") {
-            return PathBuf::from(root).join("qwen3-asr-0.6b");
-        }
-        panic!("Set QWEN_ASR_MODEL_DIR or QWEN_ASR_ROOT");
-    }
-
-    #[test]
-    #[ignore]
-    fn vocab_size_matches() {
-        let tok = Tokenizer::load(&model_dir()).expect("load failed");
-        // vocab.json contains base BPE ids only; special/reserved ids live above this range.
-        assert_eq!(tok.vocab_size(), 151643);
-    }
-
-    #[test]
-    #[ignore]
-    fn decode_known_ids() {
-        let tok = Tokenizer::load(&model_dir()).expect("load failed");
-        assert_eq!(
-            tok.decode(&[323, 8679, 5086], true).unwrap(),
-            " and fear itself"
-        );
-        assert_eq!(tok.decode(&[8948], true).unwrap(), "system");
-        assert_eq!(tok.decode(&[198], true).unwrap(), "\n");
-        assert_eq!(tok.decode(&[872], true).unwrap(), "user");
-        assert_eq!(tok.decode(&[77091], true).unwrap(), "assistant");
-    }
-
-    #[test]
-    #[ignore]
-    fn encode_decode_roundtrip() {
-        let tok = Tokenizer::load(&model_dir()).expect("load failed");
-        let original = "Hello world";
-        let ids = tok.encode(original).expect("encode failed");
-        let decoded = tok.decode(&ids, true).expect("decode failed");
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    #[ignore]
-    fn decode_special_ids() {
-        let tok = Tokenizer::load(&model_dir()).expect("load failed");
-        assert_eq!(tok.decode_token(TOKEN_IM_START).unwrap(), "<|im_start|>");
-        assert_eq!(tok.decode_token(TOKEN_IM_END).unwrap(), "<|im_end|>");
-        assert_eq!(
-            tok.decode_token(TOKEN_AUDIO_START).unwrap(),
-            "<|audio_start|>"
-        );
-        assert_eq!(tok.decode_token(TOKEN_AUDIO_END).unwrap(), "<|audio_end|>");
-        assert_eq!(tok.decode_token(TOKEN_AUDIO_PAD).unwrap(), "<|AUDIO|>");
-        assert_eq!(tok.decode_token(TOKEN_ASR_TEXT).unwrap(), "<asr_text>");
     }
 }

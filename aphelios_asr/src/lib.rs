@@ -1,10 +1,14 @@
 pub mod granite;
 pub mod qwen3llm;
 pub mod qwenasr;
+pub mod qwen3asr;
 pub mod sensevoice;
 pub mod silerovad;
 pub mod text_match;
 pub mod whisper;
+
+pub const QWEN3_ASR_MODEL_ID: &str = "Qwen/Qwen3-ASR-0.6B";
+const QWEN_ALIGNER_MODEL_ID: &str = "Qwen/Qwen3-ForcedAligner-0.6B";
 
 /// Voice activity detection segment (time in milliseconds)
 #[derive(Debug, Clone)]

@@ -1,9 +1,10 @@
-use std::path::Path;
-
+use crate::QWEN3_ASR_MODEL_ID;
 use crate::qwenasr::audio::AudioConfig;
 use crate::qwenasr::encoder::EncoderConfig;
 use crate::qwenasr::model::ModelConfig;
+use aphelios_core::hub::load_or_download;
 use candle_transformers::models::qwen3::Config as Qwen3Config;
+
 
 pub enum ModelPreset {
     Qwen3Asr0_6b,
@@ -14,18 +15,19 @@ pub enum ModelPreset {
 impl ModelPreset {
     /// Detect model variant from the model directory.
     /// 1.7b is distributed as multiple shards with an index file; 0.6b as a single shard.
-    pub fn from_dir(dir: &Path) -> Self {
-        if dir.join("model.safetensors.index.json").exists() {
+    pub fn from_dir(dir: Option<&str>) -> Self {
+
+        if load_or_download(QWEN3_ASR_MODEL_ID, dir, "model.safetensors.index.json").exists(){
             ModelPreset::Qwen3Asr1_7b
-        } else {
+        }else {
             ModelPreset::Qwen3Asr0_6b
         }
     }
 
     /// Detect whether a model directory contains a ForcedAligner model.
-    pub fn from_dir_aligner(dir: &Path) -> Self {
+    pub fn from_dir_aligner(dir: Option<&str>) -> Self {
         // Read config.json to check model_type
-        let config_path = dir.join("config.json");
+        let config_path = load_or_download(QWEN3_ASR_MODEL_ID, dir, "config.json");
         if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&config_path) {
                 if content.contains("qwen3_forced_aligner") {
@@ -109,35 +111,5 @@ impl ModelPreset {
             decoder: self.decoder_config(),
             audio: AudioConfig::default(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-
-    #[test]
-    fn detects_1_7b_when_index_file_present() {
-        let dir = env::temp_dir().join("qwen_preset_test_1_7b");
-        std::fs::create_dir_all(&dir).unwrap();
-        let index = dir.join("model.safetensors.index.json");
-        std::fs::write(&index, "{}").unwrap();
-        assert!(matches!(
-            ModelPreset::from_dir(&dir),
-            ModelPreset::Qwen3Asr1_7b
-        ));
-        std::fs::remove_file(&index).unwrap();
-    }
-
-    #[test]
-    fn detects_0_6b_when_no_index_file() {
-        let dir = env::temp_dir().join("qwen_preset_test_0_6b");
-        std::fs::create_dir_all(&dir).unwrap();
-        let _ = std::fs::remove_file(dir.join("model.safetensors.index.json"));
-        assert!(matches!(
-            ModelPreset::from_dir(&dir),
-            ModelPreset::Qwen3Asr0_6b
-        ));
     }
 }

@@ -3,8 +3,8 @@ use aphelios_core::{utils::logger::init_test_logging, yt_dlp_downloader::downloa
 
 pub fn main() -> Result<(), String> {
     init_test_logging();
-    let video_url = "https://www.youtube.com/watch?v=25LUF8GmbFU";
-    let output_path = "/Users/larry/coderesp/aphelios_cli/output/download";
+    let video_url = "https://www.youtube.com/watch?v=zmEoRM6O8Q0";
+    let output_path = "/Users/larry/Downloads";
     let _ = download_with_progress(video_url, output_path)?;
     Ok(())
 }
