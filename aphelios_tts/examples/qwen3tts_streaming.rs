@@ -97,11 +97,7 @@ fn main() -> anyhow::Result<()> {
     // 加载参考音频进行语音克隆
     info!("📥 加载参考音频：{}", ref_audio_path);
     let ref_audio = AudioBuffer::load(ref_audio_path)?;
-    info!(
-        "📊 参考音频：{} 样本，{:.2}秒",
-        ref_audio.samples.len(),
-        ref_audio.samples.len() as f64 / 24000.0
-    );
+    info!("📊 参考音频：{} 样本，{:.2}秒", ref_audio.samples.len(), ref_audio.samples.len() as f64 / 24000.0);
 
     info!("🎯 创建语音克隆提示 (ICL 模式)...");
     let prompt = model.create_voice_clone_prompt(&ref_audio, Some(ref_text))?;
@@ -122,7 +118,14 @@ fn main() -> anyhow::Result<()> {
     };
 
     info!("🚀 开始流式语音合成...");
-    info!("📊 SDPA: {}", if use_sdpa { "启用" } else { "禁用" });
+    info!(
+        "📊 SDPA: {}",
+        if use_sdpa {
+            "启用"
+        } else {
+            "禁用"
+        }
+    );
     let total_start = Instant::now();
 
     // 创建音频播放器 - 预缓冲 1 秒后立即开始播放
@@ -137,12 +140,7 @@ fn main() -> anyhow::Result<()> {
 
     // 创建流式合成会话
     info!("📝 创建流式合成会话...");
-    let session = model.synthesize_voice_clone_streaming(
-        &text_to_speech,
-        &prompt,
-        Language::Chinese,
-        options,
-    )?;
+    let session = model.synthesize_voice_clone_streaming(&text_to_speech, &prompt, Language::Chinese, options)?;
 
     let mut total_chunks = 0;
     let mut total_samples = 0;
@@ -170,33 +168,17 @@ fn main() -> anyhow::Result<()> {
         player.queue(audio.samples.clone())?;
         let queue_time = queue_start.duration_since(last_queue_time);
 
-        info!(
-            "📦 [块 {}] {} 样本 ({:.2}ms), 累计：{:.2}s, 合成间隔：{:.2}s",
-            total_chunks,
-            chunk_samples,
-            chunk_duration * 1000.0,
-            total_samples as f64 / 24000.0,
-            queue_time.as_secs_f64()
-        );
+        info!("📦 [块 {}] {} 样本 ({:.2}ms), 累计：{:.2}s, 合成间隔：{:.2}s", total_chunks, chunk_samples, chunk_duration * 1000.0, total_samples as f64 / 24000.0, queue_time.as_secs_f64());
 
         last_queue_time = queue_start;
     }
 
     let synthesis_time = total_start.elapsed();
-    info!(
-        "\n✅ 合成完成！总计：{} 块，{} 样本，{:.2}s 音频，耗时：{:.2}s",
-        total_chunks,
-        total_samples,
-        total_samples as f64 / 24000.0,
-        synthesis_time.as_secs_f64()
-    );
+    info!("\n✅ 合成完成！总计：{} 块，{} 样本，{:.2}s 音频，耗时：{:.2}s", total_chunks, total_samples, total_samples as f64 / 24000.0, synthesis_time.as_secs_f64());
 
     if let Some(first_time) = first_chunk_time {
         let first_chunk_delay = first_time.duration_since(total_start);
-        info!(
-            "⏱ 首块延迟：{:.2}s (模型加载 + 预填充 + 第一块合成)",
-            first_chunk_delay.as_secs_f64()
-        );
+        info!("⏱ 首块延迟：{:.2}s (模型加载 + 预填充 + 第一块合成)", first_chunk_delay.as_secs_f64());
     }
 
     // 等待播放完成
@@ -240,14 +222,8 @@ fn main() -> anyhow::Result<()> {
     // 分析合成和播放的重叠情况
     let overlap_ratio = audio_duration / synthesis_time.as_secs_f64();
     info!("\n📊 并行度分析:");
-    info!(
-        "   重叠率：{:.1}% (合成时播放的进度)",
-        overlap_ratio * 100.0
-    );
-    info!(
-        "   说明：合成进行到 {:.1}% 时，播放已经开始",
-        (1.0 - overlap_ratio) * 100.0
-    );
+    info!("   重叠率：{:.1}% (合成时播放的进度)", overlap_ratio * 100.0);
+    info!("   说明：合成进行到 {:.1}% 时，播放已经开始", (1.0 - overlap_ratio) * 100.0);
 
     Ok(())
 }

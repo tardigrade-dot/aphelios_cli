@@ -74,24 +74,17 @@ impl Encoder12Hz {
         let vb = candle_nn::VarBuilder::from_tensors(encoder_weights, DType::F32, device);
 
         let encoder = mimi::seanet::SeaNetEncoder::new(&cfg.seanet, vb.pp("encoder"))?;
-        let encoder_transformer = mimi::transformer::ProjectedTransformer::new(
-            cfg.seanet.dimension,
-            &[cfg.seanet.dimension],
-            &cfg.transformer,
-            vb.pp("encoder_transformer"),
-        )?;
+        let encoder_transformer = mimi::transformer::ProjectedTransformer::new(cfg.seanet.dimension, &[cfg.seanet.dimension], &cfg.transformer, vb.pp("encoder_transformer"))?;
 
         // SEANet produces 25Hz (24000 / (8*6*5*4) = 25), downsample to 12.5Hz
-        let encoder_frame_rate =
-            cfg.sample_rate / cfg.seanet.ratios.iter().product::<usize>() as f64;
+        let encoder_frame_rate = cfg.sample_rate
+            / cfg
+                .seanet
+                .ratios
+                .iter()
+                .product::<usize>() as f64;
         let downsample_stride = (encoder_frame_rate / cfg.frame_rate) as usize;
-        let downsample = mimi::conv::ConvDownsample1d::new(
-            downsample_stride,
-            cfg.seanet.dimension,
-            /* causal */ true,
-            /* learnt */ true,
-            vb.pp("downsample"),
-        )?;
+        let downsample = mimi::conv::ConvDownsample1d::new(downsample_stride, cfg.seanet.dimension, /* causal */ true, /* learnt */ true, vb.pp("downsample"))?;
 
         let quantizer = mimi::quantization::SplitResidualVectorQuantizer::new(
             cfg.quantizer_dim,
@@ -151,19 +144,9 @@ mod tests {
     fn test_strip_encoder_prefix() {
         let mut weights = HashMap::new();
         let dummy = Tensor::zeros((1,), DType::F32, &Device::Cpu).unwrap();
-        weights.insert(
-            "encoder.encoder.layers.0.conv.weight".to_string(),
-            dummy.clone(),
-        );
-        weights.insert(
-            "encoder.encoder_transformer.layers.0.self_attn.q_proj.weight".to_string(),
-            dummy.clone(),
-        );
-        weights.insert(
-            "encoder.quantizer.semantic_residual_vector_quantizer.layers.0.codebook.embed_sum"
-                .to_string(),
-            dummy.clone(),
-        );
+        weights.insert("encoder.encoder.layers.0.conv.weight".to_string(), dummy.clone());
+        weights.insert("encoder.encoder_transformer.layers.0.self_attn.q_proj.weight".to_string(), dummy.clone());
+        weights.insert("encoder.quantizer.semantic_residual_vector_quantizer.layers.0.codebook.embed_sum".to_string(), dummy.clone());
         weights.insert("encoder.downsample.conv.weight".to_string(), dummy.clone());
         // Decoder keys should be excluded
         weights.insert("decoder.decoder.0.conv.weight".to_string(), dummy);
@@ -178,9 +161,7 @@ mod tests {
 
         assert!(stripped.contains_key("encoder.layers.0.conv.weight"));
         assert!(stripped.contains_key("encoder_transformer.layers.0.self_attn.q_proj.weight"));
-        assert!(stripped.contains_key(
-            "quantizer.semantic_residual_vector_quantizer.layers.0.codebook.embed_sum"
-        ));
+        assert!(stripped.contains_key("quantizer.semantic_residual_vector_quantizer.layers.0.codebook.embed_sum"));
         assert!(stripped.contains_key("downsample.conv.weight"));
         assert!(!stripped.contains_key("decoder.decoder.0.conv.weight"));
         assert_eq!(stripped.len(), 4);

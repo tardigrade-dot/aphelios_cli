@@ -10,12 +10,6 @@
 mod sampling;
 pub mod tts;
 
-pub use sampling::{
-    apply_repetition_penalty, apply_repetition_penalty_with_mask, greedy_sample, sample,
-    GenerationConfig, SamplingContext,
-};
+pub use sampling::{apply_repetition_penalty, apply_repetition_penalty_with_mask, greedy_sample, sample, GenerationConfig, SamplingContext};
 
-pub use tts::{
-    apply_token_suppression, apply_token_suppression_with_mask, build_suppression_mask,
-    SuppressionMask,
-};
+pub use tts::{apply_token_suppression, apply_token_suppression_with_mask, build_suppression_mask, SuppressionMask};

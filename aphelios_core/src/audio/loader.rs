@@ -4,16 +4,17 @@
 
 use anyhow::{bail, Result};
 use hound::{SampleFormat, WavReader};
-use tracing::info;
 use std::path::Path;
+use tracing::info;
 
-use symphonia::core::audio::Signal;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::audio::{Audio, GenericAudioBufferRef};
+use symphonia::core::codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO};
+use symphonia::core::common::Limit;
 use symphonia::core::errors::Error as SymphErr;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::{Limit, MetadataOptions};
-use symphonia::core::probe::Hint;
+use symphonia::core::meta::MetadataOptions;
 
 use super::types::{AudioBuffer, MonoBuffer};
 
@@ -37,7 +38,9 @@ pub struct AudioLoader {
 
 impl AudioLoader {
     pub fn new() -> Self {
-        Self { normalize: true }
+        Self {
+            normalize: true,
+        }
     }
 
     /// 是否归一化音频样本到 [-1, 1] 范围
@@ -72,75 +75,74 @@ impl AudioLoader {
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(ext) = path
+            .extension()
+            .and_then(|e| e.to_str())
+        {
             hint.with_extension(ext);
         }
 
-        let metadata_options = MetadataOptions {
-            limit_metadata_bytes: Limit::Maximum(0), // Disable metadata reading to avoid ID3v2 issues
-            ..Default::default()
-        };
+        let metadata_options = MetadataOptions::default().limit_tag_bytes(Limit::Maximum(0)); // Disable metadata reading to avoid ID3v2 issues
 
         let metadata = std::fs::metadata(path)?;
         if metadata.len() == 0 {
             return Err(anyhow::anyhow!("The audio file is empty (0 bytes): {:?}", path));
         }
 
-        let probed = symphonia::default::get_probe().format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &metadata_options,
-        )?;
-
-        let mut format = probed.format;
+        let mut format = symphonia::default::get_probe().probe(&hint, mss, FormatOptions::default(), metadata_options)?;
 
         info!("file tracks {}", &format.tracks().len());
         for t in format.tracks() {
-            info!(
-                "track id={} codec={:?} channels={:?} sample_rate={:?}",
-                t.id,
-                t.codec_params.codec,
-                t.codec_params.channels,
-                t.codec_params.sample_rate,
-            );
+            let audio_info = t
+                .codec_params
+                .as_ref()
+                .and_then(|p| p.audio());
+            info!("track id={} codec={:?} channels={:?} sample_rate={:?}", t.id, audio_info.map(|a| &a.codec), audio_info.and_then(|a| a.channels.as_ref()), audio_info.and_then(|a| a.sample_rate),);
         }
         let track = format
             .tracks()
             .iter()
             .find(|t| {
-                    t.codec_params.codec != CODEC_TYPE_NULL
-                        && t.codec_params.sample_rate.is_some()
-                })
+                t.codec_params
+                    .as_ref()
+                    .and_then(|p| p.audio())
+                    .map(|a| a.codec != CODEC_ID_NULL_AUDIO && a.sample_rate.is_some())
+                    .unwrap_or(false)
+            })
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no supported audio tracks"))?;
 
-        let src_rate = track
+        let audio_params = track
             .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .ok_or_else(|| anyhow::anyhow!("no audio codec params"))?;
+
+        let src_rate = audio_params
             .sample_rate
             .ok_or_else(|| anyhow::anyhow!("missing sample rate"))?;
 
         // Some codecs (e.g. AAC in MP4) may not report channel count in container metadata.
         // In practice, most multi-channel content is stereo (2 channels).
-        let channels = track
-            .codec_params
+        let channels = audio_params
             .channels
+            .as_ref()
             .map(|c| c.count())
             .unwrap_or(2);
 
-        let mut decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())?;
+        let mut decoder = symphonia::default::get_codecs().make_audio_decoder(audio_params, &AudioDecoderOptions::default())?;
 
         let mut per_channel: Vec<Vec<f32>> = vec![Vec::new(); channels];
 
         loop {
             let packet = match format.next_packet() {
-                Ok(p) => p,
+                Ok(Some(p)) => p,
+                Ok(None) => break,
                 Err(SymphErr::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(e.into()),
             };
 
-            if packet.track_id() != track.id {
+            if packet.track_id != track.id {
                 continue;
             }
 
@@ -150,9 +152,7 @@ impl AudioLoader {
                 Err(e) => return Err(e.into()),
             };
 
-            let spec_val = *decoded.spec();
-
-            let chans = decoded.spec().channels.count();
+            let chans = decoded.spec().channels().count();
             // Adjust per_channel to match the actual decoded channel count.
             // Some containers (e.g. some AAC in MP4) may not report channels,
             // so we use a default (2) and correct it after the first decoded frame.
@@ -161,20 +161,21 @@ impl AudioLoader {
             } else if chans < per_channel.len() {
                 per_channel.truncate(chans);
             }
-            match decoded {
-                symphonia::core::audio::AudioBufferRef::F32(buf) => {
+            match &decoded {
+                GenericAudioBufferRef::F32(buf) => {
                     for ch in 0..chans {
-                        per_channel[ch].extend(buf.chan(ch));
+                        if let Some(plane) = buf.plane(ch) {
+                            per_channel[ch].extend(plane);
+                        }
                     }
                 }
-                other => {
-                    let mut buf = symphonia::core::audio::AudioBuffer::<f32>::new(
-                        other.capacity() as u64,
-                        spec_val,
-                    );
-                    other.convert(&mut buf);
+                _ => {
+                    let mut temp: Vec<Vec<f32>> = Vec::new();
+                    decoded.copy_to_vecs_planar(&mut temp);
                     for ch in 0..chans {
-                        per_channel[ch].extend(buf.chan(ch));
+                        if let Some(plane) = temp.get(ch) {
+                            per_channel[ch].extend(plane);
+                        }
                     }
                 }
             }
@@ -205,8 +206,17 @@ impl AudioLoader {
             samples
         } else {
             // 分离并 downmix
-            let left: Vec<f32> = samples.iter().step_by(2).copied().collect();
-            let right: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
+            let left: Vec<f32> = samples
+                .iter()
+                .step_by(2)
+                .copied()
+                .collect();
+            let right: Vec<f32> = samples
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .copied()
+                .collect();
             downmix_two_channels(&left, &right)
         };
 
@@ -221,11 +231,7 @@ impl AudioLoader {
     }
 
     /// 读取音频样本
-    fn read_samples<R: std::io::Read>(
-        &self,
-        reader: &mut WavReader<R>,
-        spec: hound::WavSpec,
-    ) -> Result<Vec<f32>> {
+    fn read_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>, spec: hound::WavSpec) -> Result<Vec<f32>> {
         match spec.sample_format {
             SampleFormat::Int => self.read_int_samples(reader, spec.bits_per_sample),
             SampleFormat::Float => self.read_float_samples(reader),
@@ -233,11 +239,7 @@ impl AudioLoader {
     }
 
     /// 读取整数样本
-    fn read_int_samples<R: std::io::Read>(
-        &self,
-        reader: &mut WavReader<R>,
-        bits: u16,
-    ) -> Result<Vec<f32>> {
+    fn read_int_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>, bits: u16) -> Result<Vec<f32>> {
         match bits {
             8 => Ok(reader
                 .samples::<i8>()
@@ -263,7 +265,10 @@ impl AudioLoader {
 
     /// 读取浮点样本
     fn read_float_samples<R: std::io::Read>(&self, reader: &mut WavReader<R>) -> Result<Vec<f32>> {
-        Ok(reader.samples::<f32>().filter_map(|s| s.ok()).collect())
+        Ok(reader
+            .samples::<f32>()
+            .filter_map(|s| s.ok())
+            .collect())
     }
 
     /// 获取音频格式信息（仅支持 WAV）
@@ -295,7 +300,10 @@ fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
         return Vec::new();
     }
     if samples_per_channel.len() == 1 {
-        return samples_per_channel.into_iter().next().unwrap();
+        return samples_per_channel
+            .into_iter()
+            .next()
+            .unwrap();
     }
     let num_channels = samples_per_channel.len();
     let num_samples = samples_per_channel
@@ -336,7 +344,9 @@ fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Result<Vec<f3
     }
 
     let ratio = dst_rate as f64 / src_rate as f64;
-    let output_len = ((input.len() as f64) * ratio).ceil().max(1.0) as usize;
+    let output_len = ((input.len() as f64) * ratio)
+        .ceil()
+        .max(1.0) as usize;
     let mut out = Vec::with_capacity(output_len);
     let last = input.len() - 1;
 

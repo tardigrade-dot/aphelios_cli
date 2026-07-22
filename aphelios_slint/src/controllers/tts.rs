@@ -11,7 +11,9 @@ pub struct TtsLogic {
 
 impl TtsLogic {
     pub fn new(ctx: Arc<AppContext>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+        }
     }
 
     pub fn ctx(&self) -> &Arc<AppContext> {
@@ -41,19 +43,9 @@ impl TtsLogic {
         std::thread::spawn(move || {
             info!("Starting TTS: text={}, output={}", text, output_path);
 
-            let progress_bar =
-                AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| {
-                    progress_callback(p)
-                });
+            let progress_bar = AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| progress_callback(p));
 
-            let result = engine.generate(
-                &model_path,
-                &ref_audio_path,
-                &ref_text,
-                &text,
-                &output_path,
-                Some(progress_bar),
-            );
+            let result = engine.generate(&model_path, &ref_audio_path, &ref_text, &text, &output_path, Some(progress_bar));
 
             on_complete(result);
         });
@@ -80,20 +72,9 @@ impl TtsLogic {
         std::thread::spawn(move || {
             info!("Starting batch TTS: txt_file={}", txt_file_path);
 
-            let progress_bar =
-                AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| {
-                    progress_callback(p)
-                });
+            let progress_bar = AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| progress_callback(p));
 
-            let result = engine.generate_batch(
-                &model_path,
-                &ref_audio_path,
-                &ref_text,
-                &txt_file_path,
-                "",
-                3,
-                Some(progress_bar),
-            );
+            let result = engine.generate_batch(&model_path, &ref_audio_path, &ref_text, &txt_file_path, "", 3, Some(progress_bar));
 
             on_complete(result);
         });

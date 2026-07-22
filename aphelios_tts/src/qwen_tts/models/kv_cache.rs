@@ -28,7 +28,10 @@ impl Default for KVCache {
 
 impl KVCache {
     pub fn new() -> Self {
-        Self { k: None, v: None }
+        Self {
+            k: None,
+            v: None,
+        }
     }
 
     pub fn update_k(&mut self, k: &Tensor) -> Result<Tensor> {
@@ -81,7 +84,9 @@ impl KVCache {
 
     /// Get K cache shape for debugging.
     pub fn k_shape(&self) -> Option<Vec<usize>> {
-        self.k.as_ref().map(|k| k.dims().to_vec())
+        self.k
+            .as_ref()
+            .map(|k| k.dims().to_vec())
     }
 
     pub fn reset(&mut self) {
@@ -147,23 +152,11 @@ impl InplaceOp2 for KVCacheAppend {
         "kv_cache_append"
     }
 
-    fn cpu_fwd(
-        &self,
-        _s1: &mut candle_core::CpuStorage,
-        _l1: &Layout,
-        _s2: &candle_core::CpuStorage,
-        _l2: &Layout,
-    ) -> candle_core::Result<()> {
+    fn cpu_fwd(&self, _s1: &mut candle_core::CpuStorage, _l1: &Layout, _s2: &candle_core::CpuStorage, _l2: &Layout) -> candle_core::Result<()> {
         candle_core::bail!("KVCacheAppend is CUDA-only; use KVCache on CPU")
     }
 
-    fn cuda_fwd(
-        &self,
-        dst_storage: &mut CudaStorage,
-        _dst_layout: &Layout,
-        src_storage: &CudaStorage,
-        src_layout: &Layout,
-    ) -> candle_core::Result<()> {
+    fn cuda_fwd(&self, dst_storage: &mut CudaStorage, _dst_layout: &Layout, src_storage: &CudaStorage, src_layout: &Layout) -> candle_core::Result<()> {
         // Use copy2d for strided device-to-device copy.
         //
         // Buffer layout (contiguous): [B, H, max_seq, D]
@@ -211,15 +204,7 @@ impl InplaceOp2 for KVCacheAppend {
             //   src_s = new_seq * D, dst_s = max_seq * D
             let src_offset = src_layout.start_offset();
             let dst_offset = self.dst_pos * self.head_dim;
-            src_storage.copy2d(
-                dst_storage,
-                self.num_head_rows,
-                self.new_seq * self.head_dim,
-                self.new_seq * self.head_dim,
-                self.max_seq * self.head_dim,
-                src_offset,
-                dst_offset,
-            )?;
+            src_storage.copy2d(dst_storage, self.num_head_rows, self.new_seq * self.head_dim, self.new_seq * self.head_dim, self.max_seq * self.head_dim, src_offset, dst_offset)?;
         }
         Ok(())
     }
@@ -258,14 +243,7 @@ impl PreAllocKVCache {
     /// * `head_dim` - Dimension per head
     /// * `dtype` - Data type (e.g. BF16)
     /// * `device` - Target device
-    pub fn new(
-        batch: usize,
-        num_heads: usize,
-        max_seq: usize,
-        head_dim: usize,
-        dtype: DType,
-        device: &Device,
-    ) -> Result<Self> {
+    pub fn new(batch: usize, num_heads: usize, max_seq: usize, head_dim: usize, dtype: DType, device: &Device) -> Result<Self> {
         let shape = (batch, num_heads, max_seq, head_dim);
         let k_buf = Tensor::zeros(shape, dtype, device)?;
         let v_buf = Tensor::zeros(shape, dtype, device)?;
@@ -291,12 +269,7 @@ impl PreAllocKVCache {
         let new_seq = k.dim(2)?;
         let new_len = self.current_len + new_seq;
         if new_len > self.max_seq {
-            anyhow::bail!(
-                "KV cache overflow: current={} + new={} > max={}",
-                self.current_len,
-                new_seq,
-                self.max_seq
-            );
+            anyhow::bail!("KV cache overflow: current={} + new={} > max={}", self.current_len, new_seq, self.max_seq);
         }
 
         self.append_to_buf(&self.k_buf.clone(), k, new_seq)?;
@@ -312,12 +285,7 @@ impl PreAllocKVCache {
     fn append_to_buf(&self, buf: &Tensor, src: &Tensor, new_seq: usize) -> Result<()> {
         let pos = self.current_len;
         if pos + new_seq > self.max_seq {
-            anyhow::bail!(
-                "KV cache overflow: pos={} + new_seq={} > max_seq={}",
-                pos,
-                new_seq,
-                self.max_seq
-            );
+            anyhow::bail!("KV cache overflow: pos={} + new_seq={} > max_seq={}", pos, new_seq, self.max_seq);
         }
 
         if self.use_inplace {

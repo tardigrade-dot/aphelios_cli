@@ -4,13 +4,10 @@ use regex::Regex;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
-
 /// 解析 yt-dlp 进度行
 /// 格式: [download]  45.2% of  200.00MiB at  5.20MiB/s ETA 00:25
 fn parse_progress(line: &str) -> Option<ProgressData> {
-    let re = Regex::new(
-        r#"\[download\]\s+(\d+\.?\d*)%\s+of\s+([\d.]+)([A-Za-z]+)\s+at\s+([\d.]+)([A-Za-z]+)/s\s+ETA\s+([\d:]+)"#
-    ).ok()?;
+    let re = Regex::new(r#"\[download\]\s+(\d+\.?\d*)%\s+of\s+([\d.]+)([A-Za-z]+)\s+at\s+([\d.]+)([A-Za-z]+)/s\s+ETA\s+([\d:]+)"#).ok()?;
 
     let caps = re.captures(line)?;
 
@@ -53,7 +50,7 @@ fn build_args(output_dir: &str, url: &str) -> Vec<String> {
         "--convert-subs".to_string(),
         "srt".to_string(),
         "--progress".to_string(),
-        "--newline".to_string(),  // 确保每行输出，便于解析
+        "--newline".to_string(), // 确保每行输出，便于解析
     ];
 
     // 添加自定义下载路径
@@ -86,7 +83,9 @@ pub fn download_with_progress(url: &str, output_dir: &str) -> Result<(), String>
         .map_err(|e| format!("❌ 无法启动 yt-dlp: {}", e))?;
 
     let stdout = child.stdout.take();
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or("❌ 无法捕获标准错误输出")?;
 
     // 用线程同时读取 stdout 和 stderr
@@ -115,15 +114,19 @@ pub fn download_with_progress(url: &str, output_dir: &str) -> Result<(), String>
 
     // 创建 indicatif 进度条
     let pb = ProgressBar::new(100);
-    pb.set_style(ProgressStyle::with_template(
-        "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent:>3}% {msg}",
-    ).unwrap().progress_chars("█▉▊▋▌▍▎▏  "));
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent:>3}% {msg}")
+            .unwrap()
+            .progress_chars("█▉▊▋▌▍▎▏  "),
+    );
 
     // 额外信息显示
     let pb_details = ProgressBar::new(0);
-    pb_details.set_style(ProgressStyle::with_template(
-        "   📦 {bytes}/{total_bytes} | ⚡ {speed} | ⏱️  ETA: {eta}",
-    ).unwrap().progress_chars("##>-"));
+    pb_details.set_style(
+        ProgressStyle::with_template("   📦 {bytes}/{total_bytes} | ⚡ {speed} | ⏱️  ETA: {eta}")
+            .unwrap()
+            .progress_chars("##>-"),
+    );
 
     for line in rx {
         if let Some(progress) = parse_progress(&line) {
@@ -149,7 +152,8 @@ pub fn download_with_progress(url: &str, output_dir: &str) -> Result<(), String>
     pb.finish_with_message("✅ 下载完成");
     pb_details.finish_and_clear();
 
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| format!("等待进程失败: {}", e))?;
 
     if status.success() {
@@ -165,6 +169,8 @@ fn prompt_url() -> String {
     std::io::stdout().flush().unwrap();
 
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input).expect("读取输入失败");
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("读取输入失败");
     input.trim().to_string()
 }

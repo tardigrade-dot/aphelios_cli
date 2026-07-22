@@ -20,28 +20,10 @@ impl TextMlp {
         let hidden = config.hidden_size;
         let intermediate = config.intermediate_size;
 
-        let (gate_up_proj, down_proj): (
-            Box<dyn Module + Send + Sync>,
-            Box<dyn Module + Send + Sync>,
-        ) = if let Some(qdt) = qdtype {
-            (
-                Box::new(QLinear::new(
-                    hidden,
-                    2 * intermediate,
-                    vb.pp("gate_up_proj"),
-                    qdt,
-                )?),
-                Box::new(QLinear::new(intermediate, hidden, vb.pp("down_proj"), qdt)?),
-            )
+        let (gate_up_proj, down_proj): (Box<dyn Module + Send + Sync>, Box<dyn Module + Send + Sync>) = if let Some(qdt) = qdtype {
+            (Box::new(QLinear::new(hidden, 2 * intermediate, vb.pp("gate_up_proj"), qdt)?), Box::new(QLinear::new(intermediate, hidden, vb.pp("down_proj"), qdt)?))
         } else {
-            (
-                Box::new(linear_no_bias(
-                    hidden,
-                    2 * intermediate,
-                    vb.pp("gate_up_proj"),
-                )?),
-                Box::new(linear_no_bias(intermediate, hidden, vb.pp("down_proj"))?),
-            )
+            (Box::new(linear_no_bias(hidden, 2 * intermediate, vb.pp("gate_up_proj"))?), Box::new(linear_no_bias(intermediate, hidden, vb.pp("down_proj"))?))
         };
 
         Ok(Self {

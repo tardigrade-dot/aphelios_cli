@@ -4,10 +4,10 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run --example harrier_embed_example -p aphelios_search --features metal
+//! cargo run --example harrier_embed_example -p aphelios_core --features metal
 //! ```
 
-use aphelios_search::harrier_embed::{cosine_similarity, HarrierEmbedModel};
+use aphelios_core::embed::harrier_embed::{cosine_similarity, HarrierEmbedModel};
 
 // Python reference output from harrier_example.ipynb:
 // [[66.5, 28.375], [29.875, 70.0]]
@@ -42,6 +42,10 @@ fn harrier_embed_test() -> anyhow::Result<()> {
         .copied()
         .chain(docs.iter().map(|s| *s))
         .collect();
+
+    for t in &all_texts {
+        println!("all_texts: {}", t)
+    }
     let all_embs = model.encode(all_texts)?;
 
     let query_embs = all_embs.narrow(0, 0, queries.len())?; // [2, 1024]

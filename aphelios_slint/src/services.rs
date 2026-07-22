@@ -1,9 +1,6 @@
 use anyhow::Result;
-use aphelios_core::traits::{
-    BookInfo, IndexStatus, OcrEngine, SearchEngine, SearchMode, SearchResult, TtsEngine,
-};
+use aphelios_core::traits::{BookInfo, IndexStatus, OcrEngine, SearchEngine, SearchMode, SearchResult, TtsEngine};
 use aphelios_core::utils::progress::AppProgressBar;
-use aphelios_ocr::dolphin::model::DolphinModel;
 use aphelios_search as search;
 use aphelios_tts::qwen_tts::qwen_tts_infer::{generate_voice, generate_voice_batch_from_txt};
 use std::sync::{Arc, RwLock};
@@ -12,19 +9,14 @@ use std::sync::{Arc, RwLock};
 pub struct DolphinOcrClient;
 
 impl OcrEngine for DolphinOcrClient {
-    fn dolphin_ocr(
-        &mut self,
-        model_path: &str,
-        input_path: &str,
-        output_dir: &str,
-        progress: Option<AppProgressBar>,
-    ) -> Result<Vec<String>> {
-        let mut dolphin_model = DolphinModel::load_model(model_path)?;
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(dolphin_model.dolphin_ocr(input_path, output_dir, progress))
+    fn dolphin_ocr(&mut self, model_path: &str, input_path: &str, output_dir: &str, progress: Option<AppProgressBar>) -> Result<Vec<String>> {
+        // let mut dolphin_model = DolphinModel::load_model(model_path)?;
+        // let rt = tokio::runtime::Builder::new_current_thread()
+        //     .enable_all()
+        //     .build()
+        //     .unwrap();
+        // rt.block_on(dolphin_model.dolphin_ocr(input_path, output_dir, progress))
+        Ok(vec![])
     }
 }
 
@@ -32,23 +24,8 @@ impl OcrEngine for DolphinOcrClient {
 pub struct QwenTtsClient;
 
 impl TtsEngine for QwenTtsClient {
-    fn generate(
-        &self,
-        model_path: &str,
-        ref_audio_path: &str,
-        ref_text: &str,
-        input_text: &str,
-        output_path: &str,
-        progress: Option<AppProgressBar>,
-    ) -> Result<()> {
-        generate_voice(
-            model_path,
-            ref_audio_path,
-            ref_text,
-            input_text,
-            output_path,
-            progress,
-        )
+    fn generate(&self, model_path: &str, ref_audio_path: &str, ref_text: &str, input_text: &str, output_path: &str, progress: Option<AppProgressBar>) -> Result<()> {
+        generate_voice(model_path, ref_audio_path, ref_text, input_text, output_path, progress)
     }
 
     fn generate_batch(
@@ -61,15 +38,7 @@ impl TtsEngine for QwenTtsClient {
         batch_size: usize,
         progress: Option<AppProgressBar>,
     ) -> Result<Vec<String>> {
-        generate_voice_batch_from_txt(
-            model_path,
-            ref_audio_path,
-            ref_text,
-            txt_file_path,
-            output_dir,
-            batch_size,
-            progress,
-        )
+        generate_voice_batch_from_txt(model_path, ref_audio_path, ref_text, txt_file_path, output_dir, batch_size, progress)
     }
 }
 
@@ -152,12 +121,7 @@ impl SearchEngine for InMemorySearchClient {
         })
     }
 
-    fn search_books_with_mode(
-        &self,
-        query: &str,
-        limit: usize,
-        _mode: SearchMode,
-    ) -> Result<SearchResult> {
+    fn search_books_with_mode(&self, query: &str, limit: usize, _mode: SearchMode) -> Result<SearchResult> {
         // Only keyword search is supported; mode is ignored.
         self.search_books(query, limit)
     }

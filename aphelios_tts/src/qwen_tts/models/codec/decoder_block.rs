@@ -127,20 +127,9 @@ impl DecoderBlock {
     /// * `out_channels` - Number of output channels (typically in_channels / 2)
     /// * `upsample_rate` - Upsampling factor (8, 5, 4, or 3)
     /// * `vb` - Variable builder for loading weights
-    pub fn new(
-        in_channels: usize,
-        out_channels: usize,
-        upsample_rate: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn new(in_channels: usize, out_channels: usize, upsample_rate: usize, vb: VarBuilder) -> Result<Self> {
         let snake = SnakeBeta::new(in_channels, vb.pp("block.0"))?;
-        let upsample = CausalTransConv1d::new(
-            in_channels,
-            out_channels,
-            upsample_rate * 2,
-            upsample_rate,
-            vb.pp("block.1.conv"),
-        )?;
+        let upsample = CausalTransConv1d::new(in_channels, out_channels, upsample_rate * 2, upsample_rate, vb.pp("block.1.conv"))?;
         let res1 = ResidualUnit::new(out_channels, 1, vb.pp("block.2"))?;
         let res2 = ResidualUnit::new(out_channels, 3, vb.pp("block.3"))?;
         let res3 = ResidualUnit::new(out_channels, 9, vb.pp("block.4"))?;
@@ -188,41 +177,10 @@ impl DecoderBlock {
         upsample_rate: usize,
     ) -> Result<Self> {
         let snake = SnakeBeta::from_weights(snake_alpha, snake_beta)?;
-        let upsample =
-            CausalTransConv1d::from_weights(upsample_weight, Some(upsample_bias), upsample_rate)?;
-        let res1 = ResidualUnit::from_weights(
-            res1_act1_alpha,
-            res1_act1_beta,
-            res1_conv1_weight,
-            res1_conv1_bias,
-            res1_act2_alpha,
-            res1_act2_beta,
-            res1_conv2_weight,
-            res1_conv2_bias,
-            1,
-        )?;
-        let res2 = ResidualUnit::from_weights(
-            res2_act1_alpha,
-            res2_act1_beta,
-            res2_conv1_weight,
-            res2_conv1_bias,
-            res2_act2_alpha,
-            res2_act2_beta,
-            res2_conv2_weight,
-            res2_conv2_bias,
-            3,
-        )?;
-        let res3 = ResidualUnit::from_weights(
-            res3_act1_alpha,
-            res3_act1_beta,
-            res3_conv1_weight,
-            res3_conv1_bias,
-            res3_act2_alpha,
-            res3_act2_beta,
-            res3_conv2_weight,
-            res3_conv2_bias,
-            9,
-        )?;
+        let upsample = CausalTransConv1d::from_weights(upsample_weight, Some(upsample_bias), upsample_rate)?;
+        let res1 = ResidualUnit::from_weights(res1_act1_alpha, res1_act1_beta, res1_conv1_weight, res1_conv1_bias, res1_act2_alpha, res1_act2_beta, res1_conv2_weight, res1_conv2_bias, 1)?;
+        let res2 = ResidualUnit::from_weights(res2_act1_alpha, res2_act1_beta, res2_conv1_weight, res2_conv1_bias, res2_act2_alpha, res2_act2_beta, res2_conv2_weight, res2_conv2_bias, 3)?;
+        let res3 = ResidualUnit::from_weights(res3_act1_alpha, res3_act1_beta, res3_conv1_weight, res3_conv1_bias, res3_act2_alpha, res3_act2_beta, res3_conv2_weight, res3_conv2_bias, 9)?;
 
         Ok(Self {
             snake,
@@ -274,18 +232,7 @@ mod tests {
         let conv2_weight = Tensor::randn(0.0f32, 0.1, (dim, dim, 1), &device).unwrap();
         let conv2_bias = Tensor::zeros((dim,), DType::F32, &device).unwrap();
 
-        let unit = ResidualUnit::from_weights(
-            act1_alpha,
-            act1_beta,
-            conv1_weight,
-            conv1_bias,
-            act2_alpha,
-            act2_beta,
-            conv2_weight,
-            conv2_bias,
-            dilation,
-        )
-        .unwrap();
+        let unit = ResidualUnit::from_weights(act1_alpha, act1_beta, conv1_weight, conv1_bias, act2_alpha, act2_beta, conv2_weight, conv2_bias, dilation).unwrap();
 
         // Input: [batch=1, channels=64, seq=16]
         let input = Tensor::randn(0.0f32, 1.0, (1, dim, 16), &device).unwrap();
@@ -308,30 +255,26 @@ mod tests {
         // Create minimal weights for decoder block
         let snake_alpha = Tensor::zeros((in_dim,), DType::F32, &device).unwrap();
         let snake_beta = Tensor::zeros((in_dim,), DType::F32, &device).unwrap();
-        let upsample_weight =
-            Tensor::randn(0.0f32, 0.1, (in_dim, out_dim, rate * 2), &device).unwrap();
+        let upsample_weight = Tensor::randn(0.0f32, 0.1, (in_dim, out_dim, rate * 2), &device).unwrap();
         let upsample_bias = Tensor::zeros((out_dim,), DType::F32, &device).unwrap();
 
         // Create weights for 3 residual units
         let create_res_weights = |dim: usize| {
             (
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // act1_alpha
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // act1_beta
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // act1_alpha
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // act1_beta
                 Tensor::randn(0.0f32, 0.1, (dim, dim, 7), &device).unwrap(), // conv1_weight
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // conv1_bias
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // act2_alpha
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // act2_beta
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // conv1_bias
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // act2_alpha
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // act2_beta
                 Tensor::randn(0.0f32, 0.1, (dim, dim, 1), &device).unwrap(), // conv2_weight
-                Tensor::zeros((dim,), DType::F32, &device).unwrap(), // conv2_bias
+                Tensor::zeros((dim,), DType::F32, &device).unwrap(),         // conv2_bias
             )
         };
 
-        let (r1_a1a, r1_a1b, r1_c1w, r1_c1b, r1_a2a, r1_a2b, r1_c2w, r1_c2b) =
-            create_res_weights(out_dim);
-        let (r2_a1a, r2_a1b, r2_c1w, r2_c1b, r2_a2a, r2_a2b, r2_c2w, r2_c2b) =
-            create_res_weights(out_dim);
-        let (r3_a1a, r3_a1b, r3_c1w, r3_c1b, r3_a2a, r3_a2b, r3_c2w, r3_c2b) =
-            create_res_weights(out_dim);
+        let (r1_a1a, r1_a1b, r1_c1w, r1_c1b, r1_a2a, r1_a2b, r1_c2w, r1_c2b) = create_res_weights(out_dim);
+        let (r2_a1a, r2_a1b, r2_c1w, r2_c1b, r2_a2a, r2_a2b, r2_c2w, r2_c2b) = create_res_weights(out_dim);
+        let (r3_a1a, r3_a1b, r3_c1w, r3_c1b, r3_a2a, r3_a2b, r3_c2w, r3_c2b) = create_res_weights(out_dim);
 
         let block = DecoderBlock::from_weights(
             snake_alpha,

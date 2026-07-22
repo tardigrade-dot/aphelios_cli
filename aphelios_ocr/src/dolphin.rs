@@ -1,18 +1,13 @@
-use aphelios_core::measure_time;
-use image::DynamicImage;
-use tracing::info;
 use anyhow::{Error as E, Result};
 use glob::glob;
+use image::DynamicImage;
 use regex::Regex;
 use std::path::Path;
 use std::path::PathBuf;
 use std::{env, fs};
-
-use crate::dolphin::model::DolphinModel;
+use tracing::info;
 
 pub mod dolphin_utils;
-pub mod donut;
-pub mod model;
 
 const IGNORED_TAGS: &[&str] = &[
     "fig",       //图片
@@ -26,26 +21,9 @@ const IGNORED_TAGS: &[&str] = &[
     "reference", //引用
 ];
 
-pub fn run_ocr_image(mut model: DolphinModel, img: &DynamicImage, prompt: &str) -> Result<String> {
-
-    model.generate_text_by_img(img, prompt, None)
-}
-
 pub async fn run_ocr(pdf_path: &str, output_path: &str) -> Result<()> {
     info!("start run dolphin ocr task");
 
-    // Allow model path to be configurable via environment variable or use default
-    let model_id = env::var("DOLPHIN_MODEL_PATH")
-        .unwrap_or_else(|_| "/Volumes/sw/pretrained_models/Dolphin-v1.5".to_string());
-
-    let mut dm = measure_time!("load model", DolphinModel::load_model(&model_id)?);
-
-    let _ = &dm
-        .dolphin_ocr(&pdf_path.to_string(), &output_path.to_string(), None)
-        .await?;
-    info!("ocr finished. start merge all file to single one");
-
-    full_in_one(output_path)?;
     Ok(())
 }
 
@@ -61,14 +39,12 @@ fn full_in_one(output_path: &str) -> Result<(), E> {
 fn get_page_datas(output_path: &str) -> Result<Vec<String>> {
     info!("start get page datas {}", output_path);
     let mut page_datas: Vec<String> = Vec::new();
-    let re =
-        Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
+    let re = Regex::new(r"^\[(?P<id>\d+)\]\s*-\s*\[(?P<tag>[^\]]+)\]\s*:\s*(?P<content>.*)$").unwrap();
 
     let mut last_label = String::new();
 
     // Collect all matching paths and sort them by numeric prefix
-    let mut paths: Vec<_> =
-        glob(&format!("{}/[0-9]*_page.txt", output_path))?.collect::<Result<Vec<_>, _>>()?;
+    let mut paths: Vec<_> = glob(&format!("{}/[0-9]*_page.txt", output_path))?.collect::<Result<Vec<_>, _>>()?;
     paths.sort_by_key(|path| {
         path.file_name()
             .and_then(|name| name.to_str())
@@ -129,8 +105,7 @@ mod tests {
     #[test]
     fn dolphin_all_in_one_test() -> Result<()> {
         init_logging();
-        let output_dir =
-            "/Volumes/sw/ocr_result/专制权力与中国社会 (刘泽华) (z-library.sk, 1lib.sk, z-lib.sk)";
+        let output_dir = "/Volumes/sw/ocr_result/专制权力与中国社会 (刘泽华) (z-library.sk, 1lib.sk, z-lib.sk)";
 
         let result = full_in_one(output_dir);
         match result {

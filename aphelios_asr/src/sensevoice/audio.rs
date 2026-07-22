@@ -2,70 +2,85 @@ use anyhow::{ensure, Context, Result};
 use std::path::Path;
 
 use opusic_sys as opus_sys;
-use symphonia::core::audio::Signal;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::audio::{Audio, GenericAudioBufferRef};
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO};
 use symphonia::core::errors::Error as SymphErr;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 pub fn decode_audio_multi(path: &Path) -> Result<(u32, usize, Vec<Vec<f32>>)> {
     let file = std::fs::File::open(path).with_context(|| format!("open {:?}", path))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+    if let Some(ext) = path
+        .extension()
+        .and_then(|e| e.to_str())
+    {
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe().format(
-        &hint,
-        mss,
-        &FormatOptions::default(),
-        &MetadataOptions::default(),
-    )?;
-    let mut format = probed.format;
+    let mut format = symphonia::default::get_probe().probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())?;
 
     let track = format
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .find(|t| {
+            t.codec_params
+                .as_ref()
+                .and_then(|p| p.audio())
+                .map(|a| a.codec != CODEC_ID_NULL_AUDIO)
+                .unwrap_or(false)
+        })
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("no supported audio tracks"))?;
 
-    let sample_rate = track
+    let audio_params = track
         .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or_else(|| anyhow::anyhow!("no audio codec params"))?;
+
+    let sample_rate = audio_params
         .sample_rate
         .ok_or_else(|| anyhow::anyhow!("missing sample rate"))?;
-    let channels = track
-        .codec_params
+    let channels = audio_params
         .channels
-        .ok_or_else(|| anyhow::anyhow!("missing channels"))?
-        .count();
+        .as_ref()
+        .map(|c| c.count())
+        .unwrap_or(2);
 
-    // decode_with_builtin_decoder(format.as_mut(), track, sample_rate, channels)
-    decode_opus_track(format.as_mut(), track, sample_rate, channels)
+    let audio_params = audio_params.clone();
+    let codec_type = audio_params.codec;
+    if codec_type == CODEC_ID_OPUS {
+        decode_opus_track(format.as_mut(), track, sample_rate, channels)
+    } else {
+        decode_with_builtin_decoder(format.as_mut(), track, audio_params, sample_rate, channels)
+    }
 }
 
 #[allow(dead_code)]
 fn decode_with_builtin_decoder(
     format: &mut dyn symphonia::core::formats::FormatReader,
     track: symphonia::core::formats::Track,
+    audio_params: symphonia::core::codecs::audio::AudioCodecParameters,
     sample_rate: u32,
     channels: usize,
 ) -> Result<(u32, usize, Vec<Vec<f32>>)> {
-    let mut decoder =
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
+    let mut decoder = symphonia::default::get_codecs().make_audio_decoder(&audio_params, &AudioDecoderOptions::default())?;
 
     let mut per_channel: Vec<Vec<f32>> = vec![Vec::new(); channels];
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(SymphErr::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(e) => return Err(e.into()),
         };
-        if packet.track_id() != track.id {
+        if packet.track_id != track.id {
             continue;
         }
         let decoded = match decoder.decode(&packet) {
@@ -73,25 +88,29 @@ fn decode_with_builtin_decoder(
             Err(SymphErr::DecodeError(_)) => continue,
             Err(e) => return Err(e.into()),
         };
-        let spec_val = *decoded.spec();
 
-        match decoded {
-            symphonia::core::audio::AudioBufferRef::F32(buf) => {
-                let chans = buf.spec().channels.count();
+        let chans = decoded.spec().channels().count();
+        // Adjust per_channel to match actual decoded channel count
+        if chans > per_channel.len() {
+            per_channel.resize_with(chans, Vec::new);
+        } else if chans < per_channel.len() {
+            per_channel.truncate(chans);
+        }
+        match &decoded {
+            GenericAudioBufferRef::F32(buf) => {
                 for ch in 0..chans {
-                    per_channel[ch].extend(buf.chan(ch));
+                    if let Some(plane) = buf.plane(ch) {
+                        per_channel[ch].extend(plane);
+                    }
                 }
             }
-            other => {
-                // Convert to f32 when decoder provided non-f32 samples.
-                let mut buf = symphonia::core::audio::AudioBuffer::<f32>::new(
-                    other.capacity() as u64,
-                    spec_val,
-                );
-                other.convert(&mut buf);
-                let chans = buf.spec().channels.count();
+            _ => {
+                let mut temp: Vec<Vec<f32>> = Vec::new();
+                decoded.copy_to_vecs_planar(&mut temp);
                 for ch in 0..chans {
-                    per_channel[ch].extend(buf.chan(ch));
+                    if let Some(plane) = temp.get(ch) {
+                        per_channel[ch].extend(plane);
+                    }
                 }
             }
         }
@@ -100,12 +119,7 @@ fn decode_with_builtin_decoder(
     Ok((sample_rate, channels, per_channel))
 }
 
-fn decode_opus_track(
-    format: &mut dyn symphonia::core::formats::FormatReader,
-    track: symphonia::core::formats::Track,
-    sample_rate: u32,
-    channels: usize,
-) -> Result<(u32, usize, Vec<Vec<f32>>)> {
+fn decode_opus_track(format: &mut dyn symphonia::core::formats::FormatReader, track: symphonia::core::formats::Track, sample_rate: u32, channels: usize) -> Result<(u32, usize, Vec<Vec<f32>>)> {
     use std::ffi::CStr;
 
     const MAX_PACKET_DURATION_MS: usize = 120;
@@ -116,7 +130,9 @@ fn decode_opus_track(
             if ptr.is_null() {
                 return format!("code {code}");
             }
-            CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            CStr::from_ptr(ptr)
+                .to_string_lossy()
+                .into_owned()
         }
     }
 
@@ -131,21 +147,14 @@ fn decode_opus_track(
     }
 
     ensure!(channels > 0, "Opus decoder requires at least one channel");
-    ensure!(
-        channels <= 2,
-        "Opus decoder currently supports only mono or stereo (got {channels})"
-    );
-    ensure!(
-        sample_rate <= i32::MAX as u32,
-        "Sample rate {sample_rate} exceeds Opus API range"
-    );
+    ensure!(channels <= 2, "Opus decoder currently supports only mono or stereo (got {channels})");
+    ensure!(sample_rate <= i32::MAX as u32, "Sample rate {sample_rate} exceeds Opus API range");
 
     let sample_rate_i32 = sample_rate as i32;
     let channel_i32 = channels as i32;
 
     let mut err: i32 = opus_sys::OPUS_OK;
-    let decoder_ptr =
-        unsafe { opus_sys::opus_decoder_create(sample_rate_i32, channel_i32, &mut err) };
+    let decoder_ptr = unsafe { opus_sys::opus_decoder_create(sample_rate_i32, channel_i32, &mut err) };
     if decoder_ptr.is_null() || err != opus_sys::OPUS_OK {
         let message = opus_error_message(err);
         anyhow::bail!("create Opus decoder: {message}");
@@ -158,29 +167,26 @@ fn decode_opus_track(
     let mut decode_buf = vec![0.0_f32; max_frame_samples.max(1) * channels.max(1)];
 
     // Skip encoder priming samples if present.
-    let mut skip_samples = track.codec_params.delay.unwrap_or(0) as usize;
+    let mut skip_samples = track.delay.unwrap_or(0) as usize;
 
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(SymphErr::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(e) => return Err(e.into()),
         };
-        if packet.track_id() != track.id {
+        if packet.track_id != track.id {
             continue;
         }
 
-        let data = packet.buf();
+        let data = &*packet.data;
         if data.is_empty() {
             continue;
         }
 
         let required_frames = unsafe {
-            let frames = opus_sys::opus_packet_get_nb_samples(
-                data.as_ptr(),
-                data.len() as i32,
-                sample_rate_i32,
-            );
+            let frames = opus_sys::opus_packet_get_nb_samples(data.as_ptr(), data.len() as i32, sample_rate_i32);
             if frames <= 0 {
                 max_frame_samples as i32
             } else {
@@ -192,16 +198,7 @@ fn decode_opus_track(
             decode_buf.resize(required_frames * channels, 0.0);
         }
 
-        let frames = unsafe {
-            opus_sys::opus_decode_float(
-                decoder.0,
-                data.as_ptr(),
-                data.len() as i32,
-                decode_buf.as_mut_ptr(),
-                required_frames as i32,
-                0,
-            )
-        };
+        let frames = unsafe { opus_sys::opus_decode_float(decoder.0, data.as_ptr(), data.len() as i32, decode_buf.as_mut_ptr(), required_frames as i32, 0) };
 
         if frames < 0 {
             anyhow::bail!("decode Opus packet: {}", opus_error_message(frames));
@@ -212,8 +209,10 @@ fn decode_opus_track(
             continue;
         }
 
-        let mut start = packet.trim_start as usize;
-        let end = frames.saturating_sub(packet.trim_end as usize);
+        let trim_start = packet.trim_start.get() as usize;
+        let trim_end = packet.trim_end.get() as usize;
+        let mut start = trim_start;
+        let end = frames.saturating_sub(trim_end);
         if start >= end {
             continue;
         }
@@ -236,7 +235,11 @@ fn decode_opus_track(
     }
 
     // Align number of samples across channels in case of unexpected discrepancies.
-    if let Some(min_len) = per_channel.iter().map(|c| c.len()).min() {
+    if let Some(min_len) = per_channel
+        .iter()
+        .map(|c| c.len())
+        .min()
+    {
         for ch in per_channel.iter_mut() {
             ch.truncate(min_len);
         }
@@ -250,7 +253,10 @@ pub fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
         return Vec::new();
     }
     if samples_per_channel.len() == 1 {
-        return samples_per_channel.into_iter().next().unwrap();
+        return samples_per_channel
+            .into_iter()
+            .next()
+            .unwrap();
     }
     let num_channels = samples_per_channel.len();
     let num_samples = samples_per_channel
@@ -271,11 +277,7 @@ pub fn downmix_to_mono(samples_per_channel: Vec<Vec<f32>>) -> Vec<f32> {
     mono
 }
 
-pub fn resample_channels(
-    samples_per_channel: Vec<Vec<f32>>,
-    src_rate: u32,
-    dst_rate: u32,
-) -> Result<Vec<Vec<f32>>> {
+pub fn resample_channels(samples_per_channel: Vec<Vec<f32>>, src_rate: u32, dst_rate: u32) -> Result<Vec<Vec<f32>>> {
     if src_rate == dst_rate {
         return Ok(samples_per_channel);
     }
@@ -292,7 +294,9 @@ fn resample_linear(input: &[f32], ratio: f64) -> Vec<f32> {
     if input.is_empty() {
         return Vec::new();
     }
-    let output_len = ((input.len() as f64) * ratio).ceil().max(1.0) as usize;
+    let output_len = ((input.len() as f64) * ratio)
+        .ceil()
+        .max(1.0) as usize;
     let mut out = Vec::with_capacity(output_len);
     let last = input.len() - 1;
     for n in 0..output_len {

@@ -10,22 +10,17 @@ use std::sync::Arc;
 
 use aphelios_core::utils::common::get_device;
 use candle_core::{DType, Device, Module, Tensor};
-use candle_nn::{
-    embedding, linear_no_bias, ops::softmax_last_dim, rms_norm, rotary_emb::rope, Embedding,
-    Linear, RmsNorm, VarBuilder,
-};
+use candle_nn::{embedding, linear_no_bias, ops::softmax_last_dim, rms_norm, rotary_emb::rope, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config as Qwen3Config;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use crate::QWEN_ALIGNER_MODEL_ID;
 use crate::qwenasr::audio::{self, AudioConfig, AudioError};
 use crate::qwenasr::encoder::Encoder;
 use crate::qwenasr::preset::ModelPreset;
-use crate::qwenasr::tokenizer::{
-    Tokenizer, TokenizerError, TOKEN_AUDIO_END, TOKEN_AUDIO_START, TOKEN_TIMESTAMP,
-};
+use crate::qwenasr::tokenizer::{Tokenizer, TokenizerError, TOKEN_AUDIO_END, TOKEN_AUDIO_START, TOKEN_TIMESTAMP};
 use crate::qwenasr::transcribe::collect_shards;
+use crate::QWEN_ALIGNER_MODEL_ID;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -77,7 +72,10 @@ fn is_kept_char(ch: char) -> bool {
 }
 
 fn clean_token(token: &str) -> String {
-    token.chars().filter(|&ch| is_kept_char(ch)).collect()
+    token
+        .chars()
+        .filter(|&ch| is_kept_char(ch))
+        .collect()
 }
 
 /// Split a segment that may contain mixed CJK and Latin characters.
@@ -167,8 +165,13 @@ fn fix_timestamps(data: &[f64]) -> Vec<f64> {
             }
             let anomaly_count = j - i;
 
-            let left_val = (0..i).rev().find(|&k| is_normal[k]).map(|k| result[k]);
-            let right_val = (j..n).find(|&k| is_normal[k]).map(|k| result[k]);
+            let left_val = (0..i)
+                .rev()
+                .find(|&k| is_normal[k])
+                .map(|k| result[k]);
+            let right_val = (j..n)
+                .find(|&k| is_normal[k])
+                .map(|k| result[k]);
 
             if anomaly_count <= 2 {
                 for k in i..j {
@@ -225,7 +228,11 @@ impl RopeCache {
     fn new(cfg: &Qwen3Config, dev: &Device) -> candle_core::Result<Self> {
         let half = cfg.head_dim / 2;
         let inv_freq: Vec<f32> = (0..half)
-            .map(|i| 1.0 / cfg.rope_theta.powf(2.0 * i as f64 / cfg.head_dim as f64) as f32)
+            .map(|i| {
+                1.0 / cfg
+                    .rope_theta
+                    .powf(2.0 * i as f64 / cfg.head_dim as f64) as f32
+            })
             .collect();
         let inv_freq = Tensor::from_vec(inv_freq, (1, half), dev)?;
         let max_pos = cfg.max_position_embeddings;
@@ -239,19 +246,17 @@ impl RopeCache {
         })
     }
 
-    fn apply(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        offset: usize,
-    ) -> candle_core::Result<(Tensor, Tensor)> {
+    fn apply(&self, q: &Tensor, k: &Tensor, offset: usize) -> candle_core::Result<(Tensor, Tensor)> {
         let (_, _, seq, _) = q.dims4()?;
-        let cos = self.cos.narrow(0, offset, seq)?.contiguous()?;
-        let sin = self.sin.narrow(0, offset, seq)?.contiguous()?;
-        Ok((
-            rope(&q.contiguous()?, &cos, &sin)?,
-            rope(&k.contiguous()?, &cos, &sin)?,
-        ))
+        let cos = self
+            .cos
+            .narrow(0, offset, seq)?
+            .contiguous()?;
+        let sin = self
+            .sin
+            .narrow(0, offset, seq)?
+            .contiguous()?;
+        Ok((rope(&q.contiguous()?, &cos, &sin)?, rope(&k.contiguous()?, &cos, &sin)?))
     }
 }
 
@@ -267,12 +272,7 @@ fn repeat_kv(t: Tensor, n: usize) -> candle_core::Result<Tensor> {
         .reshape((b, h * n, l, d))
 }
 
-fn linear_b(
-    in_dim: usize,
-    out_dim: usize,
-    bias: bool,
-    vb: VarBuilder,
-) -> candle_core::Result<Linear> {
+fn linear_b(in_dim: usize, out_dim: usize, bias: bool, vb: VarBuilder) -> candle_core::Result<Linear> {
     if bias {
         candle_nn::linear(in_dim, out_dim, vb)
     } else {
@@ -282,7 +282,15 @@ fn linear_b(
 
 fn causal_mask(b: usize, tgt: usize, dev: &Device) -> candle_core::Result<Tensor> {
     let mask: Vec<f32> = (0..tgt)
-        .flat_map(|i| (0..tgt).map(move |j| if j <= i { 0.0 } else { f32::NEG_INFINITY }))
+        .flat_map(|i| {
+            (0..tgt).map(move |j| {
+                if j <= i {
+                    0.0
+                } else {
+                    f32::NEG_INFINITY
+                }
+            })
+        })
         .collect();
     Tensor::from_vec(mask, (b, 1, tgt, tgt), dev)
 }
@@ -312,18 +320,8 @@ impl AlignerAttn {
         let bias = cfg.attention_bias;
         Ok(Self {
             q_proj: linear_b(cfg.hidden_size, n_heads * head_dim, bias, vb.pp("q_proj"))?,
-            k_proj: linear_b(
-                cfg.hidden_size,
-                n_kv_heads * head_dim,
-                bias,
-                vb.pp("k_proj"),
-            )?,
-            v_proj: linear_b(
-                cfg.hidden_size,
-                n_kv_heads * head_dim,
-                bias,
-                vb.pp("v_proj"),
-            )?,
+            k_proj: linear_b(cfg.hidden_size, n_kv_heads * head_dim, bias, vb.pp("k_proj"))?,
+            v_proj: linear_b(cfg.hidden_size, n_kv_heads * head_dim, bias, vb.pp("v_proj"))?,
             o_proj: linear_b(n_heads * head_dim, cfg.hidden_size, bias, vb.pp("o_proj"))?,
             q_norm: rms_norm(head_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?,
             k_norm: rms_norm(head_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?,
@@ -354,16 +352,14 @@ impl AlignerAttn {
             .transpose(1, 2)?;
 
         // Per-head RMSNorm
-        let q =
-            self.q_norm
-                .forward(&q.flatten(0, 2)?)?
-                .reshape((b, self.n_heads, l, self.head_dim))?;
-        let k = self.k_norm.forward(&k.flatten(0, 2)?)?.reshape((
-            b,
-            self.n_kv_heads,
-            l,
-            self.head_dim,
-        ))?;
+        let q = self
+            .q_norm
+            .forward(&q.flatten(0, 2)?)?
+            .reshape((b, self.n_heads, l, self.head_dim))?;
+        let k = self
+            .k_norm
+            .forward(&k.flatten(0, 2)?)?
+            .reshape((b, self.n_kv_heads, l, self.head_dim))?;
 
         // RoPE (offset=0, no KV cache)
         let (q, k) = self.rope.apply(&q, &k, 0)?;
@@ -429,11 +425,7 @@ impl AlignerLayer {
             attn: AlignerAttn::new(cfg, rope, vb.pp("self_attn"))?,
             mlp: AlignerMlp::new(cfg, vb.pp("mlp"))?,
             ln1: rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
-            ln2: rms_norm(
-                cfg.hidden_size,
-                cfg.rms_norm_eps,
-                vb.pp("post_attention_layernorm"),
-            )?,
+            ln2: rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?,
         })
     }
 
@@ -441,7 +433,9 @@ impl AlignerLayer {
         let h = self.ln1.forward(x)?;
         let h = self.attn.forward(&h, mask)?;
         let x = (x + h)?;
-        let h2 = self.mlp.forward(&self.ln2.forward(&x)?)?;
+        let h2 = self
+            .mlp
+            .forward(&self.ln2.forward(&x)?)?;
         x + h2
     }
 }
@@ -456,13 +450,11 @@ struct AlignerDecoder {
 }
 
 impl AlignerDecoder {
-    fn load(
-        paths: &[impl AsRef<Path>],
-        cfg: &Qwen3Config,
-        classify_num: usize,
-        dev: &Device,
-    ) -> candle_core::Result<Self> {
-        let paths: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
+    fn load(paths: &[impl AsRef<Path>], cfg: &Qwen3Config, classify_num: usize, dev: &Device) -> candle_core::Result<Self> {
+        let paths: Vec<&Path> = paths
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&paths, DType::F32, dev)? };
         let vb = vb.pp("thinker");
 
@@ -527,9 +519,7 @@ pub struct ForcedAligner {
 }
 
 impl ForcedAligner {
-    pub fn load_with_device(
-        model_dir: Option<&str>,
-    ) -> std::result::Result<Self, AlignerError> {
+    pub fn load_with_device(model_dir: Option<&str>) -> std::result::Result<Self, AlignerError> {
         let device = get_device();
         let preset = ModelPreset::from_dir_aligner(model_dir);
         let cfg = preset.config();
@@ -549,23 +539,13 @@ impl ForcedAligner {
     }
 
     /// Run forced alignment: given audio and its transcript, produce word-level timestamps.
-    pub fn align(
-        &self,
-        wav_path: &Path,
-        text: &str,
-        language: &str,
-    ) -> std::result::Result<Vec<AlignItem>, AlignerError> {
+    pub fn align(&self, wav_path: &Path, text: &str, language: &str) -> std::result::Result<Vec<AlignItem>, AlignerError> {
         let samples = audio::load_wav(wav_path, &self.audio_cfg)?;
         self.align_samples(&samples, text, language)
     }
 
     /// Run forced alignment directly on loaded waveform samples.
-    pub fn align_samples(
-        &self,
-        samples: &[f32],
-        text: &str,
-        _language: &str,
-    ) -> std::result::Result<Vec<AlignItem>, AlignerError> {
+    pub fn align_samples(&self, samples: &[f32], text: &str, _language: &str) -> std::result::Result<Vec<AlignItem>, AlignerError> {
         let dev = &self.device;
 
         // 1. Extract Mel spectrogram
@@ -622,7 +602,9 @@ impl ForcedAligner {
         let mut raw_class_ids: Vec<u32> = Vec::with_capacity(ts_global.len());
         for &pos in &ts_global {
             let pos_logits = logits_2d.get(pos)?;
-            let class_id = pos_logits.argmax(0)?.to_scalar::<u32>()?;
+            let class_id = pos_logits
+                .argmax(0)?
+                .to_scalar::<u32>()?;
             raw_class_ids.push(class_id);
         }
 

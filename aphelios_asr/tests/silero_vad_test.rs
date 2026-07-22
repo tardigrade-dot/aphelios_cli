@@ -38,17 +38,16 @@ mod tests {
         let segments = vad.process_from_file(audio_path)?;
         info!("Detected {} speech segments", segments.len());
         for (i, segment) in segments.iter().enumerate() {
-            info!(
-                "  Segment {}: {:.2}s - {:.2}s (duration: {:.2}s, avg_prob: {:.2})",
-                i + 1,
-                segment.start,
-                segment.end,
-                segment.end - segment.start,
-                segment.avg_prob
-            );
+            info!("  Segment {}: {:.2}s - {:.2}s (duration: {:.2}s, avg_prob: {:.2})", i + 1, segment.start, segment.end, segment.end - segment.start, segment.avg_prob);
         }
         let output_path = Path::new(audio_path)
-            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_file_name(
+                Path::new(audio_path)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+            )
             .with_extension("vad.srt")
             .to_str()
             .unwrap()
@@ -70,38 +69,27 @@ mod tests {
         let segments = vad.process_from_file(audio_path)?;
         info!("Detected {} speech segments", segments.len());
         for (i, segment) in segments.iter().enumerate() {
-            info!(
-                "  Segment {}: {:.2}s - {:.2}s (duration: {:.2}s, avg_prob: {:.2})",
-                i + 1,
-                segment.start,
-                segment.end,
-                segment.end - segment.start,
-                segment.avg_prob
-            );
+            info!("  Segment {}: {:.2}s - {:.2}s (duration: {:.2}s, avg_prob: {:.2})", i + 1, segment.start, segment.end, segment.end - segment.start, segment.avg_prob);
         }
         let output_path = Path::new(audio_path)
-            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_file_name(
+                Path::new(audio_path)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+            )
             .with_extension("vad.srt")
             .to_str()
             .unwrap()
             .to_string();
         generate_vad(&segments, &output_path).await?;
 
-        assert!(
-            !segments.is_empty(),
-            "Should detect at least one speech segment"
-        );
+        assert!(!segments.is_empty(), "Should detect at least one speech segment");
         let batches = vad.aggregate_segments(&segments, 30.0, 0.3);
         info!("Aggregated {} batches", batches.len());
         for (i, batch) in batches.iter().enumerate() {
-            info!(
-                "  Batch {}: {:.2}s - {:.2}s (duration: {:.2}s, segments_count: {})",
-                i + 1,
-                batch.start,
-                batch.end,
-                batch.duration,
-                batch.segments_count
-            );
+            info!("  Batch {}: {:.2}s - {:.2}s (duration: {:.2}s, segments_count: {})", i + 1, batch.start, batch.end, batch.duration, batch.segments_count);
         }
 
         info!("Running whisper with segments ...");
@@ -109,19 +97,17 @@ mod tests {
         for (i, segment) in res.iter().enumerate() {
             for (j, sub) in segment.sub_segments.iter().enumerate() {
                 let duration = sub.end - sub.start;
-                info!(
-                    "  Segment {}.{}: {:.2}s - {:.2}s (duration: {:.2}s, text: {})",
-                    i + 1,
-                    j + 1,
-                    sub.start,
-                    sub.end,
-                    duration,
-                    sub.text
-                );
+                info!("  Segment {}.{}: {:.2}s - {:.2}s (duration: {:.2}s, text: {})", i + 1, j + 1, sub.start, sub.end, duration, sub.text);
             }
         }
         let output_path = Path::new(audio_path)
-            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_file_name(
+                Path::new(audio_path)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+            )
             .with_extension("srt")
             .to_str()
             .unwrap()

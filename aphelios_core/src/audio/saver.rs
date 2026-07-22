@@ -79,17 +79,16 @@ impl AudioSaver {
     }
 
     /// 保存音频片段（带时间戳前缀）
-    pub fn save_with_prefix(
-        &self,
-        audio: &StereoBuffer,
-        base_path: impl AsRef<Path>,
-        prefix: &str,
-    ) -> Result<String> {
+    pub fn save_with_prefix(&self, audio: &StereoBuffer, base_path: impl AsRef<Path>, prefix: &str) -> Result<String> {
         let base_path = base_path.as_ref();
         let path = base_path.with_file_name(format!(
             "{}_{}",
             prefix,
-            base_path.file_name().unwrap().to_str().unwrap()
+            base_path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
         ));
 
         self.save_stereo(audio, &path)?;

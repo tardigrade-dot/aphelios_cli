@@ -2,7 +2,7 @@ use anyhow::Result;
 use candle_core::Tensor;
 use log::{debug, info};
 
-use crate::qwen3asr::{AsrError, AsrInference, EncoderCache, TranscribeResult, inference::AsrInferenceInner};
+use crate::qwen3asr::{inference::AsrInferenceInner, AsrError, AsrInference, EncoderCache, TranscribeResult};
 
 /// Options for streaming transcription.
 #[non_exhaustive]
@@ -90,7 +90,11 @@ impl StreamingOptions {
     /// the normal rollback mechanism takes over automatically.
     pub fn with_initial_text(mut self, text: impl Into<String>) -> Self {
         let t = text.into();
-        self.initial_text = if t.is_empty() { None } else { Some(t) };
+        self.initial_text = if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        };
         self
     }
 
@@ -166,11 +170,7 @@ impl AsrInference {
     /// When enough samples accumulate to form a chunk, runs inference on all
     /// accumulated audio and returns the latest transcription. Returns `None`
     /// if the buffer hasn't accumulated a full chunk yet.
-    pub fn feed_audio(
-        &self,
-        state: &mut StreamingState,
-        samples: &[f32],
-    ) -> crate::qwen3asr::Result<Option<TranscribeResult>> {
+    pub fn feed_audio(&self, state: &mut StreamingState, samples: &[f32]) -> crate::qwen3asr::Result<Option<TranscribeResult>> {
         state.buffer.extend_from_slice(samples);
 
         if !try_drain_chunk(state) {
@@ -178,11 +178,12 @@ impl AsrInference {
         }
 
         // Acquire lock once for the entire step
-        let inner = self.inner.lock()
+        let inner = self
+            .inner
+            .lock()
             .map_err(|_| AsrError::Inference(anyhow::anyhow!("mutex poisoned")))?;
 
-        let result = run_streaming_step(&inner, state)
-            .map_err(AsrError::Inference)?;
+        let result = run_streaming_step(&inner, state).map_err(AsrError::Inference)?;
 
         Ok(Some(result))
     }
@@ -191,10 +192,7 @@ impl AsrInference {
     /// a final inference pass with higher token budget.
     ///
     /// Returns the final transcription result.
-    pub fn finish_streaming(
-        &self,
-        state: &mut StreamingState,
-    ) -> crate::qwen3asr::Result<TranscribeResult> {
+    pub fn finish_streaming(&self, state: &mut StreamingState) -> crate::qwen3asr::Result<TranscribeResult> {
         if !flush_remaining_buffer(state) {
             return Ok(TranscribeResult {
                 text: String::new(),
@@ -204,26 +202,30 @@ impl AsrInference {
         }
 
         // Acquire lock once for the entire final step
-        let inner = self.inner.lock()
+        let inner = self
+            .inner
+            .lock()
             .map_err(|_| AsrError::Inference(anyhow::anyhow!("mutex poisoned")))?;
 
         // Use incremental encoder for efficiency
-        let audio_embeds = encode_audio_incremental(&inner, state)
-            .map_err(AsrError::Inference)?;
+        let audio_embeds = encode_audio_incremental(&inner, state).map_err(AsrError::Inference)?;
 
         let prefix = build_prefix(&inner, state);
 
-        let generated_ids = inner.generate(
-            &audio_embeds,
-            state.options.language.as_deref(),
-            None, // system_prompt — not used in streaming
-            prefix.as_deref(),
-            state.options.max_new_tokens_final,
-        ).map_err(AsrError::Inference)?;
+        let generated_ids = inner
+            .generate(
+                &audio_embeds,
+                state.options.language.as_deref(),
+                None, // system_prompt — not used in streaming
+                prefix.as_deref(),
+                state.options.max_new_tokens_final,
+            )
+            .map_err(AsrError::Inference)?;
 
         let full_ids = combine_prefix_and_generated(state, &prefix, &generated_ids);
 
-        let result = inner.decode_result(&full_ids, state.options.language.as_deref())
+        let result = inner
+            .decode_result(&full_ids, state.options.language.as_deref())
             .map_err(AsrError::Inference)?;
 
         state.text = result.text.clone();
@@ -235,35 +237,27 @@ impl AsrInference {
 }
 
 /// Encode audio using incremental encoder (leverages window cache).
-fn encode_audio_incremental(
-    inner: &AsrInferenceInner,
-    state: &mut StreamingState,
-) -> Result<Tensor> {
-    let (mel_data, n_mels, n_frames) = inner.mel_extractor.extract(&state.audio_accum)?;
+fn encode_audio_incremental(inner: &AsrInferenceInner, state: &mut StreamingState) -> Result<Tensor> {
+    let (mel_data, n_mels, n_frames) = inner
+        .mel_extractor
+        .extract(&state.audio_accum)?;
     debug!("Mel: {}×{} frames (incremental)", n_mels, n_frames);
     let mel = Tensor::from_vec(mel_data, (n_mels, n_frames), &inner.device)?;
-    let audio_embeds = inner.audio_encoder.forward_incremental(&mel, &mut state.encoder_cache)?;
-    info!("Audio tokens (incremental): {} (cached: {})",
-        audio_embeds.dims()[0], state.encoder_cache.cached_tokens());
+    let audio_embeds = inner
+        .audio_encoder
+        .forward_incremental(&mel, &mut state.encoder_cache)?;
+    info!("Audio tokens (incremental): {} (cached: {})", audio_embeds.dims()[0], state.encoder_cache.cached_tokens());
     Ok(audio_embeds)
 }
 
 /// Run one streaming inference step (called with lock already held).
-fn run_streaming_step(
-    inner: &AsrInferenceInner,
-    state: &mut StreamingState,
-) -> Result<TranscribeResult> {
+fn run_streaming_step(inner: &AsrInferenceInner, state: &mut StreamingState) -> Result<TranscribeResult> {
     // Use incremental encoder to avoid re-encoding completed windows
     let audio_embeds = encode_audio_incremental(inner, state)?;
 
     let prefix = build_prefix(inner, state);
 
-    info!(
-        "Streaming step: chunk_id={}, accum_samples={}, prefix={:?}",
-        state.chunk_id,
-        state.audio_accum.len(),
-        prefix.as_deref().unwrap_or("(none)"),
-    );
+    info!("Streaming step: chunk_id={}, accum_samples={}, prefix={:?}", state.chunk_id, state.audio_accum.len(), prefix.as_deref().unwrap_or("(none)"),);
 
     let generated_ids = inner.generate(
         &audio_embeds,
@@ -296,7 +290,10 @@ pub(crate) fn compute_prefix_ids(state: &StreamingState) -> Option<&[u32]> {
     if state.raw_token_ids.is_empty() {
         return None;
     }
-    let keep = state.raw_token_ids.len().saturating_sub(state.options.unfixed_token_num);
+    let keep = state
+        .raw_token_ids
+        .len()
+        .saturating_sub(state.options.unfixed_token_num);
     if keep == 0 {
         return None;
     }
@@ -316,7 +313,9 @@ pub(crate) fn build_prefix(inner: &AsrInferenceInner, state: &StreamingState) ->
     }
 
     let prefix_ids = compute_prefix_ids(state)?;
-    let prefix_text = inner.tokenizer_decode(prefix_ids).ok()?;
+    let prefix_text = inner
+        .tokenizer_decode(prefix_ids)
+        .ok()?;
 
     if prefix_text.is_empty() {
         None
@@ -334,8 +333,13 @@ fn try_drain_chunk(state: &mut StreamingState) -> bool {
     if state.buffer.len() < state.chunk_size_samples {
         return false;
     }
-    let chunk: Vec<f32> = state.buffer.drain(..state.chunk_size_samples).collect();
-    state.audio_accum.extend_from_slice(&chunk);
+    let chunk: Vec<f32> = state
+        .buffer
+        .drain(..state.chunk_size_samples)
+        .collect();
+    state
+        .audio_accum
+        .extend_from_slice(&chunk);
 
     // Cap audio history
     let max_samples = (state.options.max_audio_secs * 16000.0) as usize;
@@ -354,23 +358,24 @@ fn try_drain_chunk(state: &mut StreamingState) -> bool {
 fn flush_remaining_buffer(state: &mut StreamingState) -> bool {
     if !state.buffer.is_empty() {
         let remaining: Vec<f32> = state.buffer.drain(..).collect();
-        state.audio_accum.extend_from_slice(&remaining);
+        state
+            .audio_accum
+            .extend_from_slice(&remaining);
         state.chunk_id += 1;
     }
     !state.audio_accum.is_empty()
 }
 
 /// Combine prefix token IDs (from rollback) with newly generated token IDs.
-pub(crate) fn combine_prefix_and_generated(
-    state: &StreamingState,
-    prefix: &Option<String>,
-    generated_ids: &[u32],
-) -> Vec<u32> {
+pub(crate) fn combine_prefix_and_generated(state: &StreamingState, prefix: &Option<String>, generated_ids: &[u32]) -> Vec<u32> {
     if prefix.is_none() || state.raw_token_ids.is_empty() {
         return generated_ids.to_vec();
     }
 
-    let keep = state.raw_token_ids.len().saturating_sub(state.options.unfixed_token_num);
+    let keep = state
+        .raw_token_ids
+        .len()
+        .saturating_sub(state.options.unfixed_token_num);
     if keep == 0 {
         return generated_ids.to_vec();
     }
@@ -386,11 +391,7 @@ mod tests {
     use super::*;
 
     /// Helper to create a StreamingState with controllable internals for testing.
-    fn make_state(
-        chunk_size_sec: f32,
-        unfixed_chunk_num: usize,
-        unfixed_token_num: usize,
-    ) -> StreamingState {
+    fn make_state(chunk_size_sec: f32, unfixed_chunk_num: usize, unfixed_token_num: usize) -> StreamingState {
         let options = StreamingOptions {
             language: None,
             chunk_size_sec,
@@ -399,7 +400,7 @@ mod tests {
             max_new_tokens_streaming: 32,
             max_new_tokens_final: 512,
             initial_text: None,
-            max_audio_secs: 60f32
+            max_audio_secs: 60f32,
         };
         let chunk_size_samples = (chunk_size_sec * 16000.0) as usize;
         StreamingState {
@@ -711,15 +712,13 @@ mod tests {
 
     #[test]
     fn test_with_initial_text_sets_value() {
-        let opts = StreamingOptions::default()
-            .with_initial_text("previous transcript context");
+        let opts = StreamingOptions::default().with_initial_text("previous transcript context");
         assert_eq!(opts.initial_text.as_deref(), Some("previous transcript context"));
     }
 
     #[test]
     fn test_with_initial_text_empty_string_becomes_none() {
-        let opts = StreamingOptions::default()
-            .with_initial_text("");
+        let opts = StreamingOptions::default().with_initial_text("");
         assert!(opts.initial_text.is_none());
     }
 

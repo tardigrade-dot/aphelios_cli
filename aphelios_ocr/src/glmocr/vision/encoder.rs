@@ -7,9 +7,7 @@ use crate::glmocr::nn_utils::rms_norm;
 use super::block::VisionBlock;
 use super::merger::PatchMerger;
 use super::patch_embed::PatchEmbed;
-use super::rotary::{
-    compute_vision_position_ids, compute_vision_rotary_emb, VisionRotaryEmbedding,
-};
+use super::rotary::{compute_vision_position_ids, compute_vision_rotary_emb, VisionRotaryEmbedding};
 
 /// Complete CogViT vision encoder.
 ///
@@ -40,11 +38,7 @@ impl VisionEncoder {
             blocks.push(VisionBlock::new(config, vb.pp(format!("blocks.{i}")))?);
         }
 
-        let post_layernorm = rms_norm(
-            config.hidden_size,
-            config.rms_norm_eps,
-            vb.pp("post_layernorm"),
-        )?;
+        let post_layernorm = rms_norm(config.hidden_size, config.rms_norm_eps, vb.pp("post_layernorm"))?;
 
         let head_dim = config.head_dim();
         // Python uses dim = head_dim // 2 for VisionRotaryEmbedding
@@ -55,13 +49,7 @@ impl VisionEncoder {
             stride: config.spatial_merge_size,
             ..Default::default()
         };
-        let downsample = conv2d(
-            config.hidden_size,
-            config.out_hidden_size,
-            config.spatial_merge_size,
-            downsample_config,
-            vb.pp("downsample"),
-        )?;
+        let downsample = conv2d(config.hidden_size, config.out_hidden_size, config.spatial_merge_size, downsample_config, vb.pp("downsample"))?;
 
         let merger = PatchMerger::new(config, vb.pp("merger"))?;
 
@@ -94,8 +82,7 @@ impl VisionEncoder {
         // 2. Compute rotary position embeddings
         let position_ids = compute_vision_position_ids(grid_thw, self.spatial_merge_size, device)?;
         let max_grid = grid_thw[1].max(grid_thw[2]);
-        let (cos, sin) =
-            compute_vision_rotary_emb(&position_ids, &self.rotary_emb, max_grid, device)?;
+        let (cos, sin) = compute_vision_rotary_emb(&position_ids, &self.rotary_emb, max_grid, device)?;
 
         // 3. Run through transformer blocks
         for block in &self.blocks {
@@ -103,7 +90,9 @@ impl VisionEncoder {
         }
 
         // 4. Post-layernorm
-        hidden_states = self.post_layernorm.forward(&hidden_states)?;
+        hidden_states = self
+            .post_layernorm
+            .forward(&hidden_states)?;
 
         // 5. Spatial downsample via Conv2d.
         //
@@ -117,10 +106,14 @@ impl VisionEncoder {
 
         // [N, C] → [N/4, merge, merge, C] → permute → [N/4, C, merge, merge]
         let hidden_states = hidden_states.reshape((n_merged, merge, merge, self.hidden_size))?;
-        let hidden_states = hidden_states.permute((0, 3, 1, 2))?.contiguous()?;
+        let hidden_states = hidden_states
+            .permute((0, 3, 1, 2))?
+            .contiguous()?;
 
         // Conv2d(kernel=merge, stride=merge): [N/4, C, 2, 2] → [N/4, out_C, 1, 1]
-        let hidden_states = self.downsample.forward(&hidden_states)?;
+        let hidden_states = self
+            .downsample
+            .forward(&hidden_states)?;
 
         // Flatten: [N/4, out_C, 1, 1] → [N/4, out_C]
         let hidden_states = hidden_states.reshape((n_merged, self.out_hidden_size))?;

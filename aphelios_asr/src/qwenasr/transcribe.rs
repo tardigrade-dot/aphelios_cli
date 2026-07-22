@@ -7,15 +7,12 @@ use candle_core::{DType, Device, Tensor};
 use thiserror::Error;
 use tracing::info;
 
-use crate::QWEN3_ASR_MODEL_ID;
 use crate::qwenasr::audio::{self, AudioConfig, AudioError};
 use crate::qwenasr::decoder::Decoder;
 use crate::qwenasr::encoder::Encoder;
 use crate::qwenasr::preset::ModelPreset;
-use crate::qwenasr::tokenizer::{
-    Tokenizer, TokenizerError, PROMPT_PREFIX_HEAD, PROMPT_PREFIX_TAIL, PROMPT_SUFFIX_BASE,
-    TOKEN_ASR_TEXT, TOKEN_IM_END,
-};
+use crate::qwenasr::tokenizer::{Tokenizer, TokenizerError, PROMPT_PREFIX_HEAD, PROMPT_PREFIX_TAIL, PROMPT_SUFFIX_BASE, TOKEN_ASR_TEXT, TOKEN_IM_END};
+use crate::QWEN3_ASR_MODEL_ID;
 
 #[derive(Debug, Error)]
 pub enum TranscribeError {
@@ -47,7 +44,7 @@ pub struct Pipeline {
     pub tokenizer: Tokenizer,
     pub audio_cfg: AudioConfig,
     pub device: Device,
-    pub ctx: Option<String>
+    pub ctx: Option<String>,
 }
 
 impl Pipeline {
@@ -80,7 +77,7 @@ impl Pipeline {
             tokenizer,
             audio_cfg: cfg.audio,
             device: device,
-            ctx: None
+            ctx: None,
         })
     }
 
@@ -95,29 +92,17 @@ impl Pipeline {
     }
 
     /// Transcribe a WAV file and return per-phase timing.
-    pub fn transcribe_timed(
-        &mut self,
-        wav_path: &Path,
-    ) -> Result<(String, TimingInfo), TranscribeError> {
+    pub fn transcribe_timed(&mut self, wav_path: &Path) -> Result<(String, TimingInfo), TranscribeError> {
         let (mel, audio_ms) = self.mel_from_wav(wav_path)?;
         self.transcribe_mel(&mel, audio_ms)
     }
 
-    pub fn transcribe_mel(
-        &mut self,
-        mel: &Tensor,
-        audio_ms: f64,
-    ) -> Result<(String, TimingInfo), TranscribeError> {
+    pub fn transcribe_mel(&mut self, mel: &Tensor, audio_ms: f64) -> Result<(String, TimingInfo), TranscribeError> {
         self.transcribe_mel_with_context(mel, audio_ms, None)
     }
     /// Run the full pipeline on a pre-built mel tensor.
     /// Used internally and by the bench tool so audio loading isn't re-timed.
-    pub fn transcribe_mel_with_context(
-        &mut self,
-        mel: &Tensor,
-        audio_ms: f64,
-        context_prompt: Option<&str>,
-    ) -> Result<(String, TimingInfo), TranscribeError> {
+    pub fn transcribe_mel_with_context(&mut self, mel: &Tensor, audio_ms: f64, context_prompt: Option<&str>) -> Result<(String, TimingInfo), TranscribeError> {
         let dev = &self.device;
 
         // ── Encoder ───────────────────────────────────────────────────────────
@@ -138,7 +123,10 @@ impl Pipeline {
         //   [AUDIO]  <|AUDIO|> × n
         //   [SUFFIX] <|audio_end|><|im_end|>\n<|im_start|>assistant\n<asr_text>
 
-let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
+        let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD
+            .iter()
+            .copied()
+            .collect();
         let prefix_head_len = prefix_head_ids.len();
         let prefix_head_t = Tensor::from_vec(prefix_head_ids, (1, prefix_head_len), &dev)?;
         let prefix_head_emb = self.decoder.embed(&prefix_head_t)?;
@@ -155,7 +143,10 @@ let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
         };
 
         // 3. Prefix TAIL: [<|im_end|>\n<|im_start|>user\n<|audio_start|>]
-        let prefix_tail_ids: Vec<u32> = PROMPT_PREFIX_TAIL.iter().copied().collect();
+        let prefix_tail_ids: Vec<u32> = PROMPT_PREFIX_TAIL
+            .iter()
+            .copied()
+            .collect();
         let prefix_tail_len = prefix_tail_ids.len();
         let prefix_tail_t = Tensor::from_vec(prefix_tail_ids, (1, prefix_tail_len), &dev)?;
         let prefix_tail_emb = self.decoder.embed(&prefix_tail_t)?;
@@ -187,13 +178,18 @@ let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
 
         // ── Prefill ───────────────────────────────────────────────────────────
         self.decoder.clear_kv_cache();
-        let logits = self.decoder.forward_with_embeds(&prompt_emb, 0)?;
-        let mut token = logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()?;
+        let logits = self
+            .decoder
+            .forward_with_embeds(&prompt_emb, 0)?;
+        let mut token = logits
+            .squeeze(0)?
+            .argmax(0)?
+            .to_scalar::<u32>()?;
 
         // ── Autoregressive loop ───────────────────────────────────────────────
         let max_new_tokens = 448;
         let mut output_ids: Vec<u32> = Vec::new();
-        let mut offset = prompt_len;  // 自动适配新长度，无需修改
+        let mut offset = prompt_len; // 自动适配新长度，无需修改
 
         loop {
             if token == TOKEN_IM_END || output_ids.len() >= max_new_tokens {
@@ -207,7 +203,9 @@ let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
         let decode_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
         let n_tokens = output_ids.len();
 
-        let text = self.tokenizer.decode(&output_ids, true)?;
+        let text = self
+            .tokenizer
+            .decode(&output_ids, true)?;
         Ok((
             text,
             TimingInfo {
@@ -238,22 +236,14 @@ let prefix_head_ids: Vec<u32> = PROMPT_PREFIX_HEAD.iter().copied().collect();
 
     /// Build a zeroed (silence) mel tensor for `audio_sec` seconds.
     pub fn mel_silence(&self, audio_sec: u32) -> Result<(Tensor, f64), TranscribeError> {
-        let n_frames =
-            (audio_sec as usize * self.audio_cfg.sample_rate as usize) / self.audio_cfg.hop_length;
-        let mel = Tensor::zeros(
-            (self.audio_cfg.mel_bins, n_frames),
-            DType::F32,
-            &self.device,
-        )?;
+        let n_frames = (audio_sec as usize * self.audio_cfg.sample_rate as usize) / self.audio_cfg.hop_length;
+        let mel = Tensor::zeros((self.audio_cfg.mel_bins, n_frames), DType::F32, &self.device)?;
         Ok((mel, audio_sec as f64 * 1000.0))
     }
 }
 
 /// Collect weight shard paths from a model directory.
-pub fn collect_shards(
-    remote_model_id: &str,
-    model_dir: Option<&str>,
-) -> Result<Vec<PathBuf>, TranscribeError> {
+pub fn collect_shards(remote_model_id: &str, model_dir: Option<&str>) -> Result<Vec<PathBuf>, TranscribeError> {
     // 统一的文件解析:本地直接拼路径,远端走 load_or_download
     let resolve = |file_name: &str| -> PathBuf {
         if let Some(dir) = model_dir {
@@ -279,7 +269,10 @@ pub fn collect_shards(
         shards.sort_unstable();
         shards.dedup();
 
-        let paths: Vec<PathBuf> = shards.into_iter().map(|s| resolve(&s)).collect();
+        let paths: Vec<PathBuf> = shards
+            .into_iter()
+            .map(|s| resolve(&s))
+            .collect();
 
         // 仅本地模式需要校验文件存在性;远端由 load_or_download 保证
         if model_dir.is_some() {

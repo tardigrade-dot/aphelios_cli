@@ -16,7 +16,9 @@ pub struct ModelLoader {
 impl ModelLoader {
     pub fn new(model_id: Option<&str>) -> Self {
         Self {
-            model_id: model_id.unwrap_or(DEFAULT_MODEL_ID).to_string(),
+            model_id: model_id
+                .unwrap_or(DEFAULT_MODEL_ID)
+                .to_string(),
             cache_dir: None,
         }
     }
@@ -29,20 +31,15 @@ impl ModelLoader {
     /// Download and load the model config from HuggingFace.
     pub fn load_config(&self) -> Result<GlmOcrConfig> {
         let config_path = self.get_file("config.json")?;
-        let config_str =
-            std::fs::read_to_string(&config_path).context("Failed to read config.json")?;
-        let config: GlmOcrConfig =
-            serde_json::from_str(&config_str).context("Failed to parse config.json")?;
+        let config_str = std::fs::read_to_string(&config_path).context("Failed to read config.json")?;
+        let config: GlmOcrConfig = serde_json::from_str(&config_str).context("Failed to parse config.json")?;
         Ok(config)
     }
 
     /// Download and load model weights as a VarBuilder.
     pub fn load_weights(&self, dtype: DType, device: &Device) -> Result<VarBuilder<'static>> {
         let weights_path = self.get_file("model.safetensors")?;
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device)
-                .context("Failed to load model weights")?
-        };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, device).context("Failed to load model weights")? };
         Ok(vb)
     }
 

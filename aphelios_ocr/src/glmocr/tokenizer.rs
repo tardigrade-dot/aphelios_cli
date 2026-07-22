@@ -15,8 +15,7 @@ pub struct GlmOcrTokenizer {
 
 impl GlmOcrTokenizer {
     pub fn from_file(path: &Path, config: &GlmOcrConfig) -> Result<Self> {
-        let tokenizer = Tokenizer::from_file(path)
-            .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {e}"))?;
+        let tokenizer = Tokenizer::from_file(path).map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {e}"))?;
 
         Ok(Self {
             tokenizer,
@@ -38,9 +37,7 @@ impl GlmOcrTokenizer {
     pub fn build_input_ids(&self, prompt: &str, num_image_tokens: usize) -> Result<Vec<u32>> {
         // Encode the full template as a single string (with 1 image placeholder),
         // then expand the single image token to N tokens.
-        let template = format!(
-            "[gMASK]<sop><|user|>\n<|begin_of_image|><|image|><|end_of_image|>{prompt}<|assistant|>\n"
-        );
+        let template = format!("[gMASK]<sop><|user|>\n<|begin_of_image|><|image|><|end_of_image|>{prompt}<|assistant|>\n");
 
         let encoding = self
             .tokenizer

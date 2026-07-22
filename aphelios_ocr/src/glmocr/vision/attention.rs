@@ -84,7 +84,9 @@ impl VisionAttention {
         let attn_output = attn_weights.contiguous()?.matmul(&v)?;
 
         // Transpose back: [num_heads, seq, head_dim] -> [seq, num_heads, head_dim]
-        let attn_output = attn_output.transpose(0, 1)?.contiguous()?;
+        let attn_output = attn_output
+            .transpose(0, 1)?
+            .contiguous()?;
 
         // Reshape: [seq, num_heads * head_dim] = [seq, hidden]
         let attn_output = attn_output.reshape((seq_len, self.num_heads * self.head_dim))?;

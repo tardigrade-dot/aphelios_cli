@@ -8,10 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use candle_core::{DType, Device, Module, Result, Tensor};
-use candle_nn::{
-    embedding, kv_cache::ConcatKvCache, linear_no_bias, ops::softmax_last_dim, rms_norm,
-    rotary_emb::rope, Embedding, Linear, RmsNorm, VarBuilder,
-};
+use candle_nn::{embedding, kv_cache::ConcatKvCache, linear_no_bias, ops::softmax_last_dim, rms_norm, rotary_emb::rope, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config as Qwen3Config;
 
 // ── RoPE cache ────────────────────────────────────────────────────────────────
@@ -25,7 +22,11 @@ impl RopeCache {
     fn new(cfg: &Qwen3Config, dev: &Device) -> Result<Self> {
         let half = cfg.head_dim / 2;
         let inv_freq: Vec<f32> = (0..half)
-            .map(|i| 1.0 / cfg.rope_theta.powf(2.0 * i as f64 / cfg.head_dim as f64) as f32)
+            .map(|i| {
+                1.0 / cfg
+                    .rope_theta
+                    .powf(2.0 * i as f64 / cfg.head_dim as f64) as f32
+            })
             .collect();
         let inv_freq = Tensor::from_vec(inv_freq, (1, half), dev)?;
         let t = Tensor::arange(0u32, cfg.max_position_embeddings as u32, dev)?
@@ -40,12 +41,15 @@ impl RopeCache {
 
     fn apply(&self, q: &Tensor, k: &Tensor, offset: usize) -> Result<(Tensor, Tensor)> {
         let (_, _, seq, _) = q.dims4()?;
-        let cos = self.cos.narrow(0, offset, seq)?.contiguous()?;
-        let sin = self.sin.narrow(0, offset, seq)?.contiguous()?;
-        Ok((
-            rope(&q.contiguous()?, &cos, &sin)?,
-            rope(&k.contiguous()?, &cos, &sin)?,
-        ))
+        let cos = self
+            .cos
+            .narrow(0, offset, seq)?
+            .contiguous()?;
+        let sin = self
+            .sin
+            .narrow(0, offset, seq)?
+            .contiguous()?;
+        Ok((rope(&q.contiguous()?, &cos, &sin)?, rope(&k.contiguous()?, &cos, &sin)?))
     }
 }
 
@@ -113,18 +117,8 @@ impl DecAttn {
         let bias = cfg.attention_bias;
         Ok(Self {
             q_proj: linear_b(cfg.hidden_size, n_heads * head_dim, bias, vb.pp("q_proj"))?,
-            k_proj: linear_b(
-                cfg.hidden_size,
-                n_kv_heads * head_dim,
-                bias,
-                vb.pp("k_proj"),
-            )?,
-            v_proj: linear_b(
-                cfg.hidden_size,
-                n_kv_heads * head_dim,
-                bias,
-                vb.pp("v_proj"),
-            )?,
+            k_proj: linear_b(cfg.hidden_size, n_kv_heads * head_dim, bias, vb.pp("k_proj"))?,
+            v_proj: linear_b(cfg.hidden_size, n_kv_heads * head_dim, bias, vb.pp("v_proj"))?,
             o_proj: linear_b(n_heads * head_dim, cfg.hidden_size, bias, vb.pp("o_proj"))?,
             q_norm: rms_norm(head_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?,
             k_norm: rms_norm(head_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?,
@@ -157,16 +151,14 @@ impl DecAttn {
             .transpose(1, 2)?;
 
         // Per-head RMSNorm: flatten (b,H,l,D)→(b*H*l,D), norm, reshape back
-        let q =
-            self.q_norm
-                .forward(&q.flatten(0, 2)?)?
-                .reshape((b, self.n_heads, l, self.head_dim))?;
-        let k = self.k_norm.forward(&k.flatten(0, 2)?)?.reshape((
-            b,
-            self.n_kv_heads,
-            l,
-            self.head_dim,
-        ))?;
+        let q = self
+            .q_norm
+            .forward(&q.flatten(0, 2)?)?
+            .reshape((b, self.n_heads, l, self.head_dim))?;
+        let k = self
+            .k_norm
+            .forward(&k.flatten(0, 2)?)?
+            .reshape((b, self.n_kv_heads, l, self.head_dim))?;
 
         let (q, k) = self.rope.apply(&q, &k, offset)?;
         let (k, v) = self.kv_cache.append(&k, &v)?;
@@ -234,11 +226,7 @@ impl DecLayer {
             attn: DecAttn::new(cfg, rope, vb.pp("self_attn"))?,
             mlp: DecMlp::new(cfg, vb.pp("mlp"))?,
             ln1: rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
-            ln2: rms_norm(
-                cfg.hidden_size,
-                cfg.rms_norm_eps,
-                vb.pp("post_attention_layernorm"),
-            )?,
+            ln2: rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?,
         })
     }
 
@@ -246,7 +234,9 @@ impl DecLayer {
         let h = self.ln1.forward(x)?;
         let h = self.attn.forward(&h, mask, offset)?;
         let x = (x + h)?;
-        let h2 = self.mlp.forward(&self.ln2.forward(&x)?)?;
+        let h2 = self
+            .mlp
+            .forward(&self.ln2.forward(&x)?)?;
         x + h2
     }
 
@@ -267,7 +257,10 @@ pub struct Decoder {
 
 impl Decoder {
     pub fn load(paths: &[impl AsRef<Path>], cfg: &Qwen3Config, dev: &Device) -> Result<Self> {
-        let paths: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
+        let paths: Vec<&Path> = paths
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&paths, DType::F32, dev)? };
         let vb = vb.pp("thinker");
 
@@ -314,7 +307,11 @@ impl Decoder {
         for layer in &mut self.layers {
             h = layer.forward(&h, mask.as_ref(), offset)?;
         }
-        let last = self.norm.forward(&h)?.narrow(1, l - 1, 1)?.squeeze(1)?; // [b, hidden]
+        let last = self
+            .norm
+            .forward(&h)?
+            .narrow(1, l - 1, 1)?
+            .squeeze(1)?; // [b, hidden]
         last.apply(&self.lm_head) // [b, vocab_size]
     }
 
@@ -325,7 +322,10 @@ impl Decoder {
         let ids = Tensor::from_vec(vec![token_id], (1, 1), dev)?;
         let embeds = self.embed_tokens.forward(&ids)?;
         let logits = self.forward_with_embeds(&embeds, offset)?; // [1, vocab_size]
-        logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()
+        logits
+            .squeeze(0)?
+            .argmax(0)?
+            .to_scalar::<u32>()
     }
 
     pub fn clear_kv_cache(&mut self) {
@@ -363,7 +363,9 @@ mod tests {
     #[ignore]
     fn load_0_6b_decoder_smoke() {
         let shard = smoke_shard_path();
-        let cfg = ModelPreset::Qwen3Asr0_6b.config().decoder;
+        let cfg = ModelPreset::Qwen3Asr0_6b
+            .config()
+            .decoder;
         let dec = Decoder::load(&[&shard], &cfg, &Device::Cpu).expect("load failed");
         assert_eq!(dec.cfg.hidden_size, cfg.hidden_size);
         assert_eq!(dec.cfg.num_hidden_layers, cfg.num_hidden_layers);
@@ -375,7 +377,9 @@ mod tests {
     //   DEC_DEBUG embed[0..4] = -0.0075378418 -0.097167969 0.016113281 0.047607422
     fn embed_lookup_matches_c_reference() {
         let shard = smoke_shard_path();
-        let cfg = ModelPreset::Qwen3Asr0_6b.config().decoder;
+        let cfg = ModelPreset::Qwen3Asr0_6b
+            .config()
+            .decoder;
         let dec = Decoder::load(&[&shard], &cfg, &Device::Cpu).expect("load failed");
 
         let ids = Tensor::from_vec(vec![151644u32], (1, 1), &Device::Cpu).unwrap();
@@ -391,12 +395,13 @@ mod tests {
             .unwrap();
 
         let reference = [-0.0075378418f32, -0.097167969, 0.016113281, 0.047607422];
-        for (i, (&got, &expected)) in row.iter().zip(reference.iter()).enumerate() {
+        for (i, (&got, &expected)) in row
+            .iter()
+            .zip(reference.iter())
+            .enumerate()
+        {
             let diff = (got - expected).abs();
-            assert!(
-                diff < 1e-4,
-                "embed[151644][{i}]: got {got:.8} expected {expected:.8}"
-            );
+            assert!(diff < 1e-4, "embed[151644][{i}]: got {got:.8} expected {expected:.8}");
         }
     }
 }

@@ -169,17 +169,7 @@ mod tests {
         let pwconv2_b = Tensor::zeros((dim,), DType::F32, &device).unwrap();
         let gamma = Tensor::ones((dim,), DType::F32, &device).unwrap();
 
-        let block = ConvNeXtBlock::from_weights(
-            dwconv_w,
-            Some(dwconv_b),
-            norm_w,
-            norm_b,
-            pwconv1_w,
-            pwconv1_b,
-            pwconv2_w,
-            pwconv2_b,
-            gamma,
-        );
+        let block = ConvNeXtBlock::from_weights(dwconv_w, Some(dwconv_b), norm_w, norm_b, pwconv1_w, pwconv1_b, pwconv2_w, pwconv2_b, gamma);
         assert!(block.is_ok());
     }
 
@@ -204,18 +194,7 @@ mod tests {
 
         let gamma = Tensor::ones((dim,), DType::F32, &device).unwrap();
 
-        let block = ConvNeXtBlock::from_weights(
-            dwconv_w,
-            Some(dwconv_b),
-            norm_w,
-            norm_b,
-            pwconv1_w,
-            pwconv1_b,
-            pwconv2_w,
-            pwconv2_b,
-            gamma,
-        )
-        .unwrap();
+        let block = ConvNeXtBlock::from_weights(dwconv_w, Some(dwconv_b), norm_w, norm_b, pwconv1_w, pwconv1_b, pwconv2_w, pwconv2_b, gamma).unwrap();
 
         let input = Tensor::randn(0.0f32, 1.0, (2, dim, 10), &device).unwrap();
         let output = block.forward(&input).unwrap();

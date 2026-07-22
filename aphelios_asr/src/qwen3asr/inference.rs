@@ -6,13 +6,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use crate::QWEN3_ASR_MODEL_ID;
-use crate::qwen3asr::{AsrError, load_audio_wav};
 use crate::qwen3asr::config::AsrConfig;
-use crate::qwen3asr::decoder::{KvCache, TextDecoder, compute_mrope_cos_sin, create_causal_mask};
+use crate::qwen3asr::decoder::{compute_mrope_cos_sin, create_causal_mask, KvCache, TextDecoder};
 use crate::qwen3asr::encoder::AudioEncoder;
 use crate::qwen3asr::mel::MelExtractor;
+use crate::qwen3asr::{load_audio_wav, AsrError};
 use crate::qwenasr::transcribe::collect_shards;
+use crate::QWEN3_ASR_MODEL_ID;
 
 // Special token IDs
 pub(crate) const IM_END_TOKEN_ID: i64 = 151645;
@@ -21,16 +21,16 @@ pub(crate) const ENDOFTEXT_TOKEN_ID: i64 = 151643;
 pub(crate) const ASR_TEXT_SEP_TOKEN_ID: u32 = 151704;
 
 pub(crate) const MEL_SAMPLE_RATE: u32 = 16000;
-const N_FFT:           usize = 400; // Whisper-compatible FFT window (25ms @ 16kHz)
-const HOP_LENGTH:      usize = 160; // Whisper-compatible hop size  (10ms @ 16kHz)
+const N_FFT: usize = 400; // Whisper-compatible FFT window (25ms @ 16kHz)
+const HOP_LENGTH: usize = 160; // Whisper-compatible hop size  (10ms @ 16kHz)
 
 // Prompt structure token IDs (Qwen3 chat template)
-pub(crate) const TOK_IM_START:  i64 = 151644; // <|im_start|>
-pub(crate) const TOK_SYSTEM:    i64 = 8948;   // "system"
-pub(crate) const TOK_NEWLINE:   i64 = 198;    // "\n"
-pub(crate) const TOK_IM_END:    i64 = IM_END_TOKEN_ID; // 151645
-pub(crate) const TOK_USER:      i64 = 872;    // "user"
-pub(crate) const TOK_ASSISTANT: i64 = 77091;  // "assistant"
+pub(crate) const TOK_IM_START: i64 = 151644; // <|im_start|>
+pub(crate) const TOK_SYSTEM: i64 = 8948; // "system"
+pub(crate) const TOK_NEWLINE: i64 = 198; // "\n"
+pub(crate) const TOK_IM_END: i64 = IM_END_TOKEN_ID; // 151645
+pub(crate) const TOK_USER: i64 = 872; // "user"
+pub(crate) const TOK_ASSISTANT: i64 = 77091; // "assistant"
 
 /// Options controlling the transcription behaviour.
 ///
@@ -60,7 +60,12 @@ pub struct TranscribeOptions {
 
 impl Default for TranscribeOptions {
     fn default() -> Self {
-        Self { language: None, max_new_tokens: 512, system_prompt: None, prefix_text: None }
+        Self {
+            language: None,
+            max_new_tokens: 512,
+            system_prompt: None,
+            prefix_text: None,
+        }
     }
 }
 
@@ -80,14 +85,22 @@ impl TranscribeOptions {
     /// Set context text injected into the system prompt (one-shot context).
     pub fn with_system_prompt(mut self, text: impl Into<String>) -> Self {
         let t = text.into();
-        self.system_prompt = if t.is_empty() { None } else { Some(t) };
+        self.system_prompt = if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        };
         self
     }
 
     /// Set optional prefix text for the assistant turn (streaming rollback).
     pub fn with_prefix_text(mut self, prefix_text: impl Into<String>) -> Self {
         let t = prefix_text.into();
-        self.prefix_text = if t.is_empty() { None } else { Some(t) };
+        self.prefix_text = if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        };
         self
     }
 }
@@ -151,80 +164,66 @@ impl AsrInference {
         Self::build_engine(config, weights, tokenizer, device).map_err(AsrError::ModelLoad)
     }
 
-    fn build_engine(
-        config: AsrConfig,
-        weights: HashMap<String, Tensor>,
-        tokenizer: tokenizers::Tokenizer,
-        device: Device,
-    ) -> anyhow::Result<Self> {
+    fn build_engine(config: AsrConfig, weights: HashMap<String, Tensor>, tokenizer: tokenizers::Tokenizer, device: Device) -> anyhow::Result<Self> {
         info!("Loading audio encoder...");
-        let audio_encoder = AudioEncoder::load(
-            &weights,
-            "thinker.audio_tower",
-            &config.thinker_config.audio_config,
-            &device,
-        )
-        .context("load audio encoder")?;
+        let audio_encoder = AudioEncoder::load(&weights, "thinker.audio_tower", &config.thinker_config.audio_config, &device).context("load audio encoder")?;
 
         info!("Loading text decoder...");
-        let text_decoder = TextDecoder::load(
-            &weights,
-            "thinker.model",
-            &config.thinker_config.text_config,
-        )
-        .context("load text decoder")?;
+        let text_decoder = TextDecoder::load(&weights, "thinker.model", &config.thinker_config.text_config).context("load text decoder")?;
 
         let mel_extractor = MelExtractor::new(
             N_FFT,
             HOP_LENGTH,
-            config.thinker_config.audio_config.num_mel_bins,
+            config
+                .thinker_config
+                .audio_config
+                .num_mel_bins,
             MEL_SAMPLE_RATE,
         );
 
-        let inner = AsrInferenceInner { audio_encoder, text_decoder, mel_extractor, tokenizer, config, device };
-        Ok(AsrInference { inner: Mutex::new(inner) })
+        let inner = AsrInferenceInner {
+            audio_encoder,
+            text_decoder,
+            mel_extractor,
+            tokenizer,
+            config,
+            device,
+        };
+        Ok(AsrInference {
+            inner: Mutex::new(inner),
+        })
     }
 
     /// Transcribe from a WAV file path.
-    pub fn transcribe(
-        &self,
-        audio_path: &str,
-        options: TranscribeOptions,
-    ) -> crate::qwen3asr::Result<TranscribeResult> {
+    pub fn transcribe(&self, audio_path: &str, options: TranscribeOptions) -> crate::qwen3asr::Result<TranscribeResult> {
         info!("Loading audio: {}", audio_path);
         let samples = load_audio_wav(audio_path, MEL_SAMPLE_RATE)?;
         info!("Audio: {} samples @ {}Hz", samples.len(), MEL_SAMPLE_RATE);
-        let inner = self.inner.lock()
+        let inner = self
+            .inner
+            .lock()
             .map_err(|_| AsrError::Inference(anyhow::anyhow!("mutex poisoned")))?;
-        inner.run_inference(&samples, &options).map_err(AsrError::Inference)
+        inner
+            .run_inference(&samples, &options)
+            .map_err(AsrError::Inference)
     }
 
     /// Transcribe directly from pre-loaded 16 kHz f32 samples.
-    pub fn transcribe_samples(
-        &self,
-        samples: &[f32],
-        options: TranscribeOptions,
-    ) -> crate::qwen3asr::Result<TranscribeResult> {
-        let inner = self.inner.lock()
+    pub fn transcribe_samples(&self, samples: &[f32], options: TranscribeOptions) -> crate::qwen3asr::Result<TranscribeResult> {
+        let inner = self
+            .inner
+            .lock()
             .map_err(|_| AsrError::Inference(anyhow::anyhow!("mutex poisoned")))?;
-        inner.run_inference(samples, &options).map_err(AsrError::Inference)
+        inner
+            .run_inference(samples, &options)
+            .map_err(AsrError::Inference)
     }
 }
 
 impl AsrInferenceInner {
-    pub(crate) fn run_inference(
-        &self,
-        samples: &[f32],
-        options: &TranscribeOptions,
-    ) -> anyhow::Result<TranscribeResult> {
+    pub(crate) fn run_inference(&self, samples: &[f32], options: &TranscribeOptions) -> anyhow::Result<TranscribeResult> {
         let audio_embeds = self.encode_audio(samples)?;
-        let generated_ids = self.generate(
-            &audio_embeds,
-            options.language.as_deref(),
-            options.system_prompt.as_deref(),
-            options.prefix_text.as_deref(),
-            options.max_new_tokens,
-        )?;
+        let generated_ids = self.generate(&audio_embeds, options.language.as_deref(), options.system_prompt.as_deref(), options.prefix_text.as_deref(), options.max_new_tokens)?;
         self.decode_result(&generated_ids, options.language.as_deref())
     }
 
@@ -246,54 +245,32 @@ impl AsrInferenceInner {
     /// generates continuation tokens after them.
     ///
     /// Returns the raw generated token IDs (not including prompt/prefix tokens).
-    pub(crate) fn generate(
-        &self,
-        audio_embeds: &Tensor,
-        language: Option<&str>,
-        system_prompt: Option<&str>,
-        prefix_text: Option<&str>,
-        max_new_tokens: usize,
-    ) -> anyhow::Result<Vec<u32>> {
+    pub(crate) fn generate(&self, audio_embeds: &Tensor, language: Option<&str>, system_prompt: Option<&str>, prefix_text: Option<&str>, max_new_tokens: usize) -> anyhow::Result<Vec<u32>> {
         let num_audio_tokens = audio_embeds.dims()[0];
 
         // Build prompt token IDs (with optional system prompt and prefix)
-        let (input_ids, audio_start_pos) =
-            self.build_prompt(num_audio_tokens, language, system_prompt, prefix_text)?;
+        let (input_ids, audio_start_pos) = self.build_prompt(num_audio_tokens, language, system_prompt, prefix_text)?;
         let seq_len = input_ids.len();
 
         // Build embeddings, inject audio at the audio pad positions
         let before_ids: Vec<i64> = input_ids[..audio_start_pos].to_vec();
         let after_ids: Vec<i64> = input_ids[audio_start_pos + num_audio_tokens..].to_vec();
 
-        let before_t =
-            Tensor::from_vec(before_ids, (audio_start_pos,), &self.device)?.to_dtype(DType::U32)?;
-        let after_t = Tensor::from_vec(
-            after_ids,
-            (input_ids.len() - audio_start_pos - num_audio_tokens,),
-            &self.device,
-        )?
-        .to_dtype(DType::U32)?;
+        let before_t = Tensor::from_vec(before_ids, (audio_start_pos,), &self.device)?.to_dtype(DType::U32)?;
+        let after_t = Tensor::from_vec(after_ids, (input_ids.len() - audio_start_pos - num_audio_tokens,), &self.device)?.to_dtype(DType::U32)?;
 
         let before_emb = self.text_decoder.embed(&before_t)?;
         let after_emb = self.text_decoder.embed(&after_t)?;
         let audio_emb = audio_embeds.to_dtype(before_emb.dtype())?;
 
-        let hidden_states =
-            Tensor::cat(&[&before_emb, &audio_emb, &after_emb], 0)?.unsqueeze(0)?;
+        let hidden_states = Tensor::cat(&[&before_emb, &audio_emb, &after_emb], 0)?.unsqueeze(0)?;
 
         // Precompute MRoPE cos/sin table
         let text_cfg = &self.config.thinker_config.text_config;
         let total_positions = seq_len + max_new_tokens;
         let all_pos: Vec<i64> = (0..total_positions as i64).collect();
         let full_ids: [Vec<i64>; 3] = [all_pos.clone(), all_pos.clone(), all_pos.clone()];
-        let (cos_table, sin_table) = compute_mrope_cos_sin(
-            &full_ids,
-            text_cfg.head_dim,
-            text_cfg.rope_theta,
-            &text_cfg.mrope_section(),
-            text_cfg.mrope_interleaved(),
-            &self.device,
-        )?;
+        let (cos_table, sin_table) = compute_mrope_cos_sin(&full_ids, text_cfg.head_dim, text_cfg.rope_theta, &text_cfg.mrope_section(), text_cfg.mrope_interleaved(), &self.device)?;
 
         let cos = cos_table.narrow(0, 0, seq_len)?;
         let sin = sin_table.narrow(0, 0, seq_len)?;
@@ -302,23 +279,23 @@ impl AsrInferenceInner {
         let mask = create_causal_mask(seq_len, 0, &self.device)?;
         let mut kv_cache = KvCache::new(text_cfg.num_hidden_layers);
 
-        let logits = self.text_decoder.forward(
-            &hidden_states,
-            &cos,
-            &sin,
-            &mut kv_cache,
-            Some(&mask),
-        )?;
+        let logits = self
+            .text_decoder
+            .forward(&hidden_states, &cos, &sin, &mut kv_cache, Some(&mask))?;
 
         // Autoregressive generation
         let mut generated_ids: Vec<u32> = Vec::new();
         let eos_ids: &[i64] = &[ENDOFTEXT_TOKEN_ID, IM_END_TOKEN_ID];
 
-        let mut next_logits = logits.narrow(1, seq_len - 1, 1)?.squeeze(1)?;
+        let mut next_logits = logits
+            .narrow(1, seq_len - 1, 1)?
+            .squeeze(1)?;
         let mut current_pos = seq_len;
 
         for step_idx in 0..max_new_tokens {
-            let next_token = next_logits.argmax(1)?.to_vec1::<u32>()?[0];
+            let next_token = next_logits
+                .argmax(1)?
+                .to_vec1::<u32>()?[0];
 
             if log::log_enabled!(log::Level::Debug) {
                 let logits_f32 = next_logits.to_dtype(candle_core::DType::F32)?;
@@ -334,12 +311,7 @@ impl AsrInferenceInner {
                     .take(10)
                     .map(|(score, tok)| format!("{}({:.2})", tok, score))
                     .collect();
-                debug!(
-                    "  step {:2}: top10 = {}  chosen={}",
-                    step_idx,
-                    top10.join(" "),
-                    next_token
-                );
+                debug!("  step {:2}: top10 = {}  chosen={}", step_idx, top10.join(" "), next_token);
             }
 
             if eos_ids.contains(&(next_token as i64)) {
@@ -348,9 +320,11 @@ impl AsrInferenceInner {
 
             generated_ids.push(next_token);
 
-            let next_id_t =
-                Tensor::from_vec(vec![next_token], (1,), &self.device)?;
-            let next_emb = self.text_decoder.embed(&next_id_t)?.unsqueeze(0)?;
+            let next_id_t = Tensor::from_vec(vec![next_token], (1,), &self.device)?;
+            let next_emb = self
+                .text_decoder
+                .embed(&next_id_t)?
+                .unsqueeze(0)?;
 
             let new_cos = cos_table.narrow(0, current_pos, 1)?;
             let new_sin = sin_table.narrow(0, current_pos, 1)?;
@@ -358,13 +332,9 @@ impl AsrInferenceInner {
             let past_len = kv_cache.seq_len();
             let step_mask = create_causal_mask(1, past_len, &self.device)?;
 
-            let step_logits = self.text_decoder.forward(
-                &next_emb,
-                &new_cos,
-                &new_sin,
-                &mut kv_cache,
-                Some(&step_mask),
-            )?;
+            let step_logits = self
+                .text_decoder
+                .forward(&next_emb, &new_cos, &new_sin, &mut kv_cache, Some(&step_mask))?;
 
             next_logits = step_logits.squeeze(1)?;
             current_pos += 1;
@@ -375,11 +345,7 @@ impl AsrInferenceInner {
     }
 
     /// Decode generated token IDs into a TranscribeResult.
-    pub(crate) fn decode_result(
-        &self,
-        generated_ids: &[u32],
-        language: Option<&str>,
-    ) -> anyhow::Result<TranscribeResult> {
+    pub(crate) fn decode_result(&self, generated_ids: &[u32], language: Option<&str>) -> anyhow::Result<TranscribeResult> {
         let raw_text = self
             .tokenizer
             .decode(generated_ids, true)
@@ -387,8 +353,9 @@ impl AsrInferenceInner {
 
         let (lang, text) = if language.is_some() {
             ("forced".to_string(), raw_text.trim().to_string())
-        } else if let Some(sep_pos) =
-            generated_ids.iter().position(|&id| id == ASR_TEXT_SEP_TOKEN_ID)
+        } else if let Some(sep_pos) = generated_ids
+            .iter()
+            .position(|&id| id == ASR_TEXT_SEP_TOKEN_ID)
         {
             let lang_ids: Vec<u32> = generated_ids[..sep_pos].to_vec();
             let text_ids: Vec<u32> = generated_ids[sep_pos + 1..].to_vec();
@@ -400,13 +367,20 @@ impl AsrInferenceInner {
                 .tokenizer
                 .decode(&text_ids, true)
                 .map_err(|e| anyhow::anyhow!("decode text: {}", e))?;
-            let lang =
-                lang_raw.strip_prefix("language ").unwrap_or(&lang_raw).trim().to_string();
+            let lang = lang_raw
+                .strip_prefix("language ")
+                .unwrap_or(&lang_raw)
+                .trim()
+                .to_string();
             (lang, text_raw.trim().to_string())
         } else {
             parse_asr_output(&raw_text, false)
         };
-        Ok(TranscribeResult { text, language: lang, raw_output: raw_text })
+        Ok(TranscribeResult {
+            text,
+            language: lang,
+            raw_output: raw_text,
+        })
     }
 
     /// Encode text into token IDs using the tokenizer.
@@ -433,20 +407,10 @@ impl AsrInferenceInner {
     ///   <|im_start|>system\n[{system_prompt}\n]<|im_end|>\n
     ///   <|im_start|>user\n<|audio_start|>[audio tokens]<|audio_end|>
     ///   <|im_end|>\n<|im_start|>assistant\n[language][prefix_text]
-    pub(crate) fn build_prompt(
-        &self,
-        num_audio_tokens: usize,
-        language: Option<&str>,
-        system_prompt: Option<&str>,
-        prefix_text: Option<&str>,
-    ) -> anyhow::Result<(Vec<i64>, usize)> {
+    pub(crate) fn build_prompt(&self, num_audio_tokens: usize, language: Option<&str>, system_prompt: Option<&str>, prefix_text: Option<&str>) -> anyhow::Result<(Vec<i64>, usize)> {
         let cfg = &self.config.thinker_config;
         // ── system turn ──
-        let mut tokens: Vec<i64> = vec![
-            TOK_IM_START,
-            TOK_SYSTEM,
-            TOK_NEWLINE,
-        ];
+        let mut tokens: Vec<i64> = vec![TOK_IM_START, TOK_SYSTEM, TOK_NEWLINE];
 
         // Inject system prompt context (e.g. "the audio is a News")
         // placed between system\n and <|im_end|>, matching qwenasr behaviour.
@@ -477,12 +441,7 @@ impl AsrInferenceInner {
         let audio_start_pos = tokens.len();
         tokens.extend(std::iter::repeat_n(cfg.audio_token_id, num_audio_tokens));
 
-        tokens.extend_from_slice(&[
-            cfg.audio_end_token_id,
-            TOK_IM_END,
-            TOK_NEWLINE,
-            TOK_IM_START,
-        ]);
+        tokens.extend_from_slice(&[cfg.audio_end_token_id, TOK_IM_END, TOK_NEWLINE, TOK_IM_START]);
 
         // ── assistant turn ──
         if let Some(lang) = language {
@@ -493,7 +452,11 @@ impl AsrInferenceInner {
                 .tokenizer
                 .encode(prefix.as_str(), false)
                 .map_err(|e| anyhow::anyhow!("encode: {}", e))?;
-            tokens.extend(enc.get_ids().iter().map(|&id| id as i64));
+            tokens.extend(
+                enc.get_ids()
+                    .iter()
+                    .map(|&id| id as i64),
+            );
         } else {
             tokens.push(TOK_ASSISTANT);
             tokens.push(TOK_NEWLINE);
@@ -506,7 +469,11 @@ impl AsrInferenceInner {
                     .tokenizer
                     .encode(prefix, false)
                     .map_err(|e| anyhow::anyhow!("encode prefix: {}", e))?;
-                tokens.extend(enc.get_ids().iter().map(|&id| id as i64));
+                tokens.extend(
+                    enc.get_ids()
+                        .iter()
+                        .map(|&id| id as i64),
+                );
             }
         }
 
@@ -522,7 +489,9 @@ fn parse_asr_output(raw: &str, language_forced: bool) -> (String, String) {
     if let Some(rest) = raw.strip_prefix("language ") {
         if let Some(pos) = rest.find("<asr_text>") {
             let lang = rest[..pos].trim().to_string();
-            let text = rest[pos + "<asr_text>".len()..].trim().to_string();
+            let text = rest[pos + "<asr_text>".len()..]
+                .trim()
+                .to_string();
             return (lang, text);
         }
         // Find first non-alphabetic char to split lang from text
@@ -574,9 +543,7 @@ fn maybe_convert_weights_for_cpu(weights: &mut HashMap<String, Tensor>, device: 
         }
     }
     if converted > 0 {
-        info!(
-            "Converted {converted} weight tensors from BF16/F16 to F32 for CPU inference"
-        );
+        info!("Converted {converted} weight tensors from BF16/F16 to F32 for CPU inference");
     }
 }
 
@@ -588,35 +555,24 @@ fn load_tokenizer(model_dir: Option<&str>) -> anyhow::Result<tokenizers::Tokeniz
     let tokenizer_json = load_or_download(QWEN3_ASR_MODEL_ID, model_dir, "tokenizer.json");
     if tokenizer_json.exists() {
         info!("Loading tokenizer from tokenizer.json");
-        return tokenizers::Tokenizer::from_file(&tokenizer_json)
-            .map_err(|e| anyhow::anyhow!("failed to load tokenizer.json: {}", e));
+        return tokenizers::Tokenizer::from_file(&tokenizer_json).map_err(|e| anyhow::anyhow!("failed to load tokenizer.json: {}", e));
     }
 
     let vocab_path = load_or_download(QWEN3_ASR_MODEL_ID, model_dir, "vocab.json");
     let merges_path = load_or_download(QWEN3_ASR_MODEL_ID, model_dir, "merges.txt");
     if vocab_path.exists() && merges_path.exists() {
         info!("Loading tokenizer from vocab.json + merges.txt");
-        let bpe = tokenizers::models::bpe::BPE::from_file(
-            vocab_path.to_str().unwrap(),
-            merges_path.to_str().unwrap(),
-        )
-        .build()
-        .map_err(|e| anyhow::anyhow!("failed to build BPE: {}", e))?;
+        let bpe = tokenizers::models::bpe::BPE::from_file(vocab_path.to_str().unwrap(), merges_path.to_str().unwrap())
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to build BPE: {}", e))?;
 
         let mut tokenizer = tokenizers::Tokenizer::new(bpe);
-        tokenizer.with_pre_tokenizer(Some(
-            tokenizers::pre_tokenizers::byte_level::ByteLevel::default().add_prefix_space(false),
-        ));
-        tokenizer.with_decoder(Some(
-            tokenizers::decoders::byte_level::ByteLevel::default(),
-        ));
+        tokenizer.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::byte_level::ByteLevel::default().add_prefix_space(false)));
+        tokenizer.with_decoder(Some(tokenizers::decoders::byte_level::ByteLevel::default()));
         return Ok(tokenizer);
     }
 
-    anyhow::bail!(
-        "No tokenizer found in {:?}: expected tokenizer.json or vocab.json+merges.txt",
-        model_dir
-    )
+    anyhow::bail!("No tokenizer found in {:?}: expected tokenizer.json or vocab.json+merges.txt", model_dir)
 }
 
 fn load_weights(model_dir: &Path, device: &Device) -> anyhow::Result<HashMap<String, Tensor>> {
@@ -660,11 +616,7 @@ mod tests {
         let bf16 = Tensor::zeros((2, 2), DType::BF16, &device).unwrap();
         let f32_ = Tensor::zeros((2, 2), DType::F32, &device).unwrap();
         let f16 = Tensor::zeros((2, 2), DType::F16, &device).unwrap();
-        let mut weights = HashMap::from([
-            ("a".to_string(), bf16),
-            ("b".to_string(), f32_),
-            ("c".to_string(), f16),
-        ]);
+        let mut weights = HashMap::from([("a".to_string(), bf16), ("b".to_string(), f32_), ("c".to_string(), f16)]);
         maybe_convert_weights_for_cpu(&mut weights, &device);
         assert_eq!(weights["a"].dtype(), DType::F32);
         assert_eq!(weights["b"].dtype(), DType::F32);

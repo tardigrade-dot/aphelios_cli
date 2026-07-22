@@ -124,8 +124,16 @@ mod tests {
         let output = snake.forward(&input).unwrap();
 
         // Output should be >= input (since we're adding a non-negative term)
-        let input_sum: f32 = input.sum_all().unwrap().to_scalar().unwrap();
-        let output_sum: f32 = output.sum_all().unwrap().to_scalar().unwrap();
+        let input_sum: f32 = input
+            .sum_all()
+            .unwrap()
+            .to_scalar()
+            .unwrap();
+        let output_sum: f32 = output
+            .sum_all()
+            .unwrap()
+            .to_scalar()
+            .unwrap();
 
         // sin²(x) is always >= 0, so output >= input
         assert!(output_sum >= input_sum - 0.01);

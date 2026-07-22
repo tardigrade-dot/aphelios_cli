@@ -19,7 +19,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use hf_hub::api::sync::Api;
+use hf_hub::HFClientSync;
 use std::path::PathBuf;
 
 /// Default HuggingFace model IDs for Qwen3-TTS components.
@@ -56,7 +56,7 @@ impl ModelPaths {
     ///
     /// * `model_id` - Optional custom model ID for the main talker model
     pub fn download(model_id: Option<&str>) -> Result<Self> {
-        let api = Api::new().context("Failed to create HuggingFace API")?;
+        let client = HFClientSync::new().context("Failed to create HuggingFace API")?;
 
         let talker_id = model_id.unwrap_or(model_ids::TALKER);
 
@@ -64,32 +64,37 @@ impl ModelPaths {
 
         // Download main model
         tracing::info!("  Downloading talker model: {}", talker_id);
-        let talker_repo = api.model(talker_id.to_string());
+        let (talker_owner, talker_name) = hf_hub::split_id(talker_id);
+        let talker_repo = client.model(talker_owner, talker_name);
         let model_weights = talker_repo
-            .get("model.safetensors")
+            .download_file()
+            .filename("model.safetensors")
+            .send()
             .context("Failed to download model.safetensors")?;
         let config = talker_repo
-            .get("config.json")
+            .download_file()
+            .filename("config.json")
+            .send()
             .context("Failed to download config.json")?;
 
         // Download speech tokenizer (decoder)
-        tracing::info!(
-            "  Downloading speech tokenizer: {}",
-            model_ids::SPEECH_TOKENIZER
-        );
-        let st_repo = api.model(model_ids::SPEECH_TOKENIZER.to_string());
+        tracing::info!("  Downloading speech tokenizer: {}", model_ids::SPEECH_TOKENIZER);
+        let (st_owner, st_name) = hf_hub::split_id(model_ids::SPEECH_TOKENIZER);
+        let st_repo = client.model(st_owner, st_name);
         let decoder_weights = st_repo
-            .get("model.safetensors")
+            .download_file()
+            .filename("model.safetensors")
+            .send()
             .context("Failed to download speech tokenizer")?;
 
         // Download text tokenizer
-        tracing::info!(
-            "  Downloading text tokenizer: {}",
-            model_ids::TEXT_TOKENIZER
-        );
-        let tok_repo = api.model(model_ids::TEXT_TOKENIZER.to_string());
+        tracing::info!("  Downloading text tokenizer: {}", model_ids::TEXT_TOKENIZER);
+        let (tok_owner, tok_name) = hf_hub::split_id(model_ids::TEXT_TOKENIZER);
+        let tok_repo = client.model(tok_owner, tok_name);
         let tokenizer = tok_repo
-            .get("tokenizer.json")
+            .download_file()
+            .filename("tokenizer.json")
+            .send()
             .context("Failed to download tokenizer.json")?;
 
         tracing::info!("Download complete!");
@@ -109,32 +114,40 @@ impl ModelPaths {
     /// * `model_id` - Model ID on HuggingFace Hub
     /// * `revision` - Git revision (branch, tag, or commit hash)
     pub fn download_revision(model_id: &str, revision: &str) -> Result<Self> {
-        let api = Api::new().context("Failed to create HuggingFace API")?;
+        let client = HFClientSync::new().context("Failed to create HuggingFace API")?;
 
         tracing::info!("Downloading {} @ {}", model_id, revision);
 
-        let talker_repo = api.repo(hf_hub::Repo::with_revision(
-            model_id.to_string(),
-            hf_hub::RepoType::Model,
-            revision.to_string(),
-        ));
-
+        let (talker_owner, talker_name) = hf_hub::split_id(model_id);
+        let talker_repo = client.model(talker_owner, talker_name);
         let model_weights = talker_repo
-            .get("model.safetensors")
+            .download_file()
+            .filename("model.safetensors")
+            .revision(revision)
+            .send()
             .context("Failed to download model.safetensors")?;
         let config = talker_repo
-            .get("config.json")
+            .download_file()
+            .filename("config.json")
+            .revision(revision)
+            .send()
             .context("Failed to download config.json")?;
 
         // Speech tokenizer and text tokenizer use main branch
-        let st_repo = api.model(model_ids::SPEECH_TOKENIZER.to_string());
+        let (st_owner, st_name) = hf_hub::split_id(model_ids::SPEECH_TOKENIZER);
+        let st_repo = client.model(st_owner, st_name);
         let decoder_weights = st_repo
-            .get("model.safetensors")
+            .download_file()
+            .filename("model.safetensors")
+            .send()
             .context("Failed to download speech tokenizer")?;
 
-        let tok_repo = api.model(model_ids::TEXT_TOKENIZER.to_string());
+        let (tok_owner, tok_name) = hf_hub::split_id(model_ids::TEXT_TOKENIZER);
+        let tok_repo = client.model(tok_owner, tok_name);
         let tokenizer = tok_repo
-            .get("tokenizer.json")
+            .download_file()
+            .filename("tokenizer.json")
+            .send()
             .context("Failed to download tokenizer.json")?;
 
         Ok(Self {

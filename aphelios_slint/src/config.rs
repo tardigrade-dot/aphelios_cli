@@ -88,13 +88,7 @@ impl AppSettings {
     }
 
     /// 更新并保存 TTS 设置
-    pub fn update_tts_settings(
-        &mut self,
-        model_path: Option<&str>,
-        output_path: Option<&str>,
-        ref_audio: Option<&str>,
-        ref_text: Option<&str>,
-    ) {
+    pub fn update_tts_settings(&mut self, model_path: Option<&str>, output_path: Option<&str>, ref_audio: Option<&str>, ref_text: Option<&str>) {
         if let Some(path) = model_path {
             self.tts_model_path = Some(path.to_string());
         }
@@ -111,12 +105,7 @@ impl AppSettings {
     }
 
     /// 更新并保存 SRT 设置
-    pub fn update_srt_settings(
-        &mut self,
-        model_path: Option<&str>,
-        min_segment_length: Option<i32>,
-        max_segment_length: Option<i32>,
-    ) {
+    pub fn update_srt_settings(&mut self, model_path: Option<&str>, min_segment_length: Option<i32>, max_segment_length: Option<i32>) {
         if let Some(path) = model_path {
             self.srt_model_path = Some(path.to_string());
         }
@@ -126,12 +115,7 @@ impl AppSettings {
     }
 
     /// 更新并保存 Demucs 设置
-    pub fn update_demucs_settings(
-        &mut self,
-        model_path: Option<&str>,
-        output_dir: Option<&str>,
-        separation_mode: Option<&str>,
-    ) {
+    pub fn update_demucs_settings(&mut self, model_path: Option<&str>, output_dir: Option<&str>, separation_mode: Option<&str>) {
         if let Some(path) = model_path {
             self.demucs_model_path = Some(path.to_string());
         }

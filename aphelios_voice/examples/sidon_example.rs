@@ -4,11 +4,11 @@ use aphelios_voice::voiceclear::sidon::SidonPipeline;
 use aphelios_voice::voiceclear::{preprocess, wav};
 use clap::Parser;
 use serde::Serialize;
-use tracing::info;
 use std::path::PathBuf;
 use std::time::Instant;
+use tracing::info;
 
-// cargo run -p aphelios_voice --features metal,profiling --example sidon_example -- -i /Users/larry/coderesp/aphelios_cli/aphelios_voice/test_data/mQlxALUw3h4-12s-16k.wav -m /Volumes/sw/pretrained_models/voice-clear
+// cargo run -p aphelios_voice --features metal,profiling --example sidon_example -- -i /Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.wav -m /Volumes/sw/pretrained_models/voice-clear
 // cargo run -p aphelios_voice --example sidon_example -- -i /Users/larry/coderesp/aphelios_cli/aphelios_voice/test_data/mQlxALUw3h4-12s-16k.wav -m /Volumes/sw/pretrained_models/voice-clear
 #[derive(Parser, Debug, Serialize)]
 #[command(name = "voice-clear", about = "Speech enhancement via ONNX Runtime")]
@@ -38,9 +38,19 @@ fn main() -> Result<()> {
     // println!("当前运行参数配置 (JSON)：\n{}", json_str);
 
     let output = cli.output.unwrap_or_else(|| {
-        let stem = cli.input.file_stem().unwrap().to_str().unwrap();
-        let ext = cli.input.extension().and_then(|s| s.to_str()).unwrap_or("wav");
-        cli.input.with_file_name(format!("{stem}.enhanced.{ext}"))
+        let stem = cli
+            .input
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let ext = cli
+            .input
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("wav");
+        cli.input
+            .with_file_name(format!("{stem}.enhanced.{ext}"))
     });
 
     info!("Enhancing [{}]", cli.input.display());
@@ -58,11 +68,7 @@ fn main() -> Result<()> {
 
     let elapsed = t0.elapsed();
     let out_dur = out_audio.len() as f32 / 48_000.0;
-    info!(
-        "Enhanced[Only model infer] {:.1}s in {:.1}s ({:.0}x realtime)",
-        out_dur, elapsed.as_secs_f64(),
-        out_dur as f64 / elapsed.as_secs_f64()
-    );
+    info!("Enhanced[Only model infer] {:.1}s in {:.1}s ({:.0}x realtime)", out_dur, elapsed.as_secs_f64(), out_dur as f64 / elapsed.as_secs_f64());
 
     wav::write_wav(&output, &out_audio, 48_000)?;
 

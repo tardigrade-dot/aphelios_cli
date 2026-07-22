@@ -31,13 +31,7 @@ pub struct VadConfig {
 }
 
 impl VadConfig {
-    pub fn new(
-        threshold: f32,
-        min_silence_ms: f32,
-        min_speech_ms: f32,
-        speech_pad_ms: f32,
-        merge_gap_ms: f32,
-    ) -> Self {
+    pub fn new(threshold: f32, min_silence_ms: f32, min_speech_ms: f32, speech_pad_ms: f32, merge_gap_ms: f32) -> Self {
         Self {
             threshold,
             min_silence_ms,
@@ -65,13 +59,7 @@ impl Default for VadConfig {
 
 impl VadConfig {
     /// Create a config optimized for SenseVoice-style usage (sample-index based).
-    pub fn for_sensevoice(
-        threshold: f32,
-        min_silence_ms: f32,
-        min_speech_ms: f32,
-        speech_pad_ms: f32,
-        merge_gap_ms: f32,
-    ) -> Self {
+    pub fn for_sensevoice(threshold: f32, min_silence_ms: f32, min_speech_ms: f32, speech_pad_ms: f32, merge_gap_ms: f32) -> Self {
         Self {
             threshold,
             min_silence_ms,
@@ -113,38 +101,21 @@ pub struct SileroVadEngine {
 }
 
 impl SileroVadEngine {
-    pub fn new<P: AsRef<Path>>(
-        model_path: P,
-        sample_rate: usize,
-        intra_threads: usize,
-        config: VadConfig,
-    ) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(model_path: P, sample_rate: usize, intra_threads: usize, config: VadConfig) -> Result<Self> {
         let window_size = match sample_rate {
             8000 => 256,
             16000 => 512,
             32000 => 1024,
             44100 | 48000 => 1536,
-            other => {
-                return Err(anyhow!(
-                    "unsupported sample rate {} for Silero VAD (expected 8k/16k/32k/44.1k/48k)",
-                    other
-                ))
-            }
+            other => return Err(anyhow!("unsupported sample rate {} for Silero VAD (expected 8k/16k/32k/44.1k/48k)", other)),
         };
 
-        let session = build_session_with_ort_cache(model_path.as_ref(), intra_threads)
-            .with_context(|| {
-                format!(
-                    "prepare Silero VAD session for {}",
-                    model_path.as_ref().display()
-                )
-            })?;
+        let session = build_session_with_ort_cache(model_path.as_ref(), intra_threads).with_context(|| format!("prepare Silero VAD session for {}", model_path.as_ref().display()))?;
 
         let state = Array3::<f32>::zeros((2, 1, 128));
         let sanitized_config = sanitize_config(config);
         let threshold = sanitized_config.threshold;
-        let min_silence_samples =
-            ms_to_samples(sanitized_config.min_silence_ms, sample_rate).max(1);
+        let min_silence_samples = ms_to_samples(sanitized_config.min_silence_ms, sample_rate).max(1);
         let min_speech_samples = ms_to_samples(sanitized_config.min_speech_ms, sample_rate).max(1);
         let speech_pad_samples = ms_to_samples(sanitized_config.speech_pad_ms, sample_rate);
         let merge_gap_samples = ms_to_samples(sanitized_config.merge_gap_ms, sample_rate);
@@ -227,7 +198,10 @@ impl SileroVadEngine {
             let end = (i + ws / 2).min(raw_probs.len() - 1);
             let window = &raw_probs[start..=end];
 
-            let active_count = window.iter().filter(|&&p| p >= self.threshold).count();
+            let active_count = window
+                .iter()
+                .filter(|&&p| p >= self.threshold)
+                .count();
             let ratio = active_count as f32 / window.len() as f32;
 
             if ratio >= self.config.window_threshold {
@@ -261,7 +235,9 @@ impl SileroVadEngine {
                 silence_frames += 1;
                 if silence_frames >= max_silence_frames {
                     triggered = false;
-                    let end_frame = i.saturating_sub(silence_frames).saturating_add(1);
+                    let end_frame = i
+                        .saturating_sub(silence_frames)
+                        .saturating_add(1);
                     // Convert frames to sample indices with padding
                     let start_sample = speech_start_frame
                         .saturating_sub(self.speech_pad_samples / self.window_size)
@@ -331,10 +307,8 @@ impl SileroVadEngine {
         let sample_rate = Array1::<i64>::from(vec![self.sample_rate as i64]);
 
         let input_value = Value::from_array(input).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let sr_value =
-            Value::from_array(sample_rate).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let state_value =
-            Value::from_array(self.state.clone()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let sr_value = Value::from_array(sample_rate).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let state_value = Value::from_array(self.state.clone()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
 
         let inputs = ort::inputs![
             "input" => input_value,
@@ -359,14 +333,7 @@ impl SileroVadEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow!("ORT extract tensor error: {e}"))?;
 
-        let state_array = Array3::<f32>::from_shape_vec(
-            (
-                state_shape[0] as usize,
-                state_shape[1] as usize,
-                state_shape[2] as usize,
-            ),
-            state_data.to_vec(),
-        )?;
+        let state_array = Array3::<f32>::from_shape_vec((state_shape[0] as usize, state_shape[1] as usize, state_shape[2] as usize), state_data.to_vec())?;
         self.state.assign(&state_array);
 
         Ok(probability)
@@ -436,8 +403,7 @@ fn build_session_with_ort_cache(model_path: &Path, intra_threads: usize) -> Resu
         .with_intra_threads(intra_threads)
         .map_err(|e| anyhow!("ORT intra threads error: {e}"))?;
 
-    let model_bytes = fs::read(model_path)
-        .with_context(|| format!("read Silero VAD model {}", model_path.display()))?;
+    let model_bytes = fs::read(model_path).with_context(|| format!("read Silero VAD model {}", model_path.display()))?;
     fallback_builder
         .commit_from_memory(&model_bytes)
         .map_err(|e| anyhow!("ORT load model error: {e}"))

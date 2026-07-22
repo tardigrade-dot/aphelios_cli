@@ -80,7 +80,11 @@ impl AudioBuffer {
 
     /// Normalize audio to [-1.0, 1.0] range
     pub fn normalize(&mut self) {
-        let max_abs = self.samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        let max_abs = self
+            .samples
+            .iter()
+            .map(|s| s.abs())
+            .fold(0.0f32, f32::max);
 
         if max_abs > 0.0 && max_abs != 1.0 {
             for sample in &mut self.samples {
@@ -92,7 +96,11 @@ impl AudioBuffer {
     /// Apply peak normalization to a target dB level
     pub fn normalize_db(&mut self, target_db: f32) {
         let target_amplitude = 10.0f32.powf(target_db / 20.0);
-        let max_abs = self.samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        let max_abs = self
+            .samples
+            .iter()
+            .map(|s| s.abs())
+            .fold(0.0f32, f32::max);
 
         if max_abs > 0.0 {
             let scale = target_amplitude / max_abs;
@@ -106,8 +114,7 @@ impl AudioBuffer {
 /// Load a WAV file into an AudioBuffer
 pub fn load_wav<P: AsRef<Path>>(path: P) -> Result<AudioBuffer> {
     let path = path.as_ref();
-    let reader = WavReader::open(path)
-        .with_context(|| format!("Failed to open WAV file: {}", path.display()))?;
+    let reader = WavReader::open(path).with_context(|| format!("Failed to open WAV file: {}", path.display()))?;
 
     let spec = reader.spec();
     let sample_rate = spec.sample_rate;
@@ -150,8 +157,7 @@ pub fn save_wav<P: AsRef<Path>>(path: P, samples: &[f32], sample_rate: u32) -> R
         sample_format: SampleFormat::Int,
     };
 
-    let mut writer = WavWriter::create(path, spec)
-        .with_context(|| format!("Failed to create WAV file: {}", path.display()))?;
+    let mut writer = WavWriter::create(path, spec).with_context(|| format!("Failed to create WAV file: {}", path.display()))?;
 
     for &sample in samples {
         // Clamp to [-1.0, 1.0] and convert to i16
@@ -276,7 +282,11 @@ mod tests {
         assert_eq!(loaded.sample_rate, 24000);
         assert_eq!(loaded.samples.len(), 5);
 
-        for (a, b) in original.samples.iter().zip(loaded.samples.iter()) {
+        for (a, b) in original
+            .samples
+            .iter()
+            .zip(loaded.samples.iter())
+        {
             assert!((a - b).abs() < 1e-4, "sample mismatch: {a} vs {b}");
         }
     }

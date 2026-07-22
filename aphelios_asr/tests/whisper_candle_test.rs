@@ -49,6 +49,8 @@ async fn asr_test() -> Result<()> {
 
     info!("=== ASR Test | audio: {} | lang: {:?} ===", audio, lang);
 
-    let _ = run_whisper_asr(&audio, lang).await.unwrap();
+    let _ = run_whisper_asr(&audio, lang)
+        .await
+        .unwrap();
     Ok(())
 }

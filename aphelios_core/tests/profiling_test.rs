@@ -23,8 +23,7 @@ fn test_chrome_profiling() -> Result<()> {
     // #[cfg(feature = "profiling")]
     let trace_file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("trace_profile.json");
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
 
     let fmt_layer = fmt::layer()
         .with_target(true)
@@ -75,7 +74,9 @@ fn test_chrome_profiling() -> Result<()> {
         }
 
         let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
+        std::io::stdin()
+            .read_line(&mut input)
+            .unwrap();
         info!("input: {}", input);
         info!("外层操作完成");
     } // outer_operation 结束
@@ -94,8 +95,7 @@ fn test_chrome_profiling2() -> Result<()> {
     // 输出文件路径
     #[cfg(feature = "profiling")]
     let subscriber = Registry::default().with(HierarchicalLayer::new(2));
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
     // tracing::subscriber::set_global_default(subscriber).unwrap();
 
     // let fmt_layer = fmt::layer()
@@ -143,7 +143,9 @@ fn test_chrome_profiling2() -> Result<()> {
         }
 
         let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap();
+        std::io::stdin()
+            .read_line(&mut input)
+            .unwrap();
         info!("input: {}", input);
         info!("外层操作完成");
     } // outer_operation 结束

@@ -15,10 +15,16 @@ fn get_log_dir() -> PathBuf {
             // Check if we're running from an .app bundle (macOS)
             #[cfg(target_os = "macos")]
             {
-                if exe_path.to_string_lossy().contains(".app/Contents/MacOS") {
+                if exe_path
+                    .to_string_lossy()
+                    .contains(".app/Contents/MacOS")
+                {
                     // Use ~/Library/Logs for macOS apps
                     if let Some(home) = dirs::home_dir() {
-                        let log_dir = home.join("Library").join("Logs").join("aphelios");
+                        let log_dir = home
+                            .join("Library")
+                            .join("Logs")
+                            .join("aphelios");
                         let _ = fs::create_dir_all(&log_dir);
                         return log_dir;
                     }
@@ -44,8 +50,7 @@ pub fn init_logging() {
     static INIT: std::sync::Once = std::sync::Once::new();
 
     INIT.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
 
         let fmt_layer = fmt::layer()
             .with_target(true)
@@ -60,8 +65,7 @@ pub fn init_logging() {
         let log_file = log_dir.join(format!("aphelios_{}.log", timestamp));
 
         // Try to create file appender, but don't fail if it can't
-        let file_appender =
-            tracing_appender::rolling::never(&log_dir, format!("aphelios_{}.log", timestamp));
+        let file_appender = tracing_appender::rolling::never(&log_dir, format!("aphelios_{}.log", timestamp));
         let file_layer = fmt::layer()
             .with_writer(file_appender)
             .with_target(true)
@@ -120,11 +124,12 @@ pub fn init_chrome_logging() -> Option<tracing_chrome::FlushGuard> {
     use chrono::Local;
     use tracing_chrome::ChromeLayerBuilder;
 
-    let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let ts = Local::now()
+        .format("%Y%m%d_%H%M%S")
+        .to_string();
     let log_dir = get_log_dir();
     let trace_file = log_dir.join(format!("trace_profile_{}.json", ts));
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
 
     let (chrome_layer, guard) = ChromeLayerBuilder::new()
         .include_args(true)
@@ -202,8 +207,7 @@ impl<'a> fmt::MakeWriter<'a> for BroadcastWriter {
 pub fn init_slint_logging() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off,candle_core=off"));
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off,candle_core=off"));
 
         // 1. 标准输出层（带颜色，输出到终端）
         let stdout_layer = fmt::layer()
@@ -228,8 +232,7 @@ pub fn init_slint_logging() {
         let log_file = log_dir.join(format!("aphelios_{}.log", timestamp));
 
         // Try to create file appender, but don't fail if it can't
-        let file_appender =
-            tracing_appender::rolling::never(&log_dir, format!("aphelios_{}.log", timestamp));
+        let file_appender = tracing_appender::rolling::never(&log_dir, format!("aphelios_{}.log", timestamp));
         let file_layer = fmt::layer()
             .with_writer(file_appender)
             .with_target(true)
@@ -266,9 +269,6 @@ pub fn init_slint_logging() {
 
         info!("Logging initialized. Log file: {:?}", log_file);
         #[cfg(feature = "profiling")]
-        info!(
-            "Chrome tracing enabled. Trace file: {:?}",
-            log_dir.join(format!("trace_profile_{}.json", timestamp))
-        );
+        info!("Chrome tracing enabled. Trace file: {:?}", log_dir.join(format!("trace_profile_{}.json", timestamp)));
     });
 }

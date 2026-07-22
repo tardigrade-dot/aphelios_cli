@@ -5,7 +5,6 @@
 //! last-token pooling + L2 normalization to produce embeddings.
 
 use anyhow::{Error as E, Result};
-use aphelios_core::utils::common;
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{kv_cache::ConcatKvCache, ops::softmax_last_dim, Activation, VarBuilder};
 use candle_transformers::{
@@ -17,6 +16,8 @@ use candle_transformers::{
 };
 use std::sync::Arc;
 use tokenizers::Tokenizer;
+
+use crate::utils::common;
 
 /// Load the Harrier embedding model and tokenizer from local path.
 pub struct HarrierEmbedModel {
@@ -51,7 +52,9 @@ impl HarrierEmbedModel {
         // so we strip that prefix when looking up tensors.
         let vb = vb.rename_f(|name| {
             if name.starts_with("model.") {
-                name.strip_prefix("model.").unwrap_or(name).to_string()
+                name.strip_prefix("model.")
+                    .unwrap_or(name)
+                    .to_string()
             } else {
                 name.to_string()
             }
@@ -72,7 +75,10 @@ impl HarrierEmbedModel {
     /// Encode a batch of texts into embeddings.
     pub fn encode(&mut self, texts: Vec<&str>) -> Result<Tensor> {
         // Tokenize with padding (right-pad) and truncation
-        let encoding = self.tokenizer.encode_batch(texts, true).map_err(E::msg)?;
+        let encoding = self
+            .tokenizer
+            .encode_batch(texts, true)
+            .map_err(E::msg)?;
 
         let batch_size = encoding.len();
         let max_len = encoding
@@ -116,13 +122,14 @@ impl HarrierEmbedModel {
 
         // Create tensors: [batch, seq_len]
         let input_ids = Tensor::from_slice(&input_ids, (batch_size, max_len), &self.device)?;
-        let attention_mask =
-            Tensor::from_slice(&attention_mask, (batch_size, max_len), &self.device)?;
+        let attention_mask = Tensor::from_slice(&attention_mask, (batch_size, max_len), &self.device)?;
 
         // Match the Python reference path:
         // model(**batch_dict) with use_cache disabled and an explicit attention mask.
         self.model.clear_kv_cache();
-        let hidden_states = self.model.forward(&input_ids, Some(&attention_mask), 0)?;
+        let hidden_states = self
+            .model
+            .forward(&input_ids, Some(&attention_mask), 0)?;
 
         // Last-token pooling
         let pooled = last_token_pool(&hidden_states, &attention_mask)?;
@@ -206,7 +213,11 @@ impl Qwen3RotaryEmbedding {
         let max_seq_len = cfg.max_position_embeddings;
         let inv_freq: Vec<_> = (0..dim)
             .step_by(2)
-            .map(|i| 1f32 / cfg.rope_theta.powf(i as f64 / dim as f64) as f32)
+            .map(|i| {
+                1f32 / cfg
+                    .rope_theta
+                    .powf(i as f64 / dim as f64) as f32
+            })
             .collect();
         let inv_freq_len = inv_freq.len();
         let inv_freq = Tensor::from_vec(inv_freq, (1, inv_freq_len), dev)?.to_dtype(DType::F32)?;
@@ -220,12 +231,7 @@ impl Qwen3RotaryEmbedding {
         })
     }
 
-    fn apply(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        offset: usize,
-    ) -> candle_core::Result<(Tensor, Tensor)> {
+    fn apply(&self, q: &Tensor, k: &Tensor, offset: usize) -> candle_core::Result<(Tensor, Tensor)> {
         let (_, _, seq_len, _) = q.dims4()?;
         let cos = self.cos.narrow(0, offset, seq_len)?;
         let sin = self.sin.narrow(0, offset, seq_len)?;
@@ -256,7 +262,9 @@ impl Qwen3MLP {
 
 impl Module for Qwen3MLP {
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
-        let lhs = x.apply(&self.gate_proj)?.apply(&self.act_fn)?;
+        let lhs = x
+            .apply(&self.gate_proj)?
+            .apply(&self.act_fn)?;
         let rhs = x.apply(&self.up_proj)?;
         (lhs * rhs)?.apply(&self.down_proj)
     }
@@ -280,11 +288,7 @@ struct Qwen3Attention {
 }
 
 impl Qwen3Attention {
-    fn new(
-        cfg: &Qwen3Config,
-        rotary_emb: Arc<Qwen3RotaryEmbedding>,
-        vb: VarBuilder,
-    ) -> candle_core::Result<Self> {
+    fn new(cfg: &Qwen3Config, rotary_emb: Arc<Qwen3RotaryEmbedding>, vb: VarBuilder) -> candle_core::Result<Self> {
         if cfg.use_sliding_window {
             candle_core::bail!("sliding window is not supported")
         }
@@ -294,30 +298,10 @@ impl Qwen3Attention {
         let num_kv_heads = cfg.num_key_value_heads;
         let num_kv_groups = num_heads / num_kv_heads;
 
-        let q_proj = linear_b(
-            cfg.hidden_size,
-            num_heads * head_dim,
-            cfg.attention_bias,
-            vb.pp("q_proj"),
-        )?;
-        let k_proj = linear_b(
-            cfg.hidden_size,
-            num_kv_heads * head_dim,
-            cfg.attention_bias,
-            vb.pp("k_proj"),
-        )?;
-        let v_proj = linear_b(
-            cfg.hidden_size,
-            num_kv_heads * head_dim,
-            cfg.attention_bias,
-            vb.pp("v_proj"),
-        )?;
-        let o_proj = linear_b(
-            num_heads * head_dim,
-            cfg.hidden_size,
-            cfg.attention_bias,
-            vb.pp("o_proj"),
-        )?;
+        let q_proj = linear_b(cfg.hidden_size, num_heads * head_dim, cfg.attention_bias, vb.pp("q_proj"))?;
+        let k_proj = linear_b(cfg.hidden_size, num_kv_heads * head_dim, cfg.attention_bias, vb.pp("k_proj"))?;
+        let v_proj = linear_b(cfg.hidden_size, num_kv_heads * head_dim, cfg.attention_bias, vb.pp("v_proj"))?;
+        let o_proj = linear_b(num_heads * head_dim, cfg.hidden_size, cfg.attention_bias, vb.pp("o_proj"))?;
 
         let q_norm = RmsNorm::new(head_dim, cfg.rms_norm_eps, vb.pp("q_norm"))?;
         let k_norm = RmsNorm::new(head_dim, cfg.rms_norm_eps, vb.pp("k_norm"))?;
@@ -341,12 +325,7 @@ impl Qwen3Attention {
         })
     }
 
-    fn forward(
-        &mut self,
-        x: &Tensor,
-        attn_mask: Option<&Tensor>,
-        offset: usize,
-    ) -> candle_core::Result<Tensor> {
+    fn forward(&mut self, x: &Tensor, attn_mask: Option<&Tensor>, offset: usize) -> candle_core::Result<Tensor> {
         let (b, l, _) = x.dims3()?;
 
         let q = self.q_proj.forward(x)?;
@@ -402,19 +381,11 @@ struct DecoderLayer {
 }
 
 impl DecoderLayer {
-    fn new(
-        cfg: &Qwen3Config,
-        rotary: Arc<Qwen3RotaryEmbedding>,
-        vb: VarBuilder,
-    ) -> candle_core::Result<Self> {
+    fn new(cfg: &Qwen3Config, rotary: Arc<Qwen3RotaryEmbedding>, vb: VarBuilder) -> candle_core::Result<Self> {
         let self_attn = Qwen3Attention::new(cfg, rotary, vb.pp("self_attn"))?;
         let mlp = Qwen3MLP::new(cfg, vb.pp("mlp"))?;
         let ln1 = RmsNorm::new(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?;
-        let ln2 = RmsNorm::new(
-            cfg.hidden_size,
-            cfg.rms_norm_eps,
-            vb.pp("post_attention_layernorm"),
-        )?;
+        let ln2 = RmsNorm::new(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("post_attention_layernorm"))?;
         Ok(Self {
             self_attn,
             mlp,
@@ -423,14 +394,11 @@ impl DecoderLayer {
         })
     }
 
-    fn forward(
-        &mut self,
-        x: &Tensor,
-        mask: Option<&Tensor>,
-        offset: usize,
-    ) -> candle_core::Result<Tensor> {
+    fn forward(&mut self, x: &Tensor, mask: Option<&Tensor>, offset: usize) -> candle_core::Result<Tensor> {
         let h = self.ln1.forward(x)?;
-        let h = self.self_attn.forward(&h, mask, offset)?;
+        let h = self
+            .self_attn
+            .forward(&h, mask, offset)?;
         let x = (x + h)?;
         let h2 = self.ln2.forward(&x)?;
         let h2 = h2.apply(&self.mlp)?;
@@ -454,8 +422,7 @@ struct Qwen3EmbedModel {
 
 impl Qwen3EmbedModel {
     fn new(cfg: &Qwen3Config, vb: VarBuilder) -> candle_core::Result<Self> {
-        let embed_tokens =
-            candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
+        let embed_tokens = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
         let rotary = Arc::new(Qwen3RotaryEmbedding::new(vb.dtype(), cfg, vb.device())?);
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         let vb_l = vb.pp("model.layers");
@@ -478,18 +445,12 @@ impl Qwen3EmbedModel {
         }
     }
 
-    fn attention_mask(
-        &self,
-        attention_mask: &Tensor,
-        tgt_len: usize,
-        offset: usize,
-    ) -> candle_core::Result<Tensor> {
+    fn attention_mask(&self, attention_mask: &Tensor, tgt_len: usize, offset: usize) -> candle_core::Result<Tensor> {
         let (batch_size, src_len) = attention_mask.dims2()?;
         debug_assert_eq!(src_len, tgt_len + offset);
         let attention_mask = attention_mask.to_vec2::<u32>()?;
         let minf = f32::NEG_INFINITY;
-        let mut mask =
-            Vec::with_capacity(batch_size * self.num_attention_heads * tgt_len * src_len);
+        let mut mask = Vec::with_capacity(batch_size * self.num_attention_heads * tgt_len * src_len);
 
         for row in attention_mask {
             for _head in 0..self.num_attention_heads {
@@ -498,26 +459,20 @@ impl Qwen3EmbedModel {
                     for (j, keep) in row.iter().enumerate() {
                         let causal_ok = j <= q_pos;
                         let key_ok = *keep != 0;
-                        mask.push(if causal_ok && key_ok { 0.0 } else { minf });
+                        mask.push(if causal_ok && key_ok {
+                            0.0
+                        } else {
+                            minf
+                        });
                     }
                 }
             }
         }
 
-        Tensor::from_slice(
-            &mask,
-            (batch_size, self.num_attention_heads, tgt_len, src_len),
-            &self.device,
-        )?
-        .to_dtype(self.dtype)
+        Tensor::from_slice(&mask, (batch_size, self.num_attention_heads, tgt_len, src_len), &self.device)?.to_dtype(self.dtype)
     }
 
-    fn forward(
-        &mut self,
-        input: &Tensor,
-        attention_mask: Option<&Tensor>,
-        offset: usize,
-    ) -> candle_core::Result<Tensor> {
+    fn forward(&mut self, input: &Tensor, attention_mask: Option<&Tensor>, offset: usize) -> candle_core::Result<Tensor> {
         let (batch_size, tgt_len) = input.dims2()?;
         let mut h = self.embed_tokens.forward(input)?;
 
@@ -534,8 +489,7 @@ impl Qwen3EmbedModel {
                     Some(self.attention_mask(&src_attention_mask, tgt_len, offset)?)
                 }
                 None => {
-                    let ones =
-                        Tensor::ones((batch_size, tgt_len + offset), DType::U32, &self.device)?;
+                    let ones = Tensor::ones((batch_size, tgt_len + offset), DType::U32, &self.device)?;
                     Some(self.attention_mask(&ones, tgt_len, offset)?)
                 }
             }

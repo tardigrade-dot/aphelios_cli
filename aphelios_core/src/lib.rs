@@ -14,12 +14,13 @@
 
 pub mod audio;
 pub mod demucs;
+pub mod embed;
+pub mod hub;
 pub mod openai;
+pub mod srt_translator;
 pub mod traits;
 pub mod utils;
-pub mod srt_translator;
 pub mod yt_dlp_downloader;
-pub mod hub;
 
 // 重新导出常用类型
 pub use audio::{AudioLoader, AudioSaver, Resampler};

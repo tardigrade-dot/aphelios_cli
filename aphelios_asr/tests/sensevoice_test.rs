@@ -16,7 +16,6 @@ fn sensevoice_test() -> Result<()> {
         },
     );
 
-    assert!(sv_result.is_ok());
     let result = sv_result.unwrap();
     info!("{}", result.text);
     for ts in result.timestamp {

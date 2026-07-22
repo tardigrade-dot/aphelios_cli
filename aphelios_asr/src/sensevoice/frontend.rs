@@ -39,12 +39,7 @@ impl FeaturePipeline {
     }
 
     pub fn compute_features(&mut self, pcm: &[f32], sample_rate: u32) -> Result<Array2<f32>> {
-        anyhow::ensure!(
-            sample_rate as usize == self.cfg.sample_rate,
-            "expect sample rate {} but got {}",
-            self.cfg.sample_rate,
-            sample_rate
-        );
+        anyhow::ensure!(sample_rate as usize == self.cfg.sample_rate, "expect sample rate {} but got {}", self.cfg.sample_rate, sample_rate);
         if pcm.is_empty() {
             anyhow::bail!("audio length too short for feature extraction");
         }
@@ -53,32 +48,22 @@ impl FeaturePipeline {
         let _ = (self.cfg.frame_length_ms, self.cfg.frame_shift_ms);
         self.scaled_buf.resize(pcm.len(), 0.0);
         let scale = (1 << 15) as f32;
-        for (dst, src) in self.scaled_buf.iter_mut().zip(pcm.iter()) {
+        for (dst, src) in self
+            .scaled_buf
+            .iter_mut()
+            .zip(pcm.iter())
+        {
             *dst = *src * scale;
         }
 
-        let mut result = unsafe {
-            knf_rs_sys::ComputeFbank(
-                self.scaled_buf.as_ptr() as *const c_float,
-                self.scaled_buf.len() as i32,
-            )
-        };
+        let mut result = unsafe { knf_rs_sys::ComputeFbank(self.scaled_buf.as_ptr() as *const c_float, self.scaled_buf.len() as i32) };
 
-        anyhow::ensure!(
-            result.num_bins > 0 && result.num_frames > 0,
-            "fbank extraction failed"
-        );
+        anyhow::ensure!(result.num_bins > 0 && result.num_frames > 0, "fbank extraction failed");
         let frame_count = result.num_frames as usize;
         let mel_bins = result.num_bins as usize;
-        anyhow::ensure!(
-            mel_bins == self.cfg.n_mels,
-            "expected {} mel bins but got {}",
-            self.cfg.n_mels,
-            mel_bins
-        );
+        anyhow::ensure!(mel_bins == self.cfg.n_mels, "expected {} mel bins but got {}", self.cfg.n_mels, mel_bins);
 
-        let fbank_vec =
-            unsafe { std::slice::from_raw_parts(result.frames, frame_count * mel_bins).to_vec() };
+        let fbank_vec = unsafe { std::slice::from_raw_parts(result.frames, frame_count * mel_bins).to_vec() };
         unsafe {
             knf_rs_sys::DestroyFbankResult(&mut result as *mut _);
         }

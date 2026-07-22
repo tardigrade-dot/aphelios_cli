@@ -4,10 +4,7 @@
 
 use anyhow::Result;
 use candle_core::{Module, Tensor, D};
-use candle_nn::{
-    conv1d, conv_transpose1d, linear, rms_norm, Conv1d, Conv1dConfig, ConvTranspose1d,
-    ConvTranspose1dConfig, Linear, RmsNorm, VarBuilder,
-};
+use candle_nn::{conv1d, conv_transpose1d, linear, rms_norm, Conv1d, Conv1dConfig, ConvTranspose1d, ConvTranspose1dConfig, Linear, RmsNorm, VarBuilder};
 
 use super::quantizer::ResidualVectorQuantizer;
 
@@ -54,13 +51,7 @@ pub struct UpsampleBlock {
 }
 
 impl UpsampleBlock {
-    pub fn new(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        stride: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize, stride: usize, vb: VarBuilder) -> Result<Self> {
         let padding = (kernel_size - stride) / 2;
         let config = ConvTranspose1dConfig {
             stride,
@@ -69,13 +60,7 @@ impl UpsampleBlock {
         };
 
         Ok(Self {
-            conv: conv_transpose1d(
-                in_channels,
-                out_channels,
-                kernel_size,
-                config,
-                vb.pp("conv"),
-            )?,
+            conv: conv_transpose1d(in_channels, out_channels, kernel_size, config, vb.pp("conv"))?,
             activation: true,
         })
     }
@@ -122,11 +107,17 @@ impl ResidualBlock {
 
         // Transpose for norm (norm expects [batch, seq, channels])
         let x = x.transpose(1, 2)?;
-        let x = self.norm1.forward(&x)?.transpose(1, 2)?;
+        let x = self
+            .norm1
+            .forward(&x)?
+            .transpose(1, 2)?;
         let x = candle_nn::ops::silu(&self.conv1.forward(&x)?)?;
 
         let x = x.transpose(1, 2)?;
-        let x = self.norm2.forward(&x)?.transpose(1, 2)?;
+        let x = self
+            .norm2
+            .forward(&x)?
+            .transpose(1, 2)?;
         let x = self.conv2.forward(&x)?;
 
         Ok((x + residual)?)
@@ -180,11 +171,16 @@ impl DecoderAttention {
         let q = q.contiguous()?;
         let k = k.contiguous()?;
         let v = v.contiguous()?;
-        let attn = (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * scale)?;
+        let attn = (q.matmul(
+            &k.transpose(D::Minus2, D::Minus1)?
+                .contiguous()?,
+        )? * scale)?;
         let attn = candle_nn::ops::softmax_last_dim(&attn)?;
         let out = attn.matmul(&v)?;
 
-        let out = out.transpose(1, 2)?.reshape((batch, seq_len, hidden))?;
+        let out = out
+            .transpose(1, 2)?
+            .reshape((batch, seq_len, hidden))?;
 
         Ok(self.o_proj.forward(&out)?)
     }
@@ -252,28 +248,15 @@ impl CodecDecoder {
     /// Create new codec decoder
     pub fn new(config: DecoderConfig, vb: VarBuilder) -> Result<Self> {
         // Create quantizer
-        let quantizer = ResidualVectorQuantizer::new(
-            config.num_quantizers,
-            config.codebook_size,
-            config.codebook_dim,
-            vb.pp("quantizer"),
-        )?;
+        let quantizer = ResidualVectorQuantizer::new(config.num_quantizers, config.codebook_size, config.codebook_dim, vb.pp("quantizer"))?;
 
         // Input projection
-        let input_proj = linear(
-            config.codebook_dim * config.num_quantizers,
-            config.hidden_size,
-            vb.pp("input_proj"),
-        )?;
+        let input_proj = linear(config.codebook_dim * config.num_quantizers, config.hidden_size, vb.pp("input_proj"))?;
 
         // Pre-transformer layers
         let mut pre_transformer = Vec::with_capacity(config.num_layers);
         for i in 0..config.num_layers {
-            pre_transformer.push(DecoderTransformerLayer::new(
-                config.hidden_size,
-                config.num_heads,
-                vb.pp(format!("pre_transformer.{}", i)),
-            )?);
+            pre_transformer.push(DecoderTransformerLayer::new(config.hidden_size, config.num_heads, vb.pp(format!("pre_transformer.{}", i)))?);
         }
         let pre_norm = rms_norm(config.hidden_size, 1e-6, vb.pp("pre_norm"))?;
 
@@ -282,24 +265,18 @@ impl CodecDecoder {
         let mut residual_blocks = Vec::new();
         let mut channels = config.hidden_size;
 
-        for (i, &ratio) in config.upsample_ratios.iter().enumerate() {
+        for (i, &ratio) in config
+            .upsample_ratios
+            .iter()
+            .enumerate()
+        {
             let out_channels = channels / 2;
-            upsample_blocks.push(UpsampleBlock::new(
-                channels,
-                out_channels,
-                ratio * 2,
-                ratio,
-                vb.pp(format!("upsample.{}", i)),
-            )?);
+            upsample_blocks.push(UpsampleBlock::new(channels, out_channels, ratio * 2, ratio, vb.pp(format!("upsample.{}", i)))?);
 
             // Residual blocks after each upsample
             let mut res_blocks = Vec::new();
             for j in 0..3 {
-                res_blocks.push(ResidualBlock::new(
-                    out_channels,
-                    7,
-                    vb.pp(format!("residual.{}.{}", i, j)),
-                )?);
+                res_blocks.push(ResidualBlock::new(out_channels, 7, vb.pp(format!("residual.{}.{}", i, j)))?);
             }
             residual_blocks.push(res_blocks);
             channels = out_channels;

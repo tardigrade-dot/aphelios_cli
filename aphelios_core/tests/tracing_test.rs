@@ -6,8 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 #[test]
 fn test_test() -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=off,h2=off,hyper=off"));
 
     let fmt_layer = fmt::layer()
         .with_target(true)

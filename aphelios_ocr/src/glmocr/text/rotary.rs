@@ -20,7 +20,10 @@ impl TextRotaryEmbedding {
             inv_freq_data[i] = 1.0 / rope_theta.powf(2.0 * i as f64 / head_dim as f64) as f32;
         }
         let inv_freq = Tensor::from_vec(inv_freq_data, half_dim, device)?;
-        Ok(Self { inv_freq, head_dim })
+        Ok(Self {
+            inv_freq,
+            head_dim,
+        })
     }
 
     /// Compute (cos, sin) from 3D position IDs.
@@ -40,7 +43,9 @@ impl TextRotaryEmbedding {
         let inv_freq_expanded = inv_freq.expand((3, batch, self.head_dim / 2, 1))?;
 
         // position_ids_expanded: [3, batch, 1, seq_len]
-        let position_ids_f = position_ids.to_dtype(DType::F32)?.unsqueeze(2)?;
+        let position_ids_f = position_ids
+            .to_dtype(DType::F32)?
+            .unsqueeze(2)?;
 
         // freqs: [3, batch, head_dim/2, seq_len] → transpose → [3, batch, seq_len, head_dim/2]
         let freqs = inv_freq_expanded
@@ -91,12 +96,7 @@ impl TextRotaryEmbedding {
 ///
 /// q, k: [batch, num_heads, seq_len, head_dim]
 /// cos, sin: [batch, seq_len, head_dim]
-pub fn apply_rotary_pos_emb(
-    q: &Tensor,
-    k: &Tensor,
-    cos: &Tensor,
-    sin: &Tensor,
-) -> Result<(Tensor, Tensor)> {
+pub fn apply_rotary_pos_emb(q: &Tensor, k: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<(Tensor, Tensor)> {
     // Unsqueeze for head dimension: [batch, 1, seq_len, head_dim]
     let cos = cos.unsqueeze(1)?;
     let sin = sin.unsqueeze(1)?;
@@ -154,8 +154,12 @@ fn rotate_half_llm(x: &Tensor) -> Result<Tensor> {
     let x_paired = x.reshape(&*paired_dims)?;
 
     // Select even (index 0) and odd (index 1) from the LAST dim using narrow
-    let x1 = x_paired.narrow(ndim, 0, 1)?.squeeze(ndim)?; // [..., dim/2] even indices
-    let x2 = x_paired.narrow(ndim, 1, 1)?.squeeze(ndim)?; // [..., dim/2] odd indices
+    let x1 = x_paired
+        .narrow(ndim, 0, 1)?
+        .squeeze(ndim)?; // [..., dim/2] even indices
+    let x2 = x_paired
+        .narrow(ndim, 1, 1)?
+        .squeeze(ndim)?; // [..., dim/2] odd indices
 
     // Interleave [-x2, x1]: stack along a new last dim then flatten
     let neg_x2 = x2.neg()?;

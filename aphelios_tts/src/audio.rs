@@ -15,7 +15,7 @@ pub mod resample;
 pub use io::{load_wav, save_wav, AudioBuffer};
 pub use mel::{MelConfig, MelSpectrogram};
 pub use player::{play_streaming, AudioPlayer};
-pub use resample::{resample, resample_to_24k, Resampler};
+pub use resample::{resample, resample_to_24k, AudioResampler};
 
 /// Standard sample rate used by Qwen3-TTS
 pub const SAMPLE_RATE: u32 = 24000;

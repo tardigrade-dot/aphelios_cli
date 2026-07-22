@@ -17,19 +17,12 @@ fn main() -> anyhow::Result<()> {
 
     // Batch synthesis demonstration
     println!("\n--- 批量合成演示 ---");
-    let batch_texts = vec![
-        text_to_speech.to_string(),
-        text_to_speech2.to_string(),
-        text_to_speech3.to_string(),
-    ];
+    let batch_texts = vec![text_to_speech.to_string(), text_to_speech2.to_string(), text_to_speech3.to_string()];
 
     // Ensure output directory exists
     std::fs::create_dir_all("output")?;
 
-    let batch_audios = measure_time!(
-        "语音合成 (批量 3 条)",
-        model.synthesize_batch(&batch_texts, Speaker::Ryan, Language::Chinese, None)?
-    );
+    let batch_audios = measure_time!("语音合成 (批量 3 条)", model.synthesize_batch(&batch_texts, Speaker::Ryan, Language::Chinese, None)?);
 
     for (i, audio) in batch_audios.into_iter().enumerate() {
         let filename = format!("output/batch_output_{}.wav", i);

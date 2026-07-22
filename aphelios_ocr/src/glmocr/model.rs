@@ -16,21 +16,10 @@ pub struct GlmOcrModel {
 }
 
 impl GlmOcrModel {
-    pub fn new(
-        config: &GlmOcrConfig,
-        vb: VarBuilder,
-        device: &Device,
-        dtype: DType,
-        qdtype: Option<GgmlDType>,
-    ) -> candle_core::Result<Self> {
+    pub fn new(config: &GlmOcrConfig, vb: VarBuilder, device: &Device, dtype: DType, qdtype: Option<GgmlDType>) -> candle_core::Result<Self> {
         let model_vb = vb.pp("model");
         let vision_encoder = VisionEncoder::new(&config.vision_config, model_vb.pp("visual"))?;
-        let text_decoder = TextDecoder::new(
-            &config.text_config,
-            model_vb.pp("language_model"),
-            vb.pp("lm_head"),
-            qdtype,
-        )?;
+        let text_decoder = TextDecoder::new(&config.text_config, model_vb.pp("language_model"), vb.pp("lm_head"), qdtype)?;
 
         Ok(Self {
             vision_encoder,
@@ -47,14 +36,13 @@ impl GlmOcrModel {
     /// `image_embeds`: [num_image_tokens, hidden_size] — vision encoder output
     ///
     /// Returns: [batch, seq_len, hidden_size]
-    pub fn embed_and_merge(
-        &self,
-        input_ids: &[u32],
-        image_embeds: &Tensor,
-    ) -> candle_core::Result<Tensor> {
+    pub fn embed_and_merge(&self, input_ids: &[u32], image_embeds: &Tensor) -> candle_core::Result<Tensor> {
         let seq_len = input_ids.len();
         let ids_tensor = Tensor::from_vec(
-            input_ids.iter().map(|&x| x as i64).collect::<Vec<_>>(),
+            input_ids
+                .iter()
+                .map(|&x| x as i64)
+                .collect::<Vec<_>>(),
             (1, seq_len),
             &self.device,
         )?;
@@ -101,19 +89,24 @@ impl GlmOcrModel {
     /// - After image block: current_pos += max(grid_h, grid_w) / merge_size
     ///
     /// Returns: ([3, 1, seq_len] position tensor, next_position for decode)
-    pub fn compute_3d_positions(
-        &self,
-        input_ids: &[u32],
-        grid_thw: [u32; 3],
-    ) -> candle_core::Result<(Tensor, i64)> {
+    pub fn compute_3d_positions(&self, input_ids: &[u32], grid_thw: [u32; 3]) -> candle_core::Result<(Tensor, i64)> {
         let seq_len = input_ids.len();
-        let merge = self.config.vision_config.spatial_merge_size as u32;
+        let merge = self
+            .config
+            .vision_config
+            .spatial_merge_size as u32;
         let image_token_id = self.config.image_token_id;
 
         // Build mm_token_type_ids: 0=text, 1=image
         let token_types: Vec<u8> = input_ids
             .iter()
-            .map(|&id| if id == image_token_id { 1 } else { 0 })
+            .map(|&id| {
+                if id == image_token_id {
+                    1
+                } else {
+                    0
+                }
+            })
             .collect();
 
         // Group consecutive tokens by modality type

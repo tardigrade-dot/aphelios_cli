@@ -4,9 +4,7 @@ use aphelios_core::utils::token_output_stream::TokenOutputStream;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::{LogitsProcessor, Sampling};
-use candle_transformers::models::granitemoehybrid::{
-    self as model, GraniteMoeHybridInternalConfig,
-};
+use candle_transformers::models::granitemoehybrid::{self as model, GraniteMoeHybridInternalConfig};
 use model::{GraniteMoeHybrid, GraniteMoeHybridCache, GraniteMoeHybridConfig};
 use std::io::Write;
 use std::path::Path;
@@ -35,14 +33,9 @@ impl GraniteModel {
         let (device, dtype) = common::get_device_dtype();
 
         let path = Path::new(model_id);
-        let (tokenizer_filename, config_filename, safetensors) = (
-            path.join("tokenizer.json"),
-            path.join("config.json"),
-            path.join("model.safetensors"),
-        );
+        let (tokenizer_filename, config_filename, safetensors) = (path.join("tokenizer.json"), path.join("config.json"), path.join("model.safetensors"));
 
-        let vb_config: GraniteMoeHybridConfig =
-            serde_json::from_slice(&std::fs::read(config_filename)?)?;
+        let vb_config: GraniteMoeHybridConfig = serde_json::from_slice(&std::fs::read(config_filename)?)?;
 
         let config = vb_config.clone().into_config(false);
 
@@ -64,9 +57,7 @@ impl GraniteModel {
 
     /// 执行推理生成
     pub fn generate(&mut self, prompt: &str, sample_len: usize, temp: f64) -> Result<()> {
-        let chat_prompt = format!(
-            "<|start_of_role|>user<|end_of_role|>{prompt}<|end_of_text|>\n<|start_of_role|>assistant<|end_of_role|>",
-        );
+        let chat_prompt = format!("<|start_of_role|>user<|end_of_role|>{prompt}<|end_of_text|>\n<|start_of_role|>assistant<|end_of_role|>",);
 
         let mut tokens = self
             .tokenizer
@@ -76,8 +67,12 @@ impl GraniteModel {
             .to_vec();
         let mut tos = TokenOutputStream::new(self.tokenizer.clone());
 
-        let mut logits_processor =
-            LogitsProcessor::from_sampling(299792458, Sampling::All { temperature: temp });
+        let mut logits_processor = LogitsProcessor::from_sampling(
+            299792458,
+            Sampling::All {
+                temperature: temp,
+            },
+        );
 
         print!("Assistant: ");
         let mut index_pos = 0;
@@ -88,7 +83,9 @@ impl GraniteModel {
             } else {
                 (tokens.len(), 0)
             };
-            let context = &tokens[tokens.len().saturating_sub(context_size)..];
+            let context = &tokens[tokens
+                .len()
+                .saturating_sub(context_size)..];
             let input = Tensor::new(context, &self.device)?.unsqueeze(0)?;
             let logits = self
                 .model
@@ -99,7 +96,12 @@ impl GraniteModel {
             let next_token = logits_processor.sample(&logits)?;
             tokens.push(next_token);
 
-            if next_token == self.config.eos_token_id.unwrap_or(100257) {
+            if next_token
+                == self
+                    .config
+                    .eos_token_id
+                    .unwrap_or(100257)
+            {
                 break;
             }
             if let Some(token) = tos.next_token(next_token)? {

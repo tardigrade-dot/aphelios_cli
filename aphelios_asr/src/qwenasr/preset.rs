@@ -1,10 +1,9 @@
-use crate::QWEN3_ASR_MODEL_ID;
 use crate::qwenasr::audio::AudioConfig;
 use crate::qwenasr::encoder::EncoderConfig;
 use crate::qwenasr::model::ModelConfig;
+use crate::QWEN3_ASR_MODEL_ID;
 use aphelios_core::hub::load_or_download;
 use candle_transformers::models::qwen3::Config as Qwen3Config;
-
 
 pub enum ModelPreset {
     Qwen3Asr0_6b,
@@ -16,10 +15,9 @@ impl ModelPreset {
     /// Detect model variant from the model directory.
     /// 1.7b is distributed as multiple shards with an index file; 0.6b as a single shard.
     pub fn from_dir(dir: Option<&str>) -> Self {
-
-        if load_or_download(QWEN3_ASR_MODEL_ID, dir, "model.safetensors.index.json").exists(){
+        if load_or_download(QWEN3_ASR_MODEL_ID, dir, "model.safetensors.index.json").exists() {
             ModelPreset::Qwen3Asr1_7b
-        }else {
+        } else {
             ModelPreset::Qwen3Asr0_6b
         }
     }
@@ -79,12 +77,11 @@ impl ModelPreset {
     }
 
     fn decoder_config(&self) -> Qwen3Config {
-        let (vocab_size, hidden_size, intermediate_size, num_hidden_layers, tie_word_embeddings) =
-            match self {
-                ModelPreset::Qwen3Asr0_6b => (151936, 1024, 3072, 28, true),
-                ModelPreset::Qwen3Asr1_7b => (151936, 2048, 6144, 28, true),
-                ModelPreset::Qwen3ForcedAligner0_6b => (152064, 1024, 3072, 28, false),
-            };
+        let (vocab_size, hidden_size, intermediate_size, num_hidden_layers, tie_word_embeddings) = match self {
+            ModelPreset::Qwen3Asr0_6b => (151936, 1024, 3072, 28, true),
+            ModelPreset::Qwen3Asr1_7b => (151936, 2048, 6144, 28, true),
+            ModelPreset::Qwen3ForcedAligner0_6b => (152064, 1024, 3072, 28, false),
+        };
         Qwen3Config {
             vocab_size,
             hidden_size,

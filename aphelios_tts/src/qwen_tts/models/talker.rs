@@ -159,11 +159,7 @@ impl Speaker {
     /// Get the native language for this speaker
     pub fn native_language(&self) -> Language {
         match self {
-            Speaker::Serena
-            | Speaker::Vivian
-            | Speaker::UncleFu
-            | Speaker::Eric
-            | Speaker::Dylan => Language::Chinese,
+            Speaker::Serena | Speaker::Vivian | Speaker::UncleFu | Speaker::Eric | Speaker::Dylan => Language::Chinese,
             Speaker::Ryan | Speaker::Aiden => Language::English,
             Speaker::OnoAnna => Language::Japanese,
             Speaker::Sohee => Language::Korean,
@@ -299,17 +295,12 @@ pub struct TextProjection {
 impl TextProjection {
     /// Create from VarBuilder with config dimensions
     pub fn new(config: &TalkerConfig, vb: VarBuilder) -> Result<Self> {
-        let fc1 = candle_nn::linear(
-            config.text_embed_dim,
-            config.text_proj_intermediate,
-            vb.pp("linear_fc1"),
-        )?;
-        let fc2 = candle_nn::linear(
-            config.text_proj_intermediate,
-            config.hidden_size,
-            vb.pp("linear_fc2"),
-        )?;
-        Ok(Self { fc1, fc2 })
+        let fc1 = candle_nn::linear(config.text_embed_dim, config.text_proj_intermediate, vb.pp("linear_fc1"))?;
+        let fc2 = candle_nn::linear(config.text_proj_intermediate, config.hidden_size, vb.pp("linear_fc2"))?;
+        Ok(Self {
+            fc1,
+            fc2,
+        })
     }
 
     /// Forward pass: fc1 -> silu -> fc2
@@ -362,43 +353,22 @@ impl TalkerModel {
     }
 
     /// Load model with explicit config
-    pub fn from_weights_with_config(
-        weights: &HashMap<String, Tensor>,
-        config: TalkerConfig,
-        device: &Device,
-    ) -> Result<Self> {
+    pub fn from_weights_with_config(weights: &HashMap<String, Tensor>, config: TalkerConfig, device: &Device) -> Result<Self> {
         Self::from_weights_with_config_dtype(weights, config, device, DType::F32)
     }
 
     /// Load model with explicit config and dtype (use BF16 on CUDA for half-precision inference)
-    pub fn from_weights_with_config_dtype(
-        weights: &HashMap<String, Tensor>,
-        config: TalkerConfig,
-        device: &Device,
-        dtype: DType,
-    ) -> Result<Self> {
+    pub fn from_weights_with_config_dtype(weights: &HashMap<String, Tensor>, config: TalkerConfig, device: &Device, dtype: DType) -> Result<Self> {
         let vb = VarBuilder::from_tensors(weights.clone(), dtype, device);
         let talker = vb.pp("talker");
         let model = talker.pp("model");
         let layer_config = config.to_layer_config();
 
-        let text_embedding = embedding(
-            config.text_vocab_size,
-            config.text_embed_dim,
-            model.pp("text_embedding"),
-        )?;
+        let text_embedding = embedding(config.text_vocab_size, config.text_embed_dim, model.pp("text_embedding"))?;
         let text_projection = TextProjection::new(&config, talker.pp("text_projection"))?;
-        let codec_embedding = embedding(
-            config.codec_vocab_size,
-            config.hidden_size,
-            model.pp("codec_embedding"),
-        )?;
+        let codec_embedding = embedding(config.codec_vocab_size, config.hidden_size, model.pp("codec_embedding"))?;
         let norm = rms_norm(config.hidden_size, config.rms_norm_eps, model.pp("norm"))?;
-        let codec_head = linear_no_bias(
-            config.hidden_size,
-            config.codec_vocab_size,
-            talker.pp("codec_head"),
-        )?;
+        let codec_head = linear_no_bias(config.hidden_size, config.codec_vocab_size, talker.pp("codec_head"))?;
 
         let layers = (0..config.num_hidden_layers)
             .map(|i| DecoderLayer::new(&layer_config, model.pp(format!("layers.{}", i))))
@@ -406,19 +376,9 @@ impl TalkerModel {
 
         // RoPE - use MRoPE if mrope_section is configured
         let rope = if let Some(mrope_section) = config.mrope_section {
-            RoPEType::Multimodal(MRoPE::new(
-                config.head_dim,
-                config.rope_theta,
-                mrope_section,
-                device,
-            )?)
+            RoPEType::Multimodal(MRoPE::new(config.head_dim, config.rope_theta, mrope_section, device)?)
         } else {
-            RoPEType::Standard(RotaryEmbedding::new(
-                config.head_dim,
-                config.max_position_embeddings,
-                config.rope_theta,
-                device,
-            )?)
+            RoPEType::Standard(RotaryEmbedding::new(config.head_dim, config.max_position_embeddings, config.rope_theta, device)?)
         };
 
         Ok(Self {
@@ -454,18 +414,7 @@ impl TalkerModel {
         let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec: [think, think_bos, lang, think_eos, speaker, pad, bos]
-        let codec_ids = Tensor::new(
-            &[
-                CODEC_THINK,
-                CODEC_THINK_BOS,
-                language.token_id(),
-                CODEC_THINK_EOS,
-                speaker.token_id(),
-                CODEC_PAD,
-                CODEC_BOS,
-            ],
-            &self.device,
-        )?;
+        let codec_ids = Tensor::new(&[CODEC_THINK, CODEC_THINK_BOS, language.token_id(), CODEC_THINK_EOS, speaker.token_id(), CODEC_PAD, CODEC_BOS], &self.device)?;
         let codec_embed = self
             .codec_embedding
             .forward(&codec_ids)?
@@ -481,9 +430,7 @@ impl TalkerModel {
 
         // First text token + codec_bos
         let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-        if let Some(combined) =
-            self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
-        {
+        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
@@ -504,18 +451,7 @@ impl TalkerModel {
         let batch = text_tokens_batch.len();
         let role_prefix_hidden = self.build_role_prefix(batch)?;
 
-        let codec_ids = Tensor::new(
-            &[
-                CODEC_THINK,
-                CODEC_THINK_BOS,
-                language.token_id(),
-                CODEC_THINK_EOS,
-                speaker.token_id(),
-                CODEC_PAD,
-                CODEC_BOS,
-            ],
-            &self.device,
-        )?;
+        let codec_ids = Tensor::new(&[CODEC_THINK, CODEC_THINK_BOS, language.token_id(), CODEC_THINK_EOS, speaker.token_id(), CODEC_PAD, CODEC_BOS], &self.device)?;
         let codec_embed = self
             .codec_embedding
             .forward(&codec_ids)?
@@ -529,9 +465,7 @@ impl TalkerModel {
         let mut hidden = Tensor::cat(&[&role_prefix_hidden, &codec_hidden], 1)?.contiguous()?;
 
         let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-        if let Some(combined) =
-            self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)?
-        {
+        if let Some(combined) = self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)? {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
@@ -571,15 +505,7 @@ impl TalkerModel {
         let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec: [think, think_bos, lang, think_eos] + speaker_embed + [pad, bos]
-        let codec_prefix_ids = Tensor::new(
-            &[
-                CODEC_THINK,
-                CODEC_THINK_BOS,
-                language.token_id(),
-                CODEC_THINK_EOS,
-            ],
-            &self.device,
-        )?;
+        let codec_prefix_ids = Tensor::new(&[CODEC_THINK, CODEC_THINK_BOS, language.token_id(), CODEC_THINK_EOS], &self.device)?;
         let codec_prefix_embed = self
             .codec_embedding
             .forward(&codec_prefix_ids)?
@@ -609,9 +535,7 @@ impl TalkerModel {
         // First text token + codec_bos (skipped in ICL mode)
         if !icl_mode {
             let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-            if let Some(combined) =
-                self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
-            {
+            if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
                 hidden = Tensor::cat(&[&hidden, &combined], 1)?;
             }
         }
@@ -634,15 +558,7 @@ impl TalkerModel {
         let batch = text_tokens_batch.len();
         let role_prefix_hidden = self.build_role_prefix(batch)?;
 
-        let codec_prefix_ids = Tensor::new(
-            &[
-                CODEC_THINK,
-                CODEC_THINK_BOS,
-                language.token_id(),
-                CODEC_THINK_EOS,
-            ],
-            &self.device,
-        )?;
+        let codec_prefix_ids = Tensor::new(&[CODEC_THINK, CODEC_THINK_BOS, language.token_id(), CODEC_THINK_EOS], &self.device)?;
         let codec_prefix_embed = self
             .codec_embedding
             .forward(&codec_prefix_ids)?
@@ -670,9 +586,7 @@ impl TalkerModel {
 
         if !icl_mode {
             let codec_bos_embed = codec_embed.i((.., 6..7, ..))?;
-            if let Some(combined) =
-                self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)?
-            {
+            if let Some(combined) = self.build_first_text_combined_batch(text_tokens_batch, &codec_bos_embed)? {
                 hidden = Tensor::cat(&[&hidden, &combined], 1)?;
             }
         }
@@ -718,17 +632,7 @@ impl TalkerModel {
         let role_prefix_hidden = self.build_role_prefix(batch)?;
 
         // Codec (no speaker): [think, think_bos, lang, think_eos, pad, bos]
-        let codec_ids = Tensor::new(
-            &[
-                CODEC_THINK,
-                CODEC_THINK_BOS,
-                language.token_id(),
-                CODEC_THINK_EOS,
-                CODEC_PAD,
-                CODEC_BOS,
-            ],
-            &self.device,
-        )?;
+        let codec_ids = Tensor::new(&[CODEC_THINK, CODEC_THINK_BOS, language.token_id(), CODEC_THINK_EOS, CODEC_PAD, CODEC_BOS], &self.device)?;
         let codec_embed = self
             .codec_embedding
             .forward(&codec_ids)?
@@ -744,9 +648,7 @@ impl TalkerModel {
 
         // First text token + codec_bos (index 5)
         let codec_bos_embed = codec_embed.i((.., 5..6, ..))?;
-        if let Some(combined) =
-            self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)?
-        {
+        if let Some(combined) = self.build_first_text_combined(text_tokens, &codec_bos_embed, batch)? {
             hidden = Tensor::cat(&[&hidden, &combined], 1)?;
         }
 
@@ -781,8 +683,7 @@ impl TalkerModel {
         use tts_tokens::*;
 
         // --- 1. Text embeddings: [ref_text, target_text, tts_eos] projected ---
-        let mut all_text_ids: Vec<u32> =
-            Vec::with_capacity(ref_text_ids.len() + target_text_ids.len() + 1);
+        let mut all_text_ids: Vec<u32> = Vec::with_capacity(ref_text_ids.len() + target_text_ids.len() + 1);
         all_text_ids.extend_from_slice(ref_text_ids);
         all_text_ids.extend_from_slice(target_text_ids);
         all_text_ids.push(TTS_EOS);
@@ -792,7 +693,10 @@ impl TalkerModel {
 
         // --- 2. Codec embeddings: prepend codec_bos, then ref_codec_embeds ---
         let bos_id = Tensor::new(&[CODEC_BOS], &self.device)?;
-        let bos_embed = self.codec_embedding.forward(&bos_id)?.unsqueeze(0)?; // [1, 1, hidden]
+        let bos_embed = self
+            .codec_embedding
+            .forward(&bos_id)?
+            .unsqueeze(0)?; // [1, 1, hidden]
         let codec_embed = Tensor::cat(&[&bos_embed, ref_codec_embeds], 1)?; // [1, T_ref+1, hidden]
         let n_codec = codec_embed.dim(1)?;
 
@@ -802,14 +706,15 @@ impl TalkerModel {
             // --- 3a. Non-streaming: sequential [text+codec_pad, codec+tts_pad] ---
             // Each text position gets codec_pad overlay
             let codec_pad_id = Tensor::new(&[CODEC_PAD], &self.device)?;
-            let codec_pad_embed = self.codec_embedding.forward(&codec_pad_id)?.unsqueeze(0)?;
-            let codec_pad_broadcast =
-                codec_pad_embed.broadcast_as((1, n_text, self.config.hidden_size))?;
+            let codec_pad_embed = self
+                .codec_embedding
+                .forward(&codec_pad_id)?
+                .unsqueeze(0)?;
+            let codec_pad_broadcast = codec_pad_embed.broadcast_as((1, n_text, self.config.hidden_size))?;
             let text_with_codec_pad = text_embed.add(&codec_pad_broadcast)?;
 
             // Each codec position gets tts_pad overlay
-            let tts_pad_broadcast =
-                tts_pad_embed.broadcast_as((1, n_codec, self.config.hidden_size))?;
+            let tts_pad_broadcast = tts_pad_embed.broadcast_as((1, n_codec, self.config.hidden_size))?;
             let codec_with_tts_pad = codec_embed.add(&tts_pad_broadcast)?;
 
             let icl_embed = Tensor::cat(&[&text_with_codec_pad, &codec_with_tts_pad], 1)?;
@@ -824,8 +729,7 @@ impl TalkerModel {
             } else {
                 let pad_count = n_codec - n_text;
                 let padded_text = if pad_count > 0 {
-                    let pad_broadcast =
-                        tts_pad_embed.broadcast_as((1, pad_count, self.config.hidden_size))?;
+                    let pad_broadcast = tts_pad_embed.broadcast_as((1, pad_count, self.config.hidden_size))?;
                     Tensor::cat(&[&text_embed, &pad_broadcast], 1)?
                 } else {
                     text_embed
@@ -849,12 +753,7 @@ impl TalkerModel {
         let mut max_trailing_len = 0;
 
         for target_text_ids in target_text_ids_batch {
-            let (icl_embed, trailing_embed) = self.build_icl_prompt(
-                target_text_ids,
-                ref_text_ids,
-                ref_codec_embeds,
-                non_streaming,
-            )?;
+            let (icl_embed, trailing_embed) = self.build_icl_prompt(target_text_ids, ref_text_ids, ref_codec_embeds, non_streaming)?;
             max_trailing_len = max_trailing_len.max(trailing_embed.dim(1)?);
             icl_embeds.push(icl_embed);
             trailing_embeds.push(trailing_embed);
@@ -867,11 +766,7 @@ impl TalkerModel {
         for trailing in trailing_embeds {
             let cur_len = trailing.dim(1)?;
             if cur_len < max_trailing_len {
-                let padding = tts_pad_embed.broadcast_as((
-                    1,
-                    max_trailing_len - cur_len,
-                    self.config.hidden_size,
-                ))?;
+                let padding = tts_pad_embed.broadcast_as((1, max_trailing_len - cur_len, self.config.hidden_size))?;
                 padded_trailing.push(Tensor::cat(&[&trailing, &padding], 1)?);
             } else {
                 padded_trailing.push(trailing);
@@ -886,12 +781,7 @@ impl TalkerModel {
     ///
     /// This allows the caller to build the full input embedding externally
     /// (e.g., semantic_embed + acoustic_embeds + text_embed for CustomVoice).
-    pub fn generate_step_with_embed(
-        &self,
-        input_embed: &Tensor,
-        kv_caches: &mut [AnyKVCache],
-        offset: usize,
-    ) -> Result<(Tensor, Tensor)> {
+    pub fn generate_step_with_embed(&self, input_embed: &Tensor, kv_caches: &mut [AnyKVCache], offset: usize) -> Result<(Tensor, Tensor)> {
         // Single token attending to all previous positions via KV cache —
         // no masking needed (causal mask for seq_len=1 is all zeros).
         let mut hidden = input_embed.clone();
@@ -914,9 +804,13 @@ impl TalkerModel {
     fn build_role_prefix(&self, batch: usize) -> Result<Tensor> {
         use special_tokens::*;
         let role_prefix_ids = Tensor::new(&[IM_START, ASSISTANT, NEWLINE], &self.device)?;
-        let role_prefix_embed = self.text_embedding.forward(&role_prefix_ids)?;
+        let role_prefix_embed = self
+            .text_embedding
+            .forward(&role_prefix_ids)?;
         let role_prefix_embed = role_prefix_embed.unsqueeze(0)?;
-        let role_prefix_proj = self.text_projection.forward(&role_prefix_embed)?;
+        let role_prefix_proj = self
+            .text_projection
+            .forward(&role_prefix_embed)?;
         Ok(role_prefix_proj.broadcast_as((batch, 3, self.config.hidden_size))?)
     }
 
@@ -927,15 +821,24 @@ impl TalkerModel {
     fn build_tts_pad_bos(&self, pad_count: usize, batch: usize) -> Result<Tensor> {
         use tts_tokens::*;
         let tts_pad_id = Tensor::new(&[TTS_PAD], &self.device)?;
-        let tts_pad_embed = self.text_embedding.forward(&tts_pad_id)?.unsqueeze(0)?;
-        let tts_pad_proj = self.text_projection.forward(&tts_pad_embed)?;
+        let tts_pad_embed = self
+            .text_embedding
+            .forward(&tts_pad_id)?
+            .unsqueeze(0)?;
+        let tts_pad_proj = self
+            .text_projection
+            .forward(&tts_pad_embed)?;
 
         let tts_bos_id = Tensor::new(&[TTS_BOS], &self.device)?;
-        let tts_bos_embed = self.text_embedding.forward(&tts_bos_id)?.unsqueeze(0)?;
-        let tts_bos_proj = self.text_projection.forward(&tts_bos_embed)?;
+        let tts_bos_embed = self
+            .text_embedding
+            .forward(&tts_bos_id)?
+            .unsqueeze(0)?;
+        let tts_bos_proj = self
+            .text_projection
+            .forward(&tts_bos_embed)?;
 
-        let tts_pad_expanded =
-            tts_pad_proj.broadcast_as((batch, pad_count, self.config.hidden_size))?;
+        let tts_pad_expanded = tts_pad_proj.broadcast_as((batch, pad_count, self.config.hidden_size))?;
         let tts_bos_expanded = tts_bos_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
         Ok(Tensor::cat(&[&tts_pad_expanded, &tts_bos_expanded], 1)?)
     }
@@ -943,39 +846,41 @@ impl TalkerModel {
     /// Build first text token combined with codec_bos embedding.
     ///
     /// Returns `Some([batch, 1, hidden_size])` if text_tokens is non-empty, `None` otherwise.
-    fn build_first_text_combined(
-        &self,
-        text_tokens: &[u32],
-        codec_bos_embed: &Tensor,
-        batch: usize,
-    ) -> Result<Option<Tensor>> {
+    fn build_first_text_combined(&self, text_tokens: &[u32], codec_bos_embed: &Tensor, batch: usize) -> Result<Option<Tensor>> {
         if text_tokens.is_empty() {
             return Ok(None);
         }
         let first_text_id = Tensor::new(&[text_tokens[0]], &self.device)?;
-        let first_text_embed = self.text_embedding.forward(&first_text_id)?.unsqueeze(0)?;
-        let first_text_proj = self.text_projection.forward(&first_text_embed)?;
-        let first_text_expanded =
-            first_text_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
+        let first_text_embed = self
+            .text_embedding
+            .forward(&first_text_id)?
+            .unsqueeze(0)?;
+        let first_text_proj = self
+            .text_projection
+            .forward(&first_text_embed)?;
+        let first_text_expanded = first_text_proj.broadcast_as((batch, 1, self.config.hidden_size))?;
         Ok(Some(first_text_expanded.add(codec_bos_embed)?))
     }
 
     /// Batched version of [`Self::build_first_text_combined`] using one first token per sequence.
-    fn build_first_text_combined_batch(
-        &self,
-        text_tokens_batch: &[Vec<u32>],
-        codec_bos_embed: &Tensor,
-    ) -> Result<Option<Tensor>> {
+    fn build_first_text_combined_batch(&self, text_tokens_batch: &[Vec<u32>], codec_bos_embed: &Tensor) -> Result<Option<Tensor>> {
         if text_tokens_batch.is_empty() {
             return Ok(None);
         }
 
         let first_text_ids: Vec<u32> = text_tokens_batch
             .iter()
-            .map(|tokens| tokens.first().copied().unwrap_or(tts_tokens::TTS_EOS))
+            .map(|tokens| {
+                tokens
+                    .first()
+                    .copied()
+                    .unwrap_or(tts_tokens::TTS_EOS)
+            })
             .collect();
         let first_text_ids = Tensor::new(first_text_ids.as_slice(), &self.device)?;
-        let first_text_embed = self.text_embedding.forward(&first_text_ids)?;
+        let first_text_embed = self
+            .text_embedding
+            .forward(&first_text_ids)?;
         let first_text_proj = self
             .text_projection
             .forward(&first_text_embed)?
@@ -1008,11 +913,7 @@ impl TalkerModel {
     /// Returns `(hidden_states, logits)` where logits are for the last position only.
     /// This is a low-level method for reference validation; prefer the
     /// mode-specific prefill methods for actual generation.
-    pub fn prefill(
-        &self,
-        input_ids: &Tensor,
-        kv_caches: &mut [AnyKVCache],
-    ) -> Result<(Tensor, Tensor)> {
+    pub fn prefill(&self, input_ids: &Tensor, kv_caches: &mut [AnyKVCache]) -> Result<(Tensor, Tensor)> {
         let embed = self.text_embedding.forward(input_ids)?;
         let projected = self.text_projection.forward(&embed)?;
         self.run_prefill_layers(projected, kv_caches, None)
@@ -1021,12 +922,7 @@ impl TalkerModel {
     /// Run prefill through all layers: (optional) mask → layers → norm → logits.
     ///
     /// Returns `(hidden_states, logits)` for the full sequence.
-    fn run_prefill_layers(
-        &self,
-        mut hidden: Tensor,
-        kv_caches: &mut [AnyKVCache],
-        attention_mask: Option<&Tensor>,
-    ) -> Result<(Tensor, Tensor)> {
+    fn run_prefill_layers(&self, mut hidden: Tensor, kv_caches: &mut [AnyKVCache], attention_mask: Option<&Tensor>) -> Result<(Tensor, Tensor)> {
         let seq_len = hidden.dim(1)?;
         let dynamic_mask;
         let mask = if let Some(m) = attention_mask {
@@ -1053,7 +949,10 @@ impl TalkerModel {
     /// Returns a `[1, 1, hidden_size]` tensor.
     fn get_projected_special_embed(&self, token_id: u32) -> Result<Tensor> {
         let id = Tensor::new(&[token_id], &self.device)?;
-        let embed = self.text_embedding.forward(&id)?.unsqueeze(0)?;
+        let embed = self
+            .text_embedding
+            .forward(&id)?
+            .unsqueeze(0)?;
         self.text_projection.forward(&embed)
     }
 
@@ -1078,15 +977,13 @@ impl TalkerModel {
         if token_ids.is_empty() {
             // Return empty tensor with correct shape and matching dtype
             let dtype = self.text_embedding.embeddings().dtype();
-            return Ok(Tensor::zeros(
-                (1, 0, self.config.hidden_size),
-                dtype,
-                &self.device,
-            )?);
+            return Ok(Tensor::zeros((1, 0, self.config.hidden_size), dtype, &self.device)?);
         }
 
         let ids_tensor = Tensor::new(token_ids, &self.device)?;
-        let embeds = self.text_embedding.forward(&ids_tensor)?;
+        let embeds = self
+            .text_embedding
+            .forward(&ids_tensor)?;
         let embeds = embeds.unsqueeze(0)?; // [1, seq_len, text_embed_dim]
         self.text_projection.forward(&embeds)
     }
@@ -1101,16 +998,9 @@ impl TalkerModel {
             let dtype = self.codec_head.weight().dtype();
             (0..self.config.num_hidden_layers)
                 .map(|_| {
-                    PreAllocKVCache::new(
-                        batch,
-                        self.config.num_key_value_heads,
-                        max_seq,
-                        self.config.head_dim,
-                        dtype,
-                        &self.device,
-                    )
-                    .map(AnyKVCache::PreAlloc)
-                    .unwrap_or_else(|_| AnyKVCache::Concat(KVCache::new()))
+                    PreAllocKVCache::new(batch, self.config.num_key_value_heads, max_seq, self.config.head_dim, dtype, &self.device)
+                        .map(AnyKVCache::PreAlloc)
+                        .unwrap_or_else(|_| AnyKVCache::Concat(KVCache::new()))
                 })
                 .collect()
         } else {
@@ -1123,7 +1013,9 @@ impl TalkerModel {
     /// Get codec embedding for a token (used by code predictor)
     pub fn get_codec_embedding(&self, token_id: u32) -> Result<Tensor> {
         let token_tensor = Tensor::new(&[token_id], &self.device)?;
-        let embed = self.codec_embedding.forward(&token_tensor)?;
+        let embed = self
+            .codec_embedding
+            .forward(&token_tensor)?;
         Ok(embed.unsqueeze(0)?) // [1, 1, hidden_size]
     }
 
@@ -1170,7 +1062,9 @@ impl TalkerModel {
     /// # Returns
     /// Tensor of shape `[1, T, hidden_size]`
     pub fn get_codec_embedding_batch(&self, token_ids: &Tensor) -> Result<Tensor> {
-        let embed = self.codec_embedding.forward(token_ids)?; // [T, hidden_size]
+        let embed = self
+            .codec_embedding
+            .forward(token_ids)?; // [T, hidden_size]
         Ok(embed.unsqueeze(0)?) // [1, T, hidden_size]
     }
 

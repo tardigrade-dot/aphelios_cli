@@ -53,7 +53,6 @@ measureme = { workspace = true }
 rayon = { workspace = true }
 crossbeam-channel = { workspace = true }
 pdfium-render = { workspace = true }
-dirs = { workspace = true }
 md5 = { workspace = true }
 
 [features]

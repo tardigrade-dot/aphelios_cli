@@ -21,7 +21,11 @@ fn reflection_pad(signal: &[f32], pad: usize) -> Vec<f32> {
     }
     padded.extend_from_slice(signal);
     // Right padding: reflect from n-pad-1..n-1 in reverse
-    let right_start = if n > pad { n - pad - 1 } else { 0 };
+    let right_start = if n > pad {
+        n - pad - 1
+    } else {
+        0
+    };
     for i in (right_start..n - 1).rev() {
         padded.push(signal[i]);
     }
@@ -29,12 +33,7 @@ fn reflection_pad(signal: &[f32], pad: usize) -> Vec<f32> {
 }
 
 /// Compute STFT power spectrum: shape [n_freqs, num_frames].
-fn compute_power_stft(
-    signal: &[f32],
-    n_fft: usize,
-    hop_length: usize,
-    window: &[f32],
-) -> (Vec<f32>, usize, usize) {
+fn compute_power_stft(signal: &[f32], n_fft: usize, hop_length: usize, window: &[f32]) -> (Vec<f32>, usize, usize) {
     let n_freqs = n_fft / 2 + 1;
     let n_frames = if signal.len() >= n_fft {
         (signal.len() - n_fft) / hop_length + 1
@@ -66,13 +65,7 @@ fn compute_power_stft(
 }
 
 /// Create mel filterbank matrix (num_mel_bins × n_freqs).
-fn create_mel_filterbank(
-    num_mels: usize,
-    n_fft: usize,
-    sample_rate: u32,
-    fmin: f64,
-    fmax: f64,
-) -> Vec<f32> {
+fn create_mel_filterbank(num_mels: usize, n_fft: usize, sample_rate: u32, fmin: f64, fmax: f64) -> Vec<f32> {
     let n_freqs = n_fft / 2 + 1;
     let sr = sample_rate as f64;
 
@@ -112,7 +105,10 @@ fn create_mel_filterbank(
         .map(|j| j as f64 * sr / n_fft as f64)
         .collect();
 
-    let f_diff: Vec<f64> = filter_freqs.windows(2).map(|w| w[1] - w[0]).collect();
+    let f_diff: Vec<f64> = filter_freqs
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .collect();
 
     let mut filters = vec![0.0f32; num_mels * n_freqs];
 
@@ -147,9 +143,14 @@ pub(crate) struct MelExtractor {
 impl MelExtractor {
     pub(crate) fn new(n_fft: usize, hop_length: usize, num_mel_bins: usize, sample_rate: u32) -> Self {
         let n_freqs = n_fft / 2 + 1;
-        let mel_filters =
-            create_mel_filterbank(num_mel_bins, n_fft, sample_rate, 0.0, sample_rate as f64 / 2.0);
-        Self { n_fft, hop_length, num_mel_bins, mel_filters, n_freqs }
+        let mel_filters = create_mel_filterbank(num_mel_bins, n_fft, sample_rate, 0.0, sample_rate as f64 / 2.0);
+        Self {
+            n_fft,
+            hop_length,
+            num_mel_bins,
+            mel_filters,
+            n_freqs,
+        }
     }
 
     /// Extract log-mel spectrogram.
@@ -167,11 +168,14 @@ impl MelExtractor {
         let window = hann_window(self.n_fft);
 
         // STFT power spectrum [n_freqs × n_frames]
-        let (power, _n_freqs, n_frames_with_last) =
-            compute_power_stft(&padded_signal, self.n_fft, self.hop_length, &window);
+        let (power, _n_freqs, n_frames_with_last) = compute_power_stft(&padded_signal, self.n_fft, self.hop_length, &window);
 
         // Remove last frame (match Python: magnitudes[..., :-1])
-        let n_frames = if n_frames_with_last > 0 { n_frames_with_last - 1 } else { 0 };
+        let n_frames = if n_frames_with_last > 0 {
+            n_frames_with_last - 1
+        } else {
+            0
+        };
 
         // Apply mel filterbank: [num_mel_bins × n_freqs] × [n_freqs × n_frames]
         //
@@ -182,10 +186,12 @@ impl MelExtractor {
         let mut mel_spec = vec![0.0f32; self.num_mel_bins * n_frames];
         for m in 0..self.num_mel_bins {
             let filter_row = &self.mel_filters[m * self.n_freqs..(m + 1) * self.n_freqs];
-            let out_row    = &mut mel_spec[m * n_frames..(m + 1) * n_frames];
+            let out_row = &mut mel_spec[m * n_frames..(m + 1) * n_frames];
             for f in 0..self.n_freqs {
                 let w = filter_row[f];
-                if w == 0.0 { continue; } // filterbank is sparse; skip zero weights
+                if w == 0.0 {
+                    continue;
+                } // filterbank is sparse; skip zero weights
                 let power_row = &power[f * n_frames_with_last..f * n_frames_with_last + n_frames];
                 for (t, &p) in power_row.iter().enumerate() {
                     out_row[t] += w * p;
@@ -270,12 +276,10 @@ fn load_audio_wav_impl(path: &str, target_sr: u32) -> anyhow::Result<Vec<f32>> {
     let channels = spec.channels as usize;
 
     let samples_f32: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => {
-            reader
-                .into_samples::<f32>()
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("WAV read error: {}", e))?
-        }
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("WAV read error: {}", e))?,
         hound::SampleFormat::Int => {
             let bits = spec.bits_per_sample;
             let max_val = (1i64 << (bits - 1)) as f32;
@@ -304,27 +308,38 @@ fn load_audio_wav_impl(path: &str, target_sr: u32) -> anyhow::Result<Vec<f32>> {
         return Ok(mono);
     }
 
-    use rubato::{
-        Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
-        WindowFunction,
-    };
+    use rubato::audioadapter_buffers::direct::InterleavedSlice;
+    use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
-    let params = SincInterpolationParameters {
-        sinc_len: 256,
-        f_cutoff: 0.95,
-        interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 256,
-        window: WindowFunction::BlackmanHarris2,
-    };
+    let params = SincInterpolationParameters::new(256, WindowFunction::BlackmanHarris2)
+        .f_cutoff(0.95)
+        .interpolation(SincInterpolationType::Linear)
+        .oversampling_factor(256);
 
-    let mut resampler = SincFixedIn::<f32>::new(
-        target_sr as f64 / sr as f64,
-        2.0,
-        params,
-        mono.len(),
-        1,
-    )?;
+    let ratio = target_sr as f64 / sr as f64;
+    let mut resampler = Async::<f32>::new_sinc(ratio, 2.0, &params, mono.len(), 1, FixedAsync::Input)?;
 
-    let output = resampler.process(&[mono], None)?;
-    Ok(output.into_iter().next().unwrap_or_default())
+    let input_adapter = InterleavedSlice::new(&mono, 1, mono.len())?;
+    let estimated_out = 2 * ((mono.len() as f64) * ratio).ceil() as usize + 1024;
+    let mut output_data = vec![0.0f32; estimated_out.max(1024)];
+    let out_len = output_data.len();
+    let mut output_adapter = InterleavedSlice::new_mut(&mut output_data, 1, out_len)?;
+
+    let mut indexing = Indexing::new();
+    // Process all at once since input size matches chunk size or handle chunks
+    let mut input_left = mono.len();
+    while input_left >= resampler.input_frames_next() {
+        let (nbr_in, nbr_out) = resampler.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))?;
+        indexing.input_offset += nbr_in;
+        indexing.output_offset += nbr_out;
+        input_left -= nbr_in;
+    }
+    if input_left > 0 {
+        indexing.partial_len = Some(input_left);
+        let (_nbr_in, nbr_out) = resampler.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))?;
+        indexing.output_offset += nbr_out;
+    }
+
+    output_data.truncate(indexing.output_offset);
+    Ok(output_data)
 }

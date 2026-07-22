@@ -10,7 +10,9 @@ pub async fn run(cli: Cli) -> Result<()> {
     init_logging();
     let p = "".to_string();
     match cli.command {
-        Commands::Init { path } => {
+        Commands::Init {
+            path,
+        } => {
             commands::init::run()?;
         }
         Commands::Base {
@@ -20,19 +22,30 @@ pub async fn run(cli: Cli) -> Result<()> {
             // commands::base::run(path, name)?;
             info!("this is a log");
         }
-        Commands::Base { path: None, name } => {
+        Commands::Base {
+            path: None,
+            name,
+        } => {
             // commands::base::run(path, name)?;
         }
-        Commands::Run { verbose } => {
+        Commands::Run {
+            verbose,
+        } => {
             // commands::run::run().await?;
         }
-        Commands::QwenLLM { model_id } => {
+        Commands::QwenLLM {
+            model_id,
+        } => {
             // commands::qwenvl::run_llm(&model_id).await?;
         }
-        Commands::QwenVLM { model_id } => {
+        Commands::QwenVLM {
+            model_id,
+        } => {
             // commands::qwenvl::run_vlm(&model_id).await?;
         }
-        Commands::Mistral3 { model_id } => {
+        Commands::Mistral3 {
+            model_id,
+        } => {
             // commands::mistral3::run_vl(&model_id).await?;
         }
         Commands::Dolphin {

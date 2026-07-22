@@ -13,6 +13,5 @@ impl Constants {
     pub const TRACKS: [&'static str; 4] = ["drums", "bass", "other", "vocals"];
 
     // Default model URL (Hugging Face Hub)
-    pub const DEFAULT_MODEL_URL: &'static str =
-        "https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx";
+    pub const DEFAULT_MODEL_URL: &'static str = "https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx";
 }

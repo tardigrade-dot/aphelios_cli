@@ -12,8 +12,15 @@ fn process_test() -> Result<()> {
     let i = "/Users/larry/coderesp/aphelios_cli/aphelios_voice/test_data/mQlxALUw3h4-12s-16k.wav";
 
     let i_path = &PathBuf::from(i);
-    let stem = i_path.file_stem().unwrap().to_str().unwrap();
-    let ext = i_path.extension().and_then(|s| s.to_str()).unwrap_or("wav");
+    let stem = i_path
+        .file_stem()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let ext = i_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("wav");
     let o = i_path.with_file_name(format!("{stem}.enhanced.{ext}"));
 
     let (audio_48k, _sr) = wav::read_wav(&PathBuf::from(i))?;
@@ -28,11 +35,7 @@ fn process_test() -> Result<()> {
 
     let elapsed = t0.elapsed();
     let out_dur = out_audio.len() as f32 / 48_000.0;
-    info!(
-        "Enhanced[Only model infer] {:.1}s in {:.1}s ({:.0}x realtime)",
-        out_dur, elapsed.as_secs_f64(),
-        out_dur as f64 / elapsed.as_secs_f64()
-    );
+    info!("Enhanced[Only model infer] {:.1}s in {:.1}s ({:.0}x realtime)", out_dur, elapsed.as_secs_f64(), out_dur as f64 / elapsed.as_secs_f64());
 
     wav::write_wav(&o, &out_audio, 48_000)?;
 

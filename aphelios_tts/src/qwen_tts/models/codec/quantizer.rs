@@ -101,20 +101,11 @@ pub struct ResidualVectorQuantizer {
 
 impl ResidualVectorQuantizer {
     /// Create new residual vector quantizer
-    pub fn new(
-        num_quantizers: usize,
-        codebook_size: usize,
-        dim: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn new(num_quantizers: usize, codebook_size: usize, dim: usize, vb: VarBuilder) -> Result<Self> {
         let mut quantizers = Vec::with_capacity(num_quantizers);
 
         for i in 0..num_quantizers {
-            quantizers.push(VectorQuantizer::new(
-                codebook_size,
-                dim,
-                vb.pp(format!("layers.{}", i)),
-            )?);
+            quantizers.push(VectorQuantizer::new(codebook_size, dim, vb.pp(format!("layers.{}", i)))?);
         }
 
         Ok(Self {
@@ -306,8 +297,16 @@ mod tests {
         let decoded_2 = vq.decode(&indices).unwrap();
 
         // Decoding same indices should give same result
-        let d1: Vec<f32> = decoded_1.flatten_all().unwrap().to_vec1().unwrap();
-        let d2: Vec<f32> = decoded_2.flatten_all().unwrap().to_vec1().unwrap();
+        let d1: Vec<f32> = decoded_1
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let d2: Vec<f32> = decoded_2
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         for (a, b) in d1.iter().zip(d2.iter()) {
             assert!((a - b).abs() < 1e-6);
         }
@@ -327,8 +326,16 @@ mod tests {
         let decoded_2 = vq.decode(&indices_2).unwrap();
 
         // Should be different (with very high probability for random init)
-        let d1: Vec<f32> = decoded_1.flatten_all().unwrap().to_vec1().unwrap();
-        let d2: Vec<f32> = decoded_2.flatten_all().unwrap().to_vec1().unwrap();
+        let d1: Vec<f32> = decoded_1
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let d2: Vec<f32> = decoded_2
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
 
         let mut any_diff = false;
         for (a, b) in d1.iter().zip(d2.iter()) {
@@ -337,9 +344,6 @@ mod tests {
                 break;
             }
         }
-        assert!(
-            any_diff,
-            "Different indices should decode to different embeddings"
-        );
+        assert!(any_diff, "Different indices should decode to different embeddings");
     }
 }

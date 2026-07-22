@@ -236,12 +236,13 @@ pub struct ParsedModelConfig {
 impl ParsedModelConfig {
     /// Parse from a config.json file
     pub fn from_file(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config from {}", path.display()))?;
-        let v: serde_json::Value = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse config from {}", path.display()))?;
+        let content = std::fs::read_to_string(path).with_context(|| format!("Failed to read config from {}", path.display()))?;
+        let v: serde_json::Value = serde_json::from_str(&content).with_context(|| format!("Failed to parse config from {}", path.display()))?;
 
-        let model_type = match v["tts_model_type"].as_str().unwrap_or("base") {
+        let model_type = match v["tts_model_type"]
+            .as_str()
+            .unwrap_or("base")
+        {
             "custom_voice" => ModelType::CustomVoice,
             "voice_design" => ModelType::VoiceDesign,
             _ => ModelType::Base,
@@ -254,51 +255,86 @@ impl ParsedModelConfig {
         let t = &v["talker_config"];
         let cp = &t["code_predictor_config"];
 
-        let talker_hidden_size = t["hidden_size"].as_u64().unwrap_or(1024) as usize;
-        let talker_intermediate_size = t["intermediate_size"].as_u64().unwrap_or(3072) as usize;
-        let talker_num_hidden_layers = t["num_hidden_layers"].as_u64().unwrap_or(28) as usize;
-        let talker_num_attention_heads = t["num_attention_heads"].as_u64().unwrap_or(16) as usize;
-        let talker_num_key_value_heads = t["num_key_value_heads"].as_u64().unwrap_or(8) as usize;
+        let talker_hidden_size = t["hidden_size"]
+            .as_u64()
+            .unwrap_or(1024) as usize;
+        let talker_intermediate_size = t["intermediate_size"]
+            .as_u64()
+            .unwrap_or(3072) as usize;
+        let talker_num_hidden_layers = t["num_hidden_layers"]
+            .as_u64()
+            .unwrap_or(28) as usize;
+        let talker_num_attention_heads = t["num_attention_heads"]
+            .as_u64()
+            .unwrap_or(16) as usize;
+        let talker_num_key_value_heads = t["num_key_value_heads"]
+            .as_u64()
+            .unwrap_or(8) as usize;
         let talker_head_dim = t["head_dim"].as_u64().unwrap_or(128) as usize;
         let talker_vocab_size = t["vocab_size"].as_u64().unwrap_or(3072) as usize;
-        let talker_text_vocab_size = t["text_vocab_size"].as_u64().unwrap_or(151936) as usize;
-        let talker_text_hidden_size = t["text_hidden_size"].as_u64().unwrap_or(2048) as usize;
-        let talker_rms_norm_eps = t["rms_norm_eps"].as_f64().unwrap_or(1e-6);
-        let talker_rope_theta = t["rope_theta"].as_f64().unwrap_or(1000000.0);
-        let talker_max_position_embeddings =
-            t["max_position_embeddings"].as_u64().unwrap_or(32768) as usize;
+        let talker_text_vocab_size = t["text_vocab_size"]
+            .as_u64()
+            .unwrap_or(151936) as usize;
+        let talker_text_hidden_size = t["text_hidden_size"]
+            .as_u64()
+            .unwrap_or(2048) as usize;
+        let talker_rms_norm_eps = t["rms_norm_eps"]
+            .as_f64()
+            .unwrap_or(1e-6);
+        let talker_rope_theta = t["rope_theta"]
+            .as_f64()
+            .unwrap_or(1000000.0);
+        let talker_max_position_embeddings = t["max_position_embeddings"]
+            .as_u64()
+            .unwrap_or(32768) as usize;
 
         // Parse MRoPE section from rope_scaling
         let mrope_section = t["rope_scaling"]["mrope_section"]
             .as_array()
             .and_then(|arr| {
                 if arr.len() == 3 {
-                    Some([
-                        arr[0].as_u64()? as usize,
-                        arr[1].as_u64()? as usize,
-                        arr[2].as_u64()? as usize,
-                    ])
+                    Some([arr[0].as_u64()? as usize, arr[1].as_u64()? as usize, arr[2].as_u64()? as usize])
                 } else {
                     None
                 }
             });
 
-        let cp_hidden_size = cp["hidden_size"].as_u64().unwrap_or(1024) as usize;
-        let cp_intermediate_size = cp["intermediate_size"].as_u64().unwrap_or(3072) as usize;
-        let cp_num_hidden_layers = cp["num_hidden_layers"].as_u64().unwrap_or(5) as usize;
-        let cp_num_attention_heads = cp["num_attention_heads"].as_u64().unwrap_or(16) as usize;
-        let cp_num_key_value_heads = cp["num_key_value_heads"].as_u64().unwrap_or(8) as usize;
+        let cp_hidden_size = cp["hidden_size"]
+            .as_u64()
+            .unwrap_or(1024) as usize;
+        let cp_intermediate_size = cp["intermediate_size"]
+            .as_u64()
+            .unwrap_or(3072) as usize;
+        let cp_num_hidden_layers = cp["num_hidden_layers"]
+            .as_u64()
+            .unwrap_or(5) as usize;
+        let cp_num_attention_heads = cp["num_attention_heads"]
+            .as_u64()
+            .unwrap_or(16) as usize;
+        let cp_num_key_value_heads = cp["num_key_value_heads"]
+            .as_u64()
+            .unwrap_or(8) as usize;
         let cp_head_dim = cp["head_dim"].as_u64().unwrap_or(128) as usize;
-        let cp_vocab_size = cp["vocab_size"].as_u64().unwrap_or(2048) as usize;
-        let cp_num_code_groups = cp["num_code_groups"].as_u64().unwrap_or(16) as usize;
-        let cp_rms_norm_eps = cp["rms_norm_eps"].as_f64().unwrap_or(1e-6);
-        let cp_rope_theta = cp["rope_theta"].as_f64().unwrap_or(1000000.0);
+        let cp_vocab_size = cp["vocab_size"]
+            .as_u64()
+            .unwrap_or(2048) as usize;
+        let cp_num_code_groups = cp["num_code_groups"]
+            .as_u64()
+            .unwrap_or(16) as usize;
+        let cp_rms_norm_eps = cp["rms_norm_eps"]
+            .as_f64()
+            .unwrap_or(1e-6);
+        let cp_rope_theta = cp["rope_theta"]
+            .as_f64()
+            .unwrap_or(1000000.0);
 
         let speaker_encoder_config = if v["speaker_encoder_config"].is_object() {
             let se = &v["speaker_encoder_config"];
             Some(SpeakerEncoderConfig {
                 enc_dim: se["enc_dim"].as_u64().unwrap_or(1024) as usize,
-                sample_rate: se["sample_rate"].as_u64().unwrap_or(24000) as u32,
+                sample_rate: se["sample_rate"]
+                    .as_u64()
+                    .unwrap_or(24000) as u32,
                 ..Default::default()
             })
         } else {
@@ -438,11 +474,13 @@ impl Qwen3TTSConfig {
         #[cfg(feature = "hub")]
         {
             tracing::info!("Downloading config from HuggingFace Hub: {}", model_id);
-            let api =
-                hf_hub::api::sync::Api::new().context("Failed to create HuggingFace API client")?;
-            let repo = api.model(model_id.to_string());
+            let client = hf_hub::HFClientSync::new().context("Failed to create HuggingFace API client")?;
+            let (owner, name) = hf_hub::split_id(model_id);
+            let repo = client.model(owner, name);
             let config_file = repo
-                .get("config.json")
+                .download_file()
+                .filename("config.json")
+                .send()
                 .context("Failed to download config.json from HuggingFace Hub")?;
             Self::from_file(&config_file)
         }
@@ -458,18 +496,17 @@ impl Qwen3TTSConfig {
     /// Load configuration from a local JSON file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        let content = std::fs::read_to_string(path).with_context(|| format!("Failed to read config from {}", path.display()))?;
 
-        let config: Self = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse config from {}", path.display()))?;
+        let config: Self = serde_json::from_str(&content).with_context(|| format!("Failed to parse config from {}", path.display()))?;
 
         Ok(config)
     }
 
     /// Get number of key-value heads, defaulting to num_attention_heads if not set
     pub fn num_kv_heads(&self) -> usize {
-        self.num_key_value_heads.unwrap_or(self.num_attention_heads)
+        self.num_key_value_heads
+            .unwrap_or(self.num_attention_heads)
     }
 
     /// Head dimension (uses override if set, otherwise computes from hidden_size)
@@ -636,7 +673,13 @@ mod tests {
         assert_eq!(cfg.cp_hidden_size, 1024);
         assert_eq!(cfg.mrope_section, Some([24, 20, 20]));
         assert!(cfg.speaker_encoder_config.is_some());
-        assert_eq!(cfg.speaker_encoder_config.as_ref().unwrap().enc_dim, 1024);
+        assert_eq!(
+            cfg.speaker_encoder_config
+                .as_ref()
+                .unwrap()
+                .enc_dim,
+            1024
+        );
         assert_eq!(cfg.label(), "0.6B Base");
     }
 
@@ -654,7 +697,13 @@ mod tests {
         assert_eq!(cfg.cp_hidden_size, 1024);
         assert_eq!(cfg.mrope_section, Some([24, 20, 20]));
         assert!(cfg.speaker_encoder_config.is_some());
-        assert_eq!(cfg.speaker_encoder_config.as_ref().unwrap().enc_dim, 2048);
+        assert_eq!(
+            cfg.speaker_encoder_config
+                .as_ref()
+                .unwrap()
+                .enc_dim,
+            2048
+        );
         assert_eq!(cfg.label(), "1.7B Base");
     }
 

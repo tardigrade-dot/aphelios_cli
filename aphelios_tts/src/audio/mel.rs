@@ -70,17 +70,15 @@ impl MelSpectrogram {
 
     /// Create a new mel spectrogram extractor
     pub fn new(config: MelConfig) -> Self {
-        let win_length = config.win_length.unwrap_or(config.n_fft);
-        let fmax = config.fmax.unwrap_or(config.sample_rate as f32 / 2.0);
+        let win_length = config
+            .win_length
+            .unwrap_or(config.n_fft);
+        let fmax = config
+            .fmax
+            .unwrap_or(config.sample_rate as f32 / 2.0);
 
         // Compute mel filterbank
-        let mel_basis = Self::create_mel_filterbank(
-            config.sample_rate,
-            config.n_fft,
-            config.n_mels,
-            config.fmin,
-            fmax,
-        );
+        let mel_basis = Self::create_mel_filterbank(config.sample_rate, config.n_fft, config.n_mels, config.fmin, fmax);
 
         // Compute Hann window
         let window = Self::hann_window(win_length);
@@ -100,7 +98,12 @@ impl MelSpectrogram {
         // Compute power spectrogram
         let power_spec: Vec<Vec<f32>> = stft
             .iter()
-            .map(|frame| frame.iter().map(|c| c.norm_sqr()).collect())
+            .map(|frame| {
+                frame
+                    .iter()
+                    .map(|c| c.norm_sqr())
+                    .collect()
+            })
             .collect();
 
         // Apply mel filterbank
@@ -126,7 +129,12 @@ impl MelSpectrogram {
     pub fn compute_log(&self, samples: &[f32]) -> Vec<Vec<f32>> {
         let mel = self.compute(samples);
         mel.into_iter()
-            .map(|frame| frame.into_iter().map(|v| (v.max(1e-10)).ln()).collect())
+            .map(|frame| {
+                frame
+                    .into_iter()
+                    .map(|v| (v.max(1e-10)).ln())
+                    .collect()
+            })
             .collect()
     }
 
@@ -137,11 +145,7 @@ impl MelSpectrogram {
     /// - Applies `log(clamp(mel, 1e-5))` compression
     ///
     /// Returns a tensor of shape `[n_mels, n_frames]`.
-    pub fn compute_for_speaker_encoder(
-        &self,
-        samples: &[f32],
-        device: &Device,
-    ) -> anyhow::Result<Tensor> {
+    pub fn compute_for_speaker_encoder(&self, samples: &[f32], device: &Device) -> anyhow::Result<Tensor> {
         let stft = self.stft(samples);
 
         // Magnitude spectrum (not power)
@@ -161,7 +165,12 @@ impl MelSpectrogram {
         // Log compression with floor
         let log_mel: Vec<Vec<f32>> = mel
             .into_iter()
-            .map(|frame| frame.into_iter().map(|v| v.max(1e-5).ln()).collect())
+            .map(|frame| {
+                frame
+                    .into_iter()
+                    .map(|v| v.max(1e-5).ln())
+                    .collect()
+            })
             .collect();
 
         let n_frames = log_mel.len();
@@ -251,7 +260,13 @@ impl MelSpectrogram {
             .map(|frame| {
                 self.mel_basis
                     .iter()
-                    .map(|filter| filter.iter().zip(frame.iter()).map(|(f, p)| f * p).sum())
+                    .map(|filter| {
+                        filter
+                            .iter()
+                            .zip(frame.iter())
+                            .map(|(f, p)| f * p)
+                            .sum()
+                    })
                     .collect()
             })
             .collect()
@@ -293,13 +308,7 @@ impl MelSpectrogram {
     /// Uses the Slaney mel scale with Slaney area-normalization, matching
     /// `librosa.filters.mel(sr=..., n_fft=..., n_mels=..., fmin=..., fmax=..., norm="slaney")`
     /// which is the default in librosa ≥ 0.10.
-    fn create_mel_filterbank(
-        sample_rate: u32,
-        n_fft: usize,
-        n_mels: usize,
-        fmin: f32,
-        fmax: f32,
-    ) -> Vec<Vec<f32>> {
+    fn create_mel_filterbank(sample_rate: u32, n_fft: usize, n_mels: usize, fmin: f32, fmax: f32) -> Vec<Vec<f32>> {
         let n_freqs = n_fft / 2 + 1;
 
         // Create linearly spaced mel points
@@ -310,7 +319,10 @@ impl MelSpectrogram {
             .collect();
 
         // Convert to Hz
-        let hz_points: Vec<f32> = mel_points.iter().map(|&m| Self::mel_to_hz(m)).collect();
+        let hz_points: Vec<f32> = mel_points
+            .iter()
+            .map(|&m| Self::mel_to_hz(m))
+            .collect();
 
         // FFT bin center frequencies
         let fft_freqs: Vec<f32> = (0..n_freqs)
@@ -452,7 +464,10 @@ mod tests {
         let result = mel.compute(&samples);
         assert!(!result.is_empty());
         // Should have non-zero energy
-        let total_energy: f32 = result.iter().flat_map(|frame| frame.iter()).sum();
+        let total_energy: f32 = result
+            .iter()
+            .flat_map(|frame| frame.iter())
+            .sum();
         assert!(total_energy > 0.0);
     }
 
@@ -477,7 +492,9 @@ mod tests {
         let mel = MelSpectrogram::new(MelConfig::default());
         let samples = vec![0.0f32; 4800]; // 0.2 seconds
         let device = Device::Cpu;
-        let tensor = mel.compute_tensor(&samples, &device).unwrap();
+        let tensor = mel
+            .compute_tensor(&samples, &device)
+            .unwrap();
         // Shape should be [n_mels, n_frames]
         assert_eq!(tensor.dims()[0], 128);
     }

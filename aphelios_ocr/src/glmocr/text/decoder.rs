@@ -27,23 +27,14 @@ impl TextDecoder {
     /// `lm_head_vb` points to `lm_head` (at top level, outside `model.language_model`).
     ///
     /// Only loads num_hidden_layers (16). The MTP nextn_predict layer is skipped.
-    pub fn new(
-        config: &TextConfig,
-        vb: VarBuilder,
-        lm_head_vb: VarBuilder,
-        qdtype: Option<GgmlDType>,
-    ) -> Result<Self> {
+    pub fn new(config: &TextConfig, vb: VarBuilder, lm_head_vb: VarBuilder, qdtype: Option<GgmlDType>) -> Result<Self> {
         let embed_tokens = embedding(config.vocab_size, config.hidden_size, vb.pp("embed_tokens"))?;
 
         // Only use base layers for inference (skip MTP nextn_predict layers)
         let num_layers = config.num_hidden_layers;
         let mut layers = Vec::with_capacity(num_layers);
         for i in 0..num_layers {
-            layers.push(TextDecoderLayer::new(
-                config,
-                vb.pp(format!("layers.{i}")),
-                qdtype,
-            )?);
+            layers.push(TextDecoderLayer::new(config, vb.pp(format!("layers.{i}")), qdtype)?);
         }
 
         let norm = rms_norm(config.hidden_size, config.rms_norm_eps, vb.pp("norm"))?;
@@ -70,13 +61,7 @@ impl TextDecoder {
     /// Run the transformer layers (rotary → all layers → norm), returning hidden states.
     ///
     /// Used by both `forward_with_cache` and batched generation.
-    fn run_layers(
-        &self,
-        inputs_embeds: &Tensor,
-        position_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
-        kv_caches: Vec<Option<KvCache>>,
-    ) -> Result<(Tensor, Vec<Option<KvCache>>)> {
+    fn run_layers(&self, inputs_embeds: &Tensor, position_ids: &Tensor, attention_mask: Option<&Tensor>, kv_caches: Vec<Option<KvCache>>) -> Result<(Tensor, Vec<Option<KvCache>>)> {
         let (cos, sin) = self.rotary_emb.forward(position_ids)?;
 
         let mut hidden_states = inputs_embeds.clone();
@@ -87,9 +72,12 @@ impl TextDecoder {
             kv_caches.push(None);
         }
 
-        for (layer, cache) in self.layers.iter().zip(kv_caches.into_iter()) {
-            let (h, new_cache) =
-                layer.forward(&hidden_states, &cos, &sin, attention_mask, cache)?;
+        for (layer, cache) in self
+            .layers
+            .iter()
+            .zip(kv_caches.into_iter())
+        {
+            let (h, new_cache) = layer.forward(&hidden_states, &cos, &sin, attention_mask, cache)?;
             hidden_states = h;
             new_caches.push(Some(new_cache));
         }
@@ -100,15 +88,8 @@ impl TextDecoder {
     }
 
     /// Forward pass that properly consumes KV-caches.
-    pub fn forward_with_cache(
-        &self,
-        inputs_embeds: &Tensor,
-        position_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
-        kv_caches: Vec<Option<KvCache>>,
-    ) -> Result<(Tensor, Vec<Option<KvCache>>)> {
-        let (hidden_states, new_caches) =
-            self.run_layers(inputs_embeds, position_ids, attention_mask, kv_caches)?;
+    pub fn forward_with_cache(&self, inputs_embeds: &Tensor, position_ids: &Tensor, attention_mask: Option<&Tensor>, kv_caches: Vec<Option<KvCache>>) -> Result<(Tensor, Vec<Option<KvCache>>)> {
+        let (hidden_states, new_caches) = self.run_layers(inputs_embeds, position_ids, attention_mask, kv_caches)?;
 
         // LM head: logits for last token only (single-sequence path)
         let seq_len = hidden_states.dim(1)?;
@@ -120,13 +101,7 @@ impl TextDecoder {
 
     /// Like `forward_with_cache` but returns normalized hidden states (before lm_head).
     /// Used by batched generation where per-element position gathering is needed.
-    pub fn forward_to_hidden(
-        &self,
-        inputs_embeds: &Tensor,
-        position_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
-        kv_caches: Vec<Option<KvCache>>,
-    ) -> Result<(Tensor, Vec<Option<KvCache>>)> {
+    pub fn forward_to_hidden(&self, inputs_embeds: &Tensor, position_ids: &Tensor, attention_mask: Option<&Tensor>, kv_caches: Vec<Option<KvCache>>) -> Result<(Tensor, Vec<Option<KvCache>>)> {
         self.run_layers(inputs_embeds, position_ids, attention_mask, kv_caches)
     }
 

@@ -4,10 +4,8 @@ use std::sync::Mutex;
 
 // 使用 lazy_static 来创建全局缓存
 lazy_static! {
-    static ref FFT_TWIDDLES: Mutex<HashMap<usize, (Vec<f32>, Vec<f32>)>> =
-        Mutex::new(HashMap::new());
-    static ref IFFT_TWIDDLES: Mutex<HashMap<usize, (Vec<f32>, Vec<f32>)>> =
-        Mutex::new(HashMap::new());
+    static ref FFT_TWIDDLES: Mutex<HashMap<usize, (Vec<f32>, Vec<f32>)>> = Mutex::new(HashMap::new());
+    static ref IFFT_TWIDDLES: Mutex<HashMap<usize, (Vec<f32>, Vec<f32>)>> = Mutex::new(HashMap::new());
     static ref HANN_WINDOWS: Mutex<HashMap<usize, Vec<f32>>> = Mutex::new(HashMap::new());
 }
 
@@ -121,13 +119,7 @@ pub fn fft(real_out: &mut [f32], imag_out: &mut [f32], real_in: &[f32], n: usize
     }
 }
 
-pub fn ifft(
-    real_out: &mut [f32],
-    imag_out: &mut [f32],
-    real_in: &[f32],
-    imag_in: &[f32],
-    n: usize,
-) {
+pub fn ifft(real_out: &mut [f32], imag_out: &mut [f32], real_in: &[f32], imag_in: &[f32], n: usize) {
     let bits = (n as f64).log2().round() as u32;
     let (twiddles_real, twiddles_imag) = get_ifft_twiddles(n);
 
@@ -217,15 +209,7 @@ pub fn stft(signal: &[f32], fft_size: usize, hop_size: usize) -> Spectrogram {
     }
 }
 
-pub fn istft(
-    spec_real: &[f32],
-    spec_imag: &[f32],
-    num_frames: usize,
-    num_bins: usize,
-    fft_size: usize,
-    hop_size: usize,
-    length: Option<usize>,
-) -> Vec<f32> {
+pub fn istft(spec_real: &[f32], spec_imag: &[f32], num_frames: usize, num_bins: usize, fft_size: usize, hop_size: usize, length: Option<usize>) -> Vec<f32> {
     let output_length = length.unwrap_or((num_frames - 1) * hop_size + fft_size);
     let mut output = vec![0.0; output_length];
     let mut window_sum = vec![0.0; output_length];
@@ -253,13 +237,7 @@ pub fn istft(
             full_imag[idx] = -full_imag[k];
         }
 
-        ifft(
-            &mut out_real,
-            &mut out_imag,
-            &full_real,
-            &full_imag,
-            fft_size,
-        );
+        ifft(&mut out_real, &mut out_imag, &full_real, &full_imag, fft_size);
 
         let start = frame * hop_size;
         for i in 0..fft_size {

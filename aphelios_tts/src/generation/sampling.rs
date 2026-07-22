@@ -137,11 +137,7 @@ impl Default for GenerationConfig {
 ///
 /// # Returns
 /// Token indices of shape `[batch]`
-pub fn sample(
-    logits: &Tensor,
-    config: &GenerationConfig,
-    ctx: &mut SamplingContext,
-) -> Result<Tensor> {
+pub fn sample(logits: &Tensor, config: &GenerationConfig, ctx: &mut SamplingContext) -> Result<Tensor> {
     let logits = logits.to_dtype(DType::F32)?;
 
     // Apply temperature
@@ -192,12 +188,18 @@ fn top_k_filter(logits: &Tensor, k: usize) -> Result<Tensor> {
         for b in 0..batch {
             let row: Vec<f32> = logits.i(b)?.to_vec1()?;
             let mut sorted = row.clone();
-            sorted.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+            sorted.sort_unstable_by(|a, b| {
+                b.partial_cmp(a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             let threshold = sorted[k - 1];
-            result_data.extend(
-                row.iter()
-                    .map(|&v| if v >= threshold { v } else { f32::NEG_INFINITY }),
-            );
+            result_data.extend(row.iter().map(|&v| {
+                if v >= threshold {
+                    v
+                } else {
+                    f32::NEG_INFINITY
+                }
+            }));
         }
         Ok(Tensor::new(result_data.as_slice(), logits.device())?.reshape((batch, vocab))?)
     } else {
@@ -205,8 +207,7 @@ fn top_k_filter(logits: &Tensor, k: usize) -> Result<Tensor> {
         let (sorted, _) = logits.sort_last_dim(false)?;
         let threshold = sorted.narrow(1, k - 1, 1)?;
         let mask = logits.ge(&threshold.broadcast_as(logits.shape())?)?;
-        let neg_inf =
-            Tensor::new(&[f32::NEG_INFINITY], logits.device())?.broadcast_as(logits.shape())?;
+        let neg_inf = Tensor::new(&[f32::NEG_INFINITY], logits.device())?.broadcast_as(logits.shape())?;
         Ok(mask.where_cond(logits, &neg_inf)?)
     }
 }
@@ -234,8 +235,10 @@ fn top_p_filter(logits: &Tensor, p: f64) -> Result<Tensor> {
 
             // Softmax over sorted values
             let max_val = row[indices[0]];
-            let mut exp_sorted: Vec<f32> =
-                indices.iter().map(|&i| (row[i] - max_val).exp()).collect();
+            let mut exp_sorted: Vec<f32> = indices
+                .iter()
+                .map(|&i| (row[i] - max_val).exp())
+                .collect();
             let sum: f32 = exp_sorted.iter().sum();
             for v in &mut exp_sorted {
                 *v /= sum;
@@ -270,18 +273,17 @@ fn top_p_filter(logits: &Tensor, p: f64) -> Result<Tensor> {
         let zeros = Tensor::zeros((logits.dim(0)?, 1), DType::F32, logits.device())?;
         let shifted_cumsum = Tensor::cat(&[&zeros, &shifted], 1)?;
 
-        let threshold_val =
-            Tensor::new(&[p as f32], logits.device())?.broadcast_as(shifted_cumsum.shape())?;
+        let threshold_val = Tensor::new(&[p as f32], logits.device())?.broadcast_as(shifted_cumsum.shape())?;
         let remove_mask = shifted_cumsum.ge(&threshold_val)?;
 
-        let pos_inf =
-            Tensor::new(&[f32::INFINITY], logits.device())?.broadcast_as(sorted_logits.shape())?;
+        let pos_inf = Tensor::new(&[f32::INFINITY], logits.device())?.broadcast_as(sorted_logits.shape())?;
         let kept_logits = remove_mask.where_cond(&pos_inf, &sorted_logits)?;
-        let min_kept = kept_logits.min(D::Minus1)?.unsqueeze(1)?;
+        let min_kept = kept_logits
+            .min(D::Minus1)?
+            .unsqueeze(1)?;
 
         let keep_original = logits.ge(&min_kept.broadcast_as(logits.shape())?)?;
-        let neg_inf =
-            Tensor::new(&[f32::NEG_INFINITY], logits.device())?.broadcast_as(logits.shape())?;
+        let neg_inf = Tensor::new(&[f32::NEG_INFINITY], logits.device())?.broadcast_as(logits.shape())?;
         Ok(keep_original.where_cond(logits, &neg_inf)?)
     }
 }
@@ -294,7 +296,9 @@ fn multinomial_sample(probs: &Tensor, ctx: &mut SamplingContext) -> Result<Tenso
     let cumsum = probs.cumsum(1)?;
 
     // Generate uniform random values
-    let uniform: Vec<f32> = (0..batch).map(|_| ctx.rand_f32()).collect();
+    let uniform: Vec<f32> = (0..batch)
+        .map(|_| ctx.rand_f32())
+        .collect();
     let uniform = Tensor::new(uniform.as_slice(), probs.device())?.unsqueeze(1)?;
 
     // Find first index where cumsum >= uniform
@@ -304,14 +308,15 @@ fn multinomial_sample(probs: &Tensor, ctx: &mut SamplingContext) -> Result<Tenso
     let mask_f32 = mask.to_dtype(DType::F32)?;
 
     // Use a trick: multiply by position and find first nonzero
-    let positions: Vec<f32> = (0..vocab).map(|i| i as f32 + 1.0).collect();
+    let positions: Vec<f32> = (0..vocab)
+        .map(|i| i as f32 + 1.0)
+        .collect();
     let positions = Tensor::new(positions.as_slice(), probs.device())?
         .unsqueeze(0)?
         .broadcast_as(mask_f32.shape())?;
 
     // Where mask is true, use position; else use large value
-    let large =
-        Tensor::new(&[vocab as f32 + 1.0], probs.device())?.broadcast_as(mask_f32.shape())?;
+    let large = Tensor::new(&[vocab as f32 + 1.0], probs.device())?.broadcast_as(mask_f32.shape())?;
     let masked_positions = mask.where_cond(&positions, &large)?;
 
     // Argmin gives first True position
@@ -322,11 +327,7 @@ fn multinomial_sample(probs: &Tensor, ctx: &mut SamplingContext) -> Result<Tenso
 ///
 /// Uses on-device tensor ops to avoid transferring full logit tensors to CPU.
 /// Only the input_ids (small) are transferred for building the penalty mask.
-pub fn apply_repetition_penalty(
-    logits: &Tensor,
-    input_ids: &Tensor,
-    penalty: f64,
-) -> Result<Tensor> {
+pub fn apply_repetition_penalty(logits: &Tensor, input_ids: &Tensor, penalty: f64) -> Result<Tensor> {
     if (penalty - 1.0).abs() < 1e-9 {
         return Ok(logits.clone());
     }
@@ -352,15 +353,13 @@ pub fn apply_repetition_penalty(
     // For negative logits: penalized = logit * penalty, so factor = penalty
     // Non-penalized positions: factor = 1.0
     let is_positive = logits.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
-    let pos_factor =
-        Tensor::new(&[1.0 / penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
+    let pos_factor = Tensor::new(&[1.0 / penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
     let neg_factor = Tensor::new(&[penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
     let penalty_factor = is_positive.where_cond(&pos_factor, &neg_factor)?;
 
     // Where mask is 1.0, apply penalty factor; where 0.0, keep factor as 1.0
     let ones = Tensor::ones(logits.shape(), DType::F32, logits.device())?;
-    let is_penalized =
-        penalty_mask.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
+    let is_penalized = penalty_mask.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
     let final_factor = is_penalized.where_cond(&penalty_factor, &ones)?;
 
     Ok((logits * final_factor)?)
@@ -372,11 +371,7 @@ pub fn apply_repetition_penalty(
 /// callers maintain a `[1, vocab]` mask on GPU that marks which tokens
 /// have been seen. This eliminates the O(n) GPU→CPU transfer that
 /// otherwise grows with each frame.
-pub fn apply_repetition_penalty_with_mask(
-    logits: &Tensor,
-    penalty_mask: &Tensor,
-    penalty: f64,
-) -> Result<Tensor> {
+pub fn apply_repetition_penalty_with_mask(logits: &Tensor, penalty_mask: &Tensor, penalty: f64) -> Result<Tensor> {
     if (penalty - 1.0).abs() < 1e-9 {
         return Ok(logits.clone());
     }
@@ -386,14 +381,12 @@ pub fn apply_repetition_penalty_with_mask(
     let penalty_mask = penalty_mask.broadcast_as(logits.shape())?;
 
     let is_positive = logits.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
-    let pos_factor =
-        Tensor::new(&[1.0 / penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
+    let pos_factor = Tensor::new(&[1.0 / penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
     let neg_factor = Tensor::new(&[penalty_f32], logits.device())?.broadcast_as(logits.shape())?;
     let penalty_factor = is_positive.where_cond(&pos_factor, &neg_factor)?;
 
     let ones = Tensor::ones(logits.shape(), DType::F32, logits.device())?;
-    let is_penalized =
-        penalty_mask.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
+    let is_penalized = penalty_mask.gt(&Tensor::zeros(logits.shape(), DType::F32, logits.device())?)?;
     let final_factor = is_penalized.where_cond(&penalty_factor, &ones)?;
 
     Ok((logits * final_factor)?)
@@ -443,7 +436,11 @@ mod tests {
         let device = Device::Cpu;
         let x = Tensor::new(&[[0.1f32, 0.2, 0.3, 0.4]], &device).unwrap();
         let cumsum = x.cumsum(1).unwrap();
-        let result: Vec<f32> = cumsum.flatten_all().unwrap().to_vec1().unwrap();
+        let result: Vec<f32> = cumsum
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!((result[0] - 0.1).abs() < 1e-5);
         assert!((result[1] - 0.3).abs() < 1e-5);
         assert!((result[2] - 0.6).abs() < 1e-5);
@@ -453,13 +450,13 @@ mod tests {
     #[test]
     fn test_cumsum_batch() {
         let device = Device::Cpu;
-        let x = Tensor::new(
-            &[[0.25f32, 0.25, 0.25, 0.25], [0.1, 0.2, 0.3, 0.4]],
-            &device,
-        )
-        .unwrap();
+        let x = Tensor::new(&[[0.25f32, 0.25, 0.25, 0.25], [0.1, 0.2, 0.3, 0.4]], &device).unwrap();
         let cumsum = x.cumsum(1).unwrap();
-        let result: Vec<f32> = cumsum.flatten_all().unwrap().to_vec1().unwrap();
+        let result: Vec<f32> = cumsum
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // First row
         assert!((result[0] - 0.25).abs() < 1e-5);
         assert!((result[1] - 0.50).abs() < 1e-5);
@@ -483,11 +480,7 @@ mod tests {
     #[test]
     fn test_greedy_sample_batch() {
         let device = Device::Cpu;
-        let logits = Tensor::new(
-            &[[1.0f32, 5.0, 2.0], [3.0, 1.0, 2.0], [1.0, 2.0, 10.0]],
-            &device,
-        )
-        .unwrap();
+        let logits = Tensor::new(&[[1.0f32, 5.0, 2.0], [3.0, 1.0, 2.0], [1.0, 2.0, 10.0]], &device).unwrap();
         let result = greedy_sample(&logits).unwrap();
         let idx: Vec<u32> = result.to_vec1().unwrap();
         assert_eq!(idx[0], 1); // Max at position 1
@@ -544,8 +537,16 @@ mod tests {
         let input_ids = Tensor::new(&[0u32], &device).unwrap();
         let result = apply_repetition_penalty(&logits, &input_ids, 1.0).unwrap();
         // With penalty 1.0, should be unchanged
-        let original: Vec<f32> = logits.flatten_all().unwrap().to_vec1().unwrap();
-        let penalized: Vec<f32> = result.flatten_all().unwrap().to_vec1().unwrap();
+        let original: Vec<f32> = logits
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let penalized: Vec<f32> = result
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!((original[0] - penalized[0]).abs() < 1e-5);
         assert!((original[1] - penalized[1]).abs() < 1e-5);
         assert!((original[2] - penalized[2]).abs() < 1e-5);
@@ -558,7 +559,11 @@ mod tests {
         let input_ids = Tensor::new(&[0u32], &device).unwrap();
         let penalty = 2.0;
         let result = apply_repetition_penalty(&logits, &input_ids, penalty).unwrap();
-        let penalized: Vec<f32> = result.flatten_all().unwrap().to_vec1().unwrap();
+        let penalized: Vec<f32> = result
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Token 0 had positive logit, should be divided by penalty
         assert!((penalized[0] - 1.0).abs() < 1e-5); // 2.0 / 2.0 = 1.0
                                                     // Others unchanged
@@ -573,7 +578,11 @@ mod tests {
         let input_ids = Tensor::new(&[0u32], &device).unwrap();
         let penalty = 2.0;
         let result = apply_repetition_penalty(&logits, &input_ids, penalty).unwrap();
-        let penalized: Vec<f32> = result.flatten_all().unwrap().to_vec1().unwrap();
+        let penalized: Vec<f32> = result
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Token 0 had negative logit, should be multiplied by penalty
         assert!((penalized[0] - (-4.0)).abs() < 1e-5); // -2.0 * 2.0 = -4.0
     }
@@ -592,8 +601,13 @@ mod tests {
     #[ignore = "flaky under parallel execution due to global RNG state"]
     fn test_rand_f32_variability() {
         let mut ctx = SamplingContext::new(None);
-        let values: Vec<f32> = (0..10).map(|_| ctx.rand_f32()).collect();
-        let unique: std::collections::HashSet<u32> = values.iter().map(|v| v.to_bits()).collect();
+        let values: Vec<f32> = (0..10)
+            .map(|_| ctx.rand_f32())
+            .collect();
+        let unique: std::collections::HashSet<u32> = values
+            .iter()
+            .map(|v| v.to_bits())
+            .collect();
         assert!(unique.len() > 1);
     }
 
@@ -627,10 +641,14 @@ mod tests {
     fn test_seeded_deterministic() {
         // With the same seed, should get the same random values
         let mut ctx1 = SamplingContext::new(Some(12345));
-        let values1: Vec<f32> = (0..10).map(|_| ctx1.rand_f32()).collect();
+        let values1: Vec<f32> = (0..10)
+            .map(|_| ctx1.rand_f32())
+            .collect();
 
         let mut ctx2 = SamplingContext::new(Some(12345));
-        let values2: Vec<f32> = (0..10).map(|_| ctx2.rand_f32()).collect();
+        let values2: Vec<f32> = (0..10)
+            .map(|_| ctx2.rand_f32())
+            .collect();
 
         for (a, b) in values1.iter().zip(values2.iter()) {
             assert!((a - b).abs() < 1e-9, "Seeded values should be identical");
@@ -640,20 +658,21 @@ mod tests {
     #[test]
     fn test_different_seeds_different_values() {
         let mut ctx1 = SamplingContext::new(Some(12345));
-        let values1: Vec<f32> = (0..10).map(|_| ctx1.rand_f32()).collect();
+        let values1: Vec<f32> = (0..10)
+            .map(|_| ctx1.rand_f32())
+            .collect();
 
         let mut ctx2 = SamplingContext::new(Some(67890));
-        let values2: Vec<f32> = (0..10).map(|_| ctx2.rand_f32()).collect();
+        let values2: Vec<f32> = (0..10)
+            .map(|_| ctx2.rand_f32())
+            .collect();
 
         let same_count = values1
             .iter()
             .zip(values2.iter())
             .filter(|(a, b)| (*a - *b).abs() < 1e-9)
             .count();
-        assert!(
-            same_count < 10,
-            "Different seeds should produce different values"
-        );
+        assert!(same_count < 10, "Different seeds should produce different values");
     }
 
     #[test]
@@ -689,20 +708,29 @@ mod tests {
         let mut results1 = Vec::new();
         for _ in 0..5 {
             let result = sample(&logits, &config, &mut ctx1).unwrap();
-            results1.push(result.flatten_all().unwrap().to_vec1::<u32>().unwrap()[0]);
+            results1.push(
+                result
+                    .flatten_all()
+                    .unwrap()
+                    .to_vec1::<u32>()
+                    .unwrap()[0],
+            );
         }
 
         let mut ctx2 = SamplingContext::new(Some(99999));
         let mut results2 = Vec::new();
         for _ in 0..5 {
             let result = sample(&logits, &config, &mut ctx2).unwrap();
-            results2.push(result.flatten_all().unwrap().to_vec1::<u32>().unwrap()[0]);
+            results2.push(
+                result
+                    .flatten_all()
+                    .unwrap()
+                    .to_vec1::<u32>()
+                    .unwrap()[0],
+            );
         }
 
-        assert_eq!(
-            results1, results2,
-            "Seeded sampling should be deterministic"
-        );
+        assert_eq!(results1, results2, "Seeded sampling should be deterministic");
     }
 
     #[test]
@@ -710,7 +738,11 @@ mod tests {
         let device = Device::Cpu;
         let logits = Tensor::new(&[[1.0f32, 5.0, 3.0, 2.0, 4.0]], &device).unwrap();
         let filtered = top_k_filter(&logits, 3).unwrap();
-        let vals: Vec<f32> = filtered.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = filtered
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Top-3 are indices 1(5.0), 4(4.0), 2(3.0); rest should be -inf
         assert!((vals[1] - 5.0).abs() < 1e-5);
         assert!((vals[4] - 4.0).abs() < 1e-5);
@@ -724,7 +756,11 @@ mod tests {
         let device = Device::Cpu;
         let logits = Tensor::new(&[[1.0f32, 2.0, 3.0]], &device).unwrap();
         let filtered = top_k_filter(&logits, 100).unwrap();
-        let vals: Vec<f32> = filtered.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = filtered
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // All values should be preserved
         assert!((vals[0] - 1.0).abs() < 1e-5);
         assert!((vals[1] - 2.0).abs() < 1e-5);
@@ -737,7 +773,11 @@ mod tests {
         // One dominant logit should survive top-p filtering
         let logits = Tensor::new(&[[10.0f32, 0.0, 0.0, 0.0]], &device).unwrap();
         let filtered = top_p_filter(&logits, 0.9).unwrap();
-        let vals: Vec<f32> = filtered.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = filtered
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // The dominant token should be kept
         assert!((vals[0] - 10.0).abs() < 1e-5);
     }
@@ -748,8 +788,15 @@ mod tests {
         // Uniform logits — top-p=0.5 should keep roughly half
         let logits = Tensor::new(&[[1.0f32, 1.0, 1.0, 1.0]], &device).unwrap();
         let filtered = top_p_filter(&logits, 0.5).unwrap();
-        let vals: Vec<f32> = filtered.flatten_all().unwrap().to_vec1().unwrap();
-        let kept = vals.iter().filter(|v| !v.is_infinite()).count();
+        let vals: Vec<f32> = filtered
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let kept = vals
+            .iter()
+            .filter(|v| !v.is_infinite())
+            .count();
         // Should keep at least 2 and not all 4
         assert!(kept >= 2);
         assert!(kept <= 4);
@@ -762,7 +809,11 @@ mod tests {
         let input_ids = Tensor::new(&[0u32, 2], &device).unwrap();
         let penalty = 2.0;
         let result = apply_repetition_penalty(&logits, &input_ids, penalty).unwrap();
-        let vals: Vec<f32> = result.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = result
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!((vals[0] - 1.0).abs() < 1e-5); // 2.0 / 2.0
         assert!((vals[1] - 3.0).abs() < 1e-5); // unchanged
         assert!((vals[2] - 2.0).abs() < 1e-5); // 4.0 / 2.0

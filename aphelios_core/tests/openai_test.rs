@@ -3,8 +3,8 @@ use std::env;
 use anyhow::Result;
 use aphelios_core::openai::infer::{simple_chat, translate_file_zh_hant_zh_hans, translate_zh_hant_zh_hans};
 use aphelios_core::utils::logger;
-use async_openai::Client;
 use async_openai::config::OpenAIConfig;
+use async_openai::Client;
 use tracing::info;
 
 #[tokio::test]
@@ -56,7 +56,9 @@ async fn simple_openrouter_test() -> Result<()> {
 
     info!("{}", api_key);
 
-    let config = OpenAIConfig::new().with_api_base(api_base).with_header("Authorization", format!("Bearer {}", api_key))?;
+    let config = OpenAIConfig::new()
+        .with_api_base(api_base)
+        .with_header("Authorization", format!("Bearer {}", api_key))?;
     let client = Client::with_config(config);
     let res = simple_chat(&client, model_id, prompt).await;
     info!("{}", res?);

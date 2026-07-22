@@ -72,13 +72,7 @@ struct ReflectPadConv1d {
 }
 
 impl ReflectPadConv1d {
-    fn new(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        dilation: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    fn new(in_channels: usize, out_channels: usize, kernel_size: usize, dilation: usize, vb: VarBuilder) -> Result<Self> {
         let total_pad = dilation * (kernel_size - 1);
         let pad_left = total_pad / 2;
         let pad_right = total_pad - pad_left;
@@ -116,21 +110,9 @@ struct TimeDelayNetBlock {
 }
 
 impl TimeDelayNetBlock {
-    fn new(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        dilation: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    fn new(in_channels: usize, out_channels: usize, kernel_size: usize, dilation: usize, vb: VarBuilder) -> Result<Self> {
         Ok(Self {
-            conv: ReflectPadConv1d::new(
-                in_channels,
-                out_channels,
-                kernel_size,
-                dilation,
-                vb.pp("conv"),
-            )?,
+            conv: ReflectPadConv1d::new(in_channels, out_channels, kernel_size, dilation, vb.pp("conv"))?,
         })
     }
 
@@ -153,23 +135,11 @@ struct Res2NetBlock {
 }
 
 impl Res2NetBlock {
-    fn new(
-        channels: usize,
-        kernel_size: usize,
-        dilation: usize,
-        scale: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    fn new(channels: usize, kernel_size: usize, dilation: usize, scale: usize, vb: VarBuilder) -> Result<Self> {
         let chunk_size = channels / scale;
         let mut blocks = Vec::with_capacity(scale - 1);
         for i in 0..(scale - 1) {
-            blocks.push(TimeDelayNetBlock::new(
-                chunk_size,
-                chunk_size,
-                kernel_size,
-                dilation,
-                vb.pp(format!("blocks.{}", i)),
-            )?);
+            blocks.push(TimeDelayNetBlock::new(chunk_size, chunk_size, kernel_size, dilation, vb.pp(format!("blocks.{}", i)))?);
         }
         Ok(Self {
             blocks,
@@ -219,7 +189,9 @@ impl SqueezeExcitationBlock {
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
         // Global average pool: [B, C, T] → [B, C, 1]
-        let s = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
+        let s = x
+            .mean(D::Minus1)?
+            .unsqueeze(D::Minus1)?;
         let s = relu(&self.conv1.forward(&s)?)?;
         let s = sigmoid(&self.conv2.forward(&s)?)?;
         Ok(x.broadcast_mul(&s)?)
@@ -237,23 +209,10 @@ struct SqueezeExcitationRes2NetBlock {
 }
 
 impl SqueezeExcitationRes2NetBlock {
-    fn new(
-        channels: usize,
-        kernel_size: usize,
-        dilation: usize,
-        scale: usize,
-        se_channels: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    fn new(channels: usize, kernel_size: usize, dilation: usize, scale: usize, se_channels: usize, vb: VarBuilder) -> Result<Self> {
         Ok(Self {
             tdnn1: TimeDelayNetBlock::new(channels, channels, 1, 1, vb.pp("tdnn1"))?,
-            res2net_block: Res2NetBlock::new(
-                channels,
-                kernel_size,
-                dilation,
-                scale,
-                vb.pp("res2net_block"),
-            )?,
+            res2net_block: Res2NetBlock::new(channels, kernel_size, dilation, scale, vb.pp("res2net_block"))?,
             tdnn2: TimeDelayNetBlock::new(channels, channels, 1, 1, vb.pp("tdnn2"))?,
             se_block: SqueezeExcitationBlock::new(channels, se_channels, vb.pp("se_block"))?,
         })
@@ -283,13 +242,7 @@ impl AttentiveStatisticsPooling {
     fn new(channels: usize, attention_channels: usize, vb: VarBuilder) -> Result<Self> {
         Ok(Self {
             tdnn: TimeDelayNetBlock::new(channels * 3, attention_channels, 1, 1, vb.pp("tdnn"))?,
-            conv: conv1d(
-                attention_channels,
-                channels,
-                1,
-                Conv1dConfig::default(),
-                vb.pp("conv"),
-            )?,
+            conv: conv1d(attention_channels, channels, 1, Conv1dConfig::default(), vb.pp("conv"))?,
         })
     }
 
@@ -298,9 +251,14 @@ impl AttentiveStatisticsPooling {
         let (b, c, t) = x.dims3()?;
 
         // Global statistics expanded to sequence length
-        let mean = x.mean(D::Minus1)?.unsqueeze(D::Minus1)?; // [B, C, 1]
+        let mean = x
+            .mean(D::Minus1)?
+            .unsqueeze(D::Minus1)?; // [B, C, 1]
         let diff = x.broadcast_sub(&mean)?;
-        let var = diff.sqr()?.mean(D::Minus1)?.unsqueeze(D::Minus1)?;
+        let var = diff
+            .sqr()?
+            .mean(D::Minus1)?
+            .unsqueeze(D::Minus1)?;
         let std = (var + 1e-5)?.sqrt()?; // [B, C, 1]
 
         let mean_exp = mean.broadcast_as((b, c, t))?;
@@ -371,13 +329,7 @@ impl SpeakerEncoder {
         let mel_extractor = MelSpectrogram::new(mel_config);
 
         // blocks[0]: initial TDNN (mel_dim → enc_channels[0])
-        let initial_tdnn = TimeDelayNetBlock::new(
-            config.mel_dim,
-            config.enc_channels[0],
-            config.enc_kernel_sizes[0],
-            config.enc_dilations[0],
-            vb.pp("blocks.0"),
-        )?;
+        let initial_tdnn = TimeDelayNetBlock::new(config.mel_dim, config.enc_channels[0], config.enc_kernel_sizes[0], config.enc_dilations[0], vb.pp("blocks.0"))?;
 
         // blocks[1-3]: SE-Res2Net blocks
         let mut se_res2net_blocks = Vec::with_capacity(3);
@@ -395,29 +347,13 @@ impl SpeakerEncoder {
         // MFA: concatenate SE-Res2Net outputs → TDNN projection
         // Weight keys: `mfa.conv.weight`, `mfa.conv.bias`
         let mfa_in_channels: usize = config.enc_channels[1..4].iter().sum();
-        let mfa_tdnn = TimeDelayNetBlock::new(
-            mfa_in_channels,
-            config.enc_channels[4],
-            config.enc_kernel_sizes[4],
-            config.enc_dilations[4],
-            vb.pp("mfa"),
-        )?;
+        let mfa_tdnn = TimeDelayNetBlock::new(mfa_in_channels, config.enc_channels[4], config.enc_kernel_sizes[4], config.enc_dilations[4], vb.pp("mfa"))?;
 
         // ASP: attentive statistics pooling
-        let asp = AttentiveStatisticsPooling::new(
-            config.enc_channels[4],
-            config.enc_attention_channels,
-            vb.pp("asp"),
-        )?;
+        let asp = AttentiveStatisticsPooling::new(config.enc_channels[4], config.enc_attention_channels, vb.pp("asp"))?;
 
         // FC: Conv1d(2 * enc_channels[4] → enc_dim, k=1)
-        let fc = conv1d(
-            config.enc_channels[4] * 2,
-            config.enc_dim,
-            1,
-            Conv1dConfig::default(),
-            vb.pp("fc"),
-        )?;
+        let fc = conv1d(config.enc_channels[4] * 2, config.enc_dim, 1, Conv1dConfig::default(), vb.pp("fc"))?;
 
         Ok(Self {
             mel_extractor,
@@ -503,7 +439,11 @@ mod tests {
         let device = Device::Cpu;
         let x = Tensor::new(&[[[0.0f32, 1.0, 2.0, 3.0, 4.0]]], &device).unwrap();
         let padded = reflect_pad_1d(&x, 2, 0).unwrap();
-        let vals: Vec<f32> = padded.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = padded
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Expected: [2, 1, 0, 1, 2, 3, 4]
         assert_eq!(vals, vec![2.0, 1.0, 0.0, 1.0, 2.0, 3.0, 4.0]);
     }
@@ -513,7 +453,11 @@ mod tests {
         let device = Device::Cpu;
         let x = Tensor::new(&[[[0.0f32, 1.0, 2.0, 3.0, 4.0]]], &device).unwrap();
         let padded = reflect_pad_1d(&x, 0, 2).unwrap();
-        let vals: Vec<f32> = padded.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = padded
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Expected: [0, 1, 2, 3, 4, 3, 2]
         assert_eq!(vals, vec![0.0, 1.0, 2.0, 3.0, 4.0, 3.0, 2.0]);
     }
@@ -523,7 +467,11 @@ mod tests {
         let device = Device::Cpu;
         let x = Tensor::new(&[[[0.0f32, 1.0, 2.0, 3.0, 4.0]]], &device).unwrap();
         let padded = reflect_pad_1d(&x, 2, 2).unwrap();
-        let vals: Vec<f32> = padded.flatten_all().unwrap().to_vec1().unwrap();
+        let vals: Vec<f32> = padded
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Expected: [2, 1, 0, 1, 2, 3, 4, 3, 2]
         assert_eq!(vals, vec![2.0, 1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 3.0, 2.0]);
     }

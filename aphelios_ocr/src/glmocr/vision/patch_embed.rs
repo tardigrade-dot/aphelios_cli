@@ -17,27 +17,19 @@ pub struct PatchEmbed {
 
 impl PatchEmbed {
     pub fn new(config: &VisionConfig, vb: VarBuilder) -> Result<Self> {
-        let in_features =
-            config.in_channels * config.temporal_patch_size * config.patch_size * config.patch_size;
+        let in_features = config.in_channels * config.temporal_patch_size * config.patch_size * config.patch_size;
         let out_features = config.hidden_size;
 
         // The Conv3d weight has shape [out_channels, in_channels, T, H, W] = [1024, 3, 2, 14, 14].
         // We load it with the original shape then reshape to [out_features, in_features] for Linear.
-        let weight = vb.get(
-            (
-                out_features,
-                config.in_channels,
-                config.temporal_patch_size,
-                config.patch_size,
-                config.patch_size,
-            ),
-            "proj.weight",
-        )?;
+        let weight = vb.get((out_features, config.in_channels, config.temporal_patch_size, config.patch_size, config.patch_size), "proj.weight")?;
         let weight = weight.reshape((out_features, in_features))?;
         let bias = vb.get(out_features, "proj.bias")?;
         let proj = Linear::new(weight, Some(bias));
 
-        Ok(Self { proj })
+        Ok(Self {
+            proj,
+        })
     }
 }
 

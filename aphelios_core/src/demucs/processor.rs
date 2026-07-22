@@ -47,14 +47,10 @@ pub fn standalone_mask(freq_output: &[f32]) -> Vec<TrackSpec> {
                 for b in 0..num_bins {
                     let base_idx = t * num_channels * num_bins * num_frames;
                     let out_idx = b * num_frames + f;
-                    track_spec.left_real[out_idx] =
-                        freq_output[base_idx + 0 * num_bins * num_frames + b * num_frames + f];
-                    track_spec.left_imag[out_idx] =
-                        freq_output[base_idx + 1 * num_bins * num_frames + b * num_frames + f];
-                    track_spec.right_real[out_idx] =
-                        freq_output[base_idx + 2 * num_bins * num_frames + b * num_frames + f];
-                    track_spec.right_imag[out_idx] =
-                        freq_output[base_idx + 3 * num_bins * num_frames + b * num_frames + f];
+                    track_spec.left_real[out_idx] = freq_output[base_idx + 0 * num_bins * num_frames + b * num_frames + f];
+                    track_spec.left_imag[out_idx] = freq_output[base_idx + 1 * num_bins * num_frames + b * num_frames + f];
+                    track_spec.right_real[out_idx] = freq_output[base_idx + 2 * num_bins * num_frames + b * num_frames + f];
+                    track_spec.right_imag[out_idx] = freq_output[base_idx + 3 * num_bins * num_frames + b * num_frames + f];
                 }
             }
             track_spec
@@ -87,33 +83,15 @@ pub fn standalone_ispec(track_spec: &TrackSpec, target_length: usize) -> StereoA
         (padded_real, padded_imag)
     };
 
-    let (left_padded_real, left_padded_imag) =
-        pad_channel(&track_spec.left_real, &track_spec.left_imag);
-    let (right_padded_real, right_padded_imag) =
-        pad_channel(&track_spec.right_real, &track_spec.right_imag);
+    let (left_padded_real, left_padded_imag) = pad_channel(&track_spec.left_real, &track_spec.left_imag);
+    let (right_padded_real, right_padded_imag) = pad_channel(&track_spec.right_real, &track_spec.right_imag);
 
     let center_pad = Constants::FFT_SIZE / 2;
     let pad = (hop_length / 2) * 3;
     let istft_length = (padded_frames - 1) * hop_length + Constants::FFT_SIZE;
 
-    let left_out = istft(
-        &left_padded_real,
-        &left_padded_imag,
-        padded_frames,
-        padded_bins,
-        Constants::FFT_SIZE,
-        hop_length,
-        Some(istft_length),
-    );
-    let right_out = istft(
-        &right_padded_real,
-        &right_padded_imag,
-        padded_frames,
-        padded_bins,
-        Constants::FFT_SIZE,
-        hop_length,
-        Some(istft_length),
-    );
+    let left_out = istft(&left_padded_real, &left_padded_imag, padded_frames, padded_bins, Constants::FFT_SIZE, hop_length, Some(istft_length));
+    let right_out = istft(&right_padded_real, &right_padded_imag, padded_frames, padded_bins, Constants::FFT_SIZE, hop_length, Some(istft_length));
 
     let total_offset = center_pad + pad;
     let left_start = total_offset;
@@ -132,7 +110,10 @@ pub fn standalone_ispec(track_spec: &TrackSpec, target_length: usize) -> StereoA
         vec![0.0; target_length]
     };
 
-    StereoAudio { left, right }
+    StereoAudio {
+        left,
+        right,
+    }
 }
 
 pub fn prepare_model_input(left_channel: &[f32], right_channel: &[f32]) -> (Vec<f32>, Vec<f32>) {
@@ -210,28 +191,20 @@ impl DemucsProcessor {
         Ok(())
     }
 
-    pub fn separate(
-        &self,
-        left_channel: &[f32],
-        right_channel: &[f32],
-        progress_callback: Option<Arc<dyn Fn(f32) + Send + Sync>>,
-    ) -> Result<SeparatedTracks, Box<dyn std::error::Error>> {
-        let session_mutex = self.session.as_ref().ok_or("Model not loaded")?;
+    pub fn separate(&self, left_channel: &[f32], right_channel: &[f32], progress_callback: Option<Arc<dyn Fn(f32) + Send + Sync>>) -> Result<SeparatedTracks, Box<dyn std::error::Error>> {
+        let session_mutex = self
+            .session
+            .as_ref()
+            .ok_or("Model not loaded")?;
         let mut session = session_mutex
             .lock()
             .map_err(|_| "Failed to acquire session lock")?;
 
         let total_samples = left_channel.len();
-        let stride =
-            (Constants::TRAINING_SAMPLES as f32 * (1.0 - Constants::SEGMENT_OVERLAP)) as usize;
-        let num_segments = (((total_samples - Constants::TRAINING_SAMPLES) as f32 / stride as f32)
-            .ceil() as usize)
-            + 1;
+        let stride = (Constants::TRAINING_SAMPLES as f32 * (1.0 - Constants::SEGMENT_OVERLAP)) as usize;
+        let num_segments = (((total_samples - Constants::TRAINING_SAMPLES) as f32 / stride as f32).ceil() as usize) + 1;
 
-        info!(
-            "[Demucs] Total samples: {}, stride: {}, segments: {}",
-            total_samples, stride, num_segments
-        );
+        info!("[Demucs] Total samples: {}, stride: {}, segments: {}", total_samples, stride, num_segments);
 
         let mut outputs = [
             StereoAudio {
@@ -278,24 +251,12 @@ impl DemucsProcessor {
 
             // 创建 ONNX 输入张量
             let mut waveform_with_batch = Vec::with_capacity(1 * 2 * Constants::TRAINING_SAMPLES);
-            waveform_with_batch
-                .extend(std::iter::repeat(0.0).take(1 * 2 * Constants::TRAINING_SAMPLES));
+            waveform_with_batch.extend(std::iter::repeat(0.0).take(1 * 2 * Constants::TRAINING_SAMPLES));
             // 假设 waveform 已经是 (2, TRAINING_SAMPLES) 的形状
-            let waveform_array = ndarray::Array3::<f32>::from_shape_vec(
-                (1, 2, Constants::TRAINING_SAMPLES),
-                waveform,
-            )?;
+            let waveform_array = ndarray::Array3::<f32>::from_shape_vec((1, 2, Constants::TRAINING_SAMPLES), waveform)?;
             let waveform_tensor = Value::from_array(waveform_array)?;
 
-            let mag_spec_array = ndarray::Array4::<f32>::from_shape_vec(
-                (
-                    1,
-                    4,
-                    Constants::MODEL_SPEC_BINS,
-                    Constants::MODEL_SPEC_FRAMES,
-                ),
-                mag_spec,
-            )?;
+            let mag_spec_array = ndarray::Array4::<f32>::from_shape_vec((1, 4, Constants::MODEL_SPEC_BINS, Constants::MODEL_SPEC_FRAMES), mag_spec)?;
             let mag_spec_tensor = Value::from_array(mag_spec_array)?;
 
             // 准备输入映射
@@ -325,7 +286,10 @@ impl DemucsProcessor {
 
             for (_name, tensor) in &outputs_map {
                 if let Ok((shape_info, data)) = tensor.try_extract_tensor::<f32>() {
-                    let shape: Vec<usize> = shape_info.iter().map(|&x| x as usize).collect();
+                    let shape: Vec<usize> = shape_info
+                        .iter()
+                        .map(|&x| x as usize)
+                        .collect();
                     let data_vec: Vec<f32> = data.iter().copied().collect();
 
                     if shape.len() == 4 && shape[2] == 2 {
@@ -347,8 +311,7 @@ impl DemucsProcessor {
                 let mut temp_combined_outputs = Vec::with_capacity(4);
 
                 for t in 0..4 {
-                    let freq_output =
-                        standalone_ispec(&track_specs[t], Constants::TRAINING_SAMPLES);
+                    let freq_output = standalone_ispec(&track_specs[t], Constants::TRAINING_SAMPLES);
                     let num_channels = time_shape.as_ref().unwrap()[2];
                     let samples = time_shape.as_ref().unwrap()[3];
                     let time_data_ref = time_data.as_ref().unwrap();
@@ -400,8 +363,7 @@ impl DemucsProcessor {
                     let mut right_val = 0.0;
 
                     if let Some(ref combined_outputs_val) = combined_outputs {
-                        if t < combined_outputs_val.len() && i < combined_outputs_val[t].left.len()
-                        {
+                        if t < combined_outputs_val.len() && i < combined_outputs_val[t].left.len() {
                             left_val = combined_outputs_val[t].left[i];
                             right_val = combined_outputs_val[t].right[i];
                         }
@@ -429,10 +391,7 @@ impl DemucsProcessor {
             // 可以在这里添加进度回调
             segment_idx += 1;
             let seg_elapsed = seg_start.elapsed().as_millis();
-            info!(
-                "[Demucs] Segment {}/{} completed in {}ms",
-                segment_idx, num_segments, seg_elapsed
-            );
+            info!("[Demucs] Segment {}/{} completed in {}ms", segment_idx, num_segments, seg_elapsed);
 
             // 调用进度回调
             if let Some(ref cb) = progress_callback {

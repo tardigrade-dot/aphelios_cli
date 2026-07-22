@@ -11,16 +11,16 @@ pub mod text;
 pub mod tokenizer;
 pub mod vision;
 
-use anyhow::{Result};
+use anyhow::Result;
 use aphelios_core::measure_time;
 use candle_core::quantized::GgmlDType;
 use candle_core::{DType, Device};
-use image::DynamicImage;
-use serde::Serialize;
 use config::GlmOcrConfig;
+use image::DynamicImage;
 use layout::LayoutDetector;
 use model::GlmOcrModel;
 use model_loader::ModelLoader;
+use serde::Serialize;
 use tokenizer::GlmOcrTokenizer;
 
 use crate::glmocr::layout::LayoutDetection;
@@ -47,7 +47,7 @@ pub struct DocumentLayout {
 
 /// A single recognized region within a document.
 #[derive(Debug, Clone, Serialize)]
-        pub struct DocumentSection {
+pub struct DocumentSection {
     /// Layout region type (e.g. "text", "table", "doc_title", "footer").
     pub label: String,
     /// Bounding box in image coordinates: [x1, y1, x2, y2].
@@ -147,11 +147,7 @@ impl GlmOcr {
     /// For GPU: use `Device::new_cuda(0)?` (requires the `cuda` cargo feature).
     /// On GPU, F16 is used for faster matmul; on CPU, F32 is used.
     /// Set `quantize` to "q8_0" or "q4_0" for quantized inference.
-    pub fn new_with_device(
-        model_id: Option<&str>,
-        quantize: Option<&str>,
-        device: Device,
-    ) -> Result<Self> {
+    pub fn new_with_device(model_id: Option<&str>, quantize: Option<&str>, device: Device) -> Result<Self> {
         let qdtype = parse_quantization(quantize)?;
 
         // Use F16 on GPU for faster inference, F32 on CPU (candle CPU lacks BF16/F16 matmul)
@@ -204,12 +200,7 @@ impl GlmOcr {
     /// Recognize text with a custom max token limit.
     ///
     /// Large images are automatically split into horizontal strips to limit memory.
-    pub fn recognize_with_max_tokens(
-        &self,
-        image: &DynamicImage,
-        prompt: &str,
-        max_tokens: usize,
-    ) -> Result<String> {
+    pub fn recognize_with_max_tokens(&self, image: &DynamicImage, prompt: &str, max_tokens: usize) -> Result<String> {
         let (w, h) = (image.width(), image.height());
         let unit = 28u32; // patch_size(14) * merge_size(2)
 
@@ -229,12 +220,7 @@ impl GlmOcr {
     ///
     /// Each strip spans the full image width and has limited height computed
     /// from the patch budget. No width scaling — preserves text readability.
-    fn recognize_stripped(
-        &self,
-        image: &DynamicImage,
-        prompt: &str,
-        max_tokens_per_strip: usize,
-    ) -> Result<String> {
+    fn recognize_stripped(&self, image: &DynamicImage, prompt: &str, max_tokens_per_strip: usize) -> Result<String> {
         let (img_w, img_h) = (image.width(), image.height());
         let unit = 28u32; // patch_size * merge_size
 
@@ -253,10 +239,7 @@ impl GlmOcr {
             ((img_h - STRIP_OVERLAP) + stride - 1) / stride
         };
 
-        tracing::info!(
-            "Stripping {}x{} image into {} horizontal strips (strip_h={}px, ~{} merged patches/strip)",
-            img_w, img_h, num_strips, max_strip_h, merged_w * max_h_merged
-        );
+        tracing::info!("Stripping {}x{} image into {} horizontal strips (strip_h={}px, ~{} merged patches/strip)", img_w, img_h, num_strips, max_strip_h, merged_w * max_h_merged);
 
         let mut results = Vec::new();
 
@@ -264,23 +247,11 @@ impl GlmOcr {
             let y = (i * stride).min(img_h.saturating_sub(max_strip_h));
             let h = max_strip_h.min(img_h - y);
 
-            tracing::info!(
-                "Processing strip {}/{} at y={} h={}",
-                i + 1,
-                num_strips,
-                y,
-                h
-            );
+            tracing::info!("Processing strip {}/{} at y={} h={}", i + 1, num_strips, y, h);
 
             let strip = image.crop_imm(0, y, img_w, h);
 
-            match generation::generate(
-                &self.model,
-                &self.tokenizer,
-                &strip,
-                prompt,
-                max_tokens_per_strip,
-            ) {
+            match generation::generate(&self.model, &self.tokenizer, &strip, prompt, max_tokens_per_strip) {
                 Ok(text) => {
                     let text = text.trim().to_string();
                     if !text.is_empty() {
@@ -304,12 +275,7 @@ impl GlmOcr {
     /// 3. Crop each detected region
     /// 4. Run GLM-OCR on each region with appropriate prompt
     /// 5. Assemble results into markdown with region-type-aware formatting
-    pub fn recognize_with_layout(
-        &self,
-        image: &DynamicImage,
-        layout: &mut LayoutDetector,
-        max_tokens_per_region: usize,
-    ) -> Result<String> {
+    pub fn recognize_with_layout(&self, image: &DynamicImage, layout: &mut LayoutDetector, max_tokens_per_region: usize) -> Result<String> {
         let doc = self.recognize_layout_structured(image, layout, max_tokens_per_region)?;
         Ok(doc.to_markdown())
     }
@@ -319,43 +285,20 @@ impl GlmOcr {
     ///
     /// `batch_size` controls how many region crops are batched into one model call.
     /// A value of 1 is equivalent to sequential processing.
-    pub fn recognize_with_layout_batched(
-        &self,
-        image: &DynamicImage,
-        layout: &mut LayoutDetector,
-        max_tokens_per_region: usize,
-        batch_size: Option<usize>,
-    ) -> Result<String> {
-        let doc = self.recognize_layout_structured_batched(
-            image,
-            layout,
-            max_tokens_per_region,
-            batch_size,
-        )?;
+    pub fn recognize_with_layout_batched(&self, image: &DynamicImage, layout: &mut LayoutDetector, max_tokens_per_region: usize, batch_size: Option<usize>) -> Result<String> {
+        let doc = self.recognize_layout_structured_batched(image, layout, max_tokens_per_region, batch_size)?;
         Ok(doc.to_markdown())
     }
 
-    pub fn ocr_batched(&self, images: &Vec<DynamicImage>, prompts: &[&str]) -> Result<Vec<String>>{
-        let r = generation_batched::generate_batched(
-            &self.model,
-            &self.tokenizer,
-            &images,
-            &prompts,
-            512,
-        );
+    pub fn ocr_batched(&self, images: &Vec<DynamicImage>, prompts: &[&str]) -> Result<Vec<String>> {
+        let r = generation_batched::generate_batched(&self.model, &self.tokenizer, &images, &prompts, 512);
         r
     }
     /// Like [`recognize_layout_structured`] but processes regions in batches.
     ///
     /// Collects region crops up to `batch_size` at a time and runs batched
     /// inference via [`generation_batched::generate_batched`].
-    pub fn recognize_layout_structured_batched(
-        &self,
-        image: &DynamicImage,
-        layout: &mut LayoutDetector,
-        max_tokens_per_region: usize,
-        batch_size: Option<usize>,
-    ) -> Result<DocumentLayout> {
+    pub fn recognize_layout_structured_batched(&self, image: &DynamicImage, layout: &mut LayoutDetector, max_tokens_per_region: usize, batch_size: Option<usize>) -> Result<DocumentLayout> {
         let batch_size = batch_size.unwrap_or(8);
 
         let rgb = image.to_rgb8();
@@ -364,8 +307,7 @@ impl GlmOcr {
 
         if detections.is_empty() {
             tracing::warn!("No layout regions detected, falling back to strip-based processing");
-            let text =
-                self.recognize_with_max_tokens(image, "Text Recognition:", max_tokens_per_region)?;
+            let text = self.recognize_with_max_tokens(image, "Text Recognition:", max_tokens_per_region)?;
             return Ok(DocumentLayout {
                 width: img_w,
                 height: img_h,
@@ -381,15 +323,7 @@ impl GlmOcr {
 
         tracing::info!("Detected {} layout regions", detections.len());
         for det in &detections {
-            tracing::info!(
-                "  {} (score={:.2}) at [{:.0}, {:.0}, {:.0}, {:.0}]",
-                det.label,
-                det.score,
-                det.bbox[0],
-                det.bbox[1],
-                det.bbox[2],
-                det.bbox[3]
-            );
+            tracing::info!("  {} (score={:.2}) at [{:.0}, {:.0}, {:.0}, {:.0}]", det.label, det.score, det.bbox[0], det.bbox[1], det.bbox[2], det.bbox[3]);
         }
 
         // not need to merge for batch infer
@@ -403,8 +337,9 @@ impl GlmOcr {
             })
             .collect();
 
-        let mut sections_by_index: Vec<Option<DocumentSection>> =
-            (0..merged.len()).map(|_| None).collect();
+        let mut sections_by_index: Vec<Option<DocumentSection>> = (0..merged.len())
+            .map(|_| None)
+            .collect();
         let pad = 4;
 
         // Collect valid regions for batched inference
@@ -420,12 +355,7 @@ impl GlmOcr {
 
         for (i, region) in merged.iter().enumerate() {
             if IMAGE_LABELS.contains(&region.label) {
-                tracing::info!(
-                    "Skipping region {}/{}: {} (image label)",
-                    i + 1,
-                    merged.len(),
-                    region.label,
-                );
+                tracing::info!("Skipping region {}/{}: {} (image label)", i + 1, merged.len(), region.label,);
                 continue;
             }
 
@@ -445,23 +375,10 @@ impl GlmOcr {
             let prompt = prompt_for_label(region.label);
             let merged_patches = merged_patch_count(&crop);
 
-            tracing::info!(
-                "Region {}/{}: {} ({}x{}, {} merged patches) prompt=\"{}\"",
-                i + 1,
-                merged.len(),
-                region.label,
-                crop.width(),
-                crop.height(),
-                merged_patches,
-                prompt,
-            );
+            tracing::info!("Region {}/{}: {} ({}x{}, {} merged patches) prompt=\"{}\"", i + 1, merged.len(), region.label, crop.width(), crop.height(), merged_patches, prompt,);
 
             if merged_patches > MAX_MERGED_PATCHES {
-                tracing::info!(
-                    "Region {}/{} exceeds patch budget after scaling; falling back to sequential OCR",
-                    i + 1,
-                    merged.len()
-                );
+                tracing::info!("Region {}/{} exceeds patch budget after scaling; falling back to sequential OCR", i + 1, merged.len());
 
                 match self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region) {
                     Ok(text) => {
@@ -491,13 +408,7 @@ impl GlmOcr {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Region {}/{} ({}) sequential fallback failed: {}",
-                            i + 1,
-                            merged.len(),
-                            region.label,
-                            e
-                        );
+                        tracing::warn!("Region {}/{} ({}) sequential fallback failed: {}", i + 1, merged.len(), region.label, e);
                     }
                 }
                 continue;
@@ -531,22 +442,22 @@ impl GlmOcr {
             }
 
             let chunk = &valid_regions[start..end];
-            let images: Vec<DynamicImage> = chunk.iter().map(|r| r.crop.clone()).collect();
+            let images: Vec<DynamicImage> = chunk
+                .iter()
+                .map(|r| r.crop.clone())
+                .collect();
             let prompts: Vec<&str> = chunk.iter().map(|r| r.prompt).collect();
 
             tracing::info!(
                 "Running batched OCR for {} regions (merged patches: {:?})",
                 chunk.len(),
-                chunk.iter().map(|r| r.merged_patches).collect::<Vec<_>>()
+                chunk
+                    .iter()
+                    .map(|r| r.merged_patches)
+                    .collect::<Vec<_>>()
             );
 
-            match generation_batched::generate_batched(
-                &self.model,
-                &self.tokenizer,
-                &images,
-                &prompts,
-                max_tokens_per_region,
-            ) {
+            match generation_batched::generate_batched(&self.model, &self.tokenizer, &images, &prompts, max_tokens_per_region) {
                 Ok(results) => {
                     for (idx, br) in chunk.iter().enumerate() {
                         let text = truncate_repetitive_content(results[idx].trim());
@@ -568,13 +479,7 @@ impl GlmOcr {
                             Vec::new()
                         };
 
-                        tracing::info!(
-                            "Region {}/{} ({}) text: {}",
-                            br.index + 1,
-                            merged.len(),
-                            br.region.label,
-                            text
-                        );
+                        tracing::info!("Region {}/{} ({}) text: {}", br.index + 1, merged.len(), br.region.label, text);
 
                         sections_by_index[br.index] = Some(DocumentSection {
                             label: br.region.label.to_string(),
@@ -593,7 +498,10 @@ impl GlmOcr {
             start = end;
         }
 
-        let sections = sections_by_index.into_iter().flatten().collect();
+        let sections = sections_by_index
+            .into_iter()
+            .flatten()
+            .collect();
 
         Ok(DocumentLayout {
             width: img_w,
@@ -608,20 +516,14 @@ impl GlmOcr {
     /// label, bounding box, raw text, extracted key-value pairs, and parsed
     /// table data. Use [`DocumentLayout::to_markdown()`] or
     /// [`DocumentLayout::to_json()`] to render the output.
-    pub fn recognize_layout_structured(
-        &self,
-        image: &DynamicImage,
-        layout: &mut LayoutDetector,
-        max_tokens_per_region: usize,
-    ) -> Result<DocumentLayout> {
+    pub fn recognize_layout_structured(&self, image: &DynamicImage, layout: &mut LayoutDetector, max_tokens_per_region: usize) -> Result<DocumentLayout> {
         let rgb = image.to_rgb8();
         let (img_w, img_h) = (rgb.width(), rgb.height());
         let detections = measure_time!("layout.detect", layout.detect(&rgb)?);
 
         if detections.is_empty() {
             tracing::warn!("No layout regions detected, falling back to strip-based processing");
-            let text =
-                self.recognize_with_max_tokens(image, "Text Recognition:", max_tokens_per_region)?;
+            let text = self.recognize_with_max_tokens(image, "Text Recognition:", max_tokens_per_region)?;
             return Ok(DocumentLayout {
                 width: img_w,
                 height: img_h,
@@ -637,15 +539,7 @@ impl GlmOcr {
 
         tracing::info!("Detected {} layout regions", detections.len());
         for det in &detections {
-            tracing::info!(
-                "  {} (score={:.2}) at [{:.0}, {:.0}, {:.0}, {:.0}]",
-                det.label,
-                det.score,
-                det.bbox[0],
-                det.bbox[1],
-                det.bbox[2],
-                det.bbox[3]
-            );
+            tracing::info!("  {} (score={:.2}) at [{:.0}, {:.0}, {:.0}, {:.0}]", det.label, det.score, det.bbox[0], det.bbox[1], det.bbox[2], det.bbox[3]);
         }
 
         // Merge adjacent same-label text blocks to reduce VLM calls
@@ -666,12 +560,7 @@ impl GlmOcr {
 
         for (i, region) in merged.iter().enumerate() {
             if IMAGE_LABELS.contains(&region.label) {
-                tracing::info!(
-                    "Skipping region {}/{}: {} (image label)",
-                    i + 1,
-                    merged.len(),
-                    region.label,
-                );
+                tracing::info!("Skipping region {}/{}: {} (image label)", i + 1, merged.len(), region.label,);
                 continue;
             }
 
@@ -691,20 +580,9 @@ impl GlmOcr {
 
             let prompt = prompt_for_label(region.label);
 
-            tracing::info!(
-                "Processing region {}/{}: {} ({}x{}) prompt=\"{}\"",
-                i + 1,
-                merged.len(),
-                region.label,
-                crop.width(),
-                crop.height(),
-                prompt,
-            );
+            tracing::info!("Processing region {}/{}: {} ({}x{}) prompt=\"{}\"", i + 1, merged.len(), region.label, crop.width(), crop.height(), prompt,);
 
-            let result = measure_time!(
-                format!("OCR {} label {}", i, region.label),
-                self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region)
-            );
+            let result = measure_time!(format!("OCR {} label {}", i, region.label), self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region));
             match result {
                 Ok(text) => {
                     let text = truncate_repetitive_content(text.trim());
@@ -725,13 +603,7 @@ impl GlmOcr {
                             Vec::new()
                         };
 
-                        tracing::info!(
-                            "Region {}/{} ({}) text: {}",
-                            i + 1,
-                            merged.len(),
-                            region.label,
-                            text
-                        );
+                        tracing::info!("Region {}/{} ({}) text: {}", i + 1, merged.len(), region.label, text);
 
                         sections.push(DocumentSection {
                             label: region.label.to_string(),
@@ -743,13 +615,7 @@ impl GlmOcr {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Region {}/{} ({}) failed: {}",
-                        i + 1,
-                        merged.len(),
-                        region.label,
-                        e
-                    );
+                    tracing::warn!("Region {}/{} ({}) failed: {}", i + 1, merged.len(), region.label, e);
                 }
             }
         }
@@ -761,12 +627,7 @@ impl GlmOcr {
         })
     }
 
-    pub fn recognize_by_layout(
-        &self,
-        image: &DynamicImage,
-        layout: &LayoutDetection,
-        max_tokens_per_region: usize,
-    ) -> Result<DocumentSection> {
+    pub fn recognize_by_layout(&self, image: &DynamicImage, layout: &LayoutDetection, max_tokens_per_region: usize) -> Result<DocumentSection> {
         let rgb = image.to_rgb8();
         let (img_w, img_h) = (rgb.width(), rgb.height());
 
@@ -788,10 +649,7 @@ impl GlmOcr {
 
         let prompt = prompt_for_label(layout.label);
 
-        let result = measure_time!(
-            format!("OCR {} label {}", layout.class_id, layout.label),
-            self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region)
-        );
+        let result = measure_time!(format!("OCR {} label {}", layout.class_id, layout.label), self.recognize_with_max_tokens(&crop, prompt, max_tokens_per_region));
         use std::result::Result::Ok;
         match result {
             Ok(text) => {
@@ -820,7 +678,7 @@ impl GlmOcr {
                         key_values,
                         table,
                     });
-                }else{
+                } else {
                     return Ok(DocumentSection {
                         label: layout.label.to_string(),
                         bbox: layout.bbox,
@@ -834,7 +692,6 @@ impl GlmOcr {
                 anyhow::bail!("");
             }
         }
-
     }
 }
 
@@ -842,15 +699,7 @@ impl GlmOcr {
 pub const IMAGE_LABELS: &[&str] = &["image", "header_image", "footer_image", "seal"];
 
 /// Labels that should NOT be merged with adjacent blocks.
-const NON_MERGE_LABELS: &[&str] = &[
-    "image",
-    "header_image",
-    "footer_image",
-    "seal",
-    "table",
-    "chart",
-    "formula",
-];
+const NON_MERGE_LABELS: &[&str] = &["image", "header_image", "footer_image", "seal", "table", "chart", "formula"];
 
 /// A merged group of layout regions to process as one VLM call.
 struct MergedRegion {
@@ -883,9 +732,7 @@ fn merge_adjacent_blocks(detections: &[layout::LayoutDetection]) -> Vec<MergedRe
 
         // Try to merge with the last region if compatible
         let should_merge = if let Some(last) = result.last() {
-            last.label == det.label
-                && !NON_MERGE_LABELS.contains(&last.label)
-                && blocks_are_adjacent(&last.bbox, &det.bbox)
+            last.label == det.label && !NON_MERGE_LABELS.contains(&last.label) && blocks_are_adjacent(&last.bbox, &det.bbox)
         } else {
             false
         };
@@ -924,7 +771,10 @@ fn find_vertical_gaps(regions: &[MergedRegion], page_w: f32, page_h: f32) -> Vec
     }
 
     // Collect all y-intervals from regions (including image labels, since they cover area)
-    let mut intervals: Vec<(f32, f32)> = regions.iter().map(|r| (r.bbox[1], r.bbox[3])).collect();
+    let mut intervals: Vec<(f32, f32)> = regions
+        .iter()
+        .map(|r| (r.bbox[1], r.bbox[3]))
+        .collect();
     intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
     // Merge overlapping intervals
@@ -1020,15 +870,7 @@ fn scale_to_patch_budget(image: &DynamicImage, max_patches: u32) -> DynamicImage
     let new_w = ((w as f64 * scale) as u32).max(unit);
     let new_h = ((h as f64 * scale) as u32).max(unit);
 
-    tracing::info!(
-        "Scaling {}x{} ({} patches) → {}x{} toward {} patch budget",
-        w,
-        h,
-        total,
-        new_w,
-        new_h,
-        target_patches,
-    );
+    tracing::info!("Scaling {}x{} ({} patches) → {}x{} toward {} patch budget", w, h, total, new_w, new_h, target_patches,);
 
     image.resize(new_w, new_h, image::imageops::FilterType::Lanczos3)
 }
@@ -1130,11 +972,7 @@ fn find_shortest_repeating_substring(s: &str) -> Option<String> {
 
 /// Detect if a string ends with a repeating phrase.
 /// Returns (prefix, unit, count) if found.
-fn find_repeating_suffix(
-    s: &str,
-    min_len: usize,
-    min_repeats: usize,
-) -> Option<(String, String, usize)> {
+fn find_repeating_suffix(s: &str, min_len: usize, min_repeats: usize) -> Option<(String, String, usize)> {
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len();
     let max_unit = len / min_repeats;
@@ -1408,7 +1246,9 @@ fn split_header_left_to_right(header: &str) -> Vec<String> {
 
         if !matched {
             // Take the next word as an unknown column name
-            let end = remaining.find(' ').unwrap_or(remaining.len());
+            let end = remaining
+                .find(' ')
+                .unwrap_or(remaining.len());
             cols.push(remaining[..end].to_string());
             remaining = &remaining[end..];
         }
@@ -1497,13 +1337,7 @@ fn align_data_to_columns(words: &[&str], is_text_col: &[bool], n_cols: usize) ->
 fn is_description_column(name: &str) -> bool {
     // Known description-like column patterns
     let lower = name.to_lowercase();
-    lower.contains("description")
-        || lower.contains("particulars")
-        || lower.contains("narration")
-        || lower == "supplier reference"
-        || lower == "reference"
-        || lower == "remarks"
-        || lower == "address"
+    lower.contains("description") || lower.contains("particulars") || lower.contains("narration") || lower == "supplier reference" || lower == "reference" || lower == "remarks" || lower == "address"
 }
 
 /// Check if a token is a "simple" single-word value (numeric, UOM, or percentage).
@@ -1518,35 +1352,22 @@ fn is_simple_value(s: &str) -> bool {
     }
     // Percentage: "5.00%"
     if s.ends_with('%') {
-        return s[..s.len() - 1].replace(',', "").parse::<f64>().is_ok();
+        return s[..s.len() - 1]
+            .replace(',', "")
+            .parse::<f64>()
+            .is_ok();
     }
     // Number with optional commas: "4,041.00", "0.00", "1", "4242003788899"
-    let cleaned: String = s.chars().filter(|c| *c != ',').collect();
+    let cleaned: String = s
+        .chars()
+        .filter(|c| *c != ',')
+        .collect();
     cleaned.parse::<f64>().is_ok()
 }
 
 /// Check if a short token is a unit of measure.
 fn is_uom_token(s: &str) -> bool {
-    matches!(
-        s,
-        "EA" | "PC"
-            | "PCS"
-            | "KG"
-            | "LTR"
-            | "MTR"
-            | "BOX"
-            | "CTN"
-            | "DZ"
-            | "SET"
-            | "PKT"
-            | "NOS"
-            | "PAR"
-            | "PRS"
-            | "LT"
-            | "ML"
-            | "GM"
-            | "EACH"
-    )
+    matches!(s, "EA" | "PC" | "PCS" | "KG" | "LTR" | "MTR" | "BOX" | "CTN" | "DZ" | "SET" | "PKT" | "NOS" | "PAR" | "PRS" | "LT" | "ML" | "GM" | "EACH")
 }
 
 /// Extract key-value pairs from text lines matching "Key: Value" patterns.
@@ -1608,11 +1429,7 @@ fn strip_empty_code_blocks(text: &str) -> String {
             if let Some(close_pos) = rest.find("```") {
                 let between = &rest[..close_pos];
                 if between.trim().is_empty() {
-                    let end = start
-                        + 3
-                        + (rest.as_ptr() as usize - after_backticks.as_ptr() as usize)
-                        + close_pos
-                        + 3;
+                    let end = start + 3 + (rest.as_ptr() as usize - after_backticks.as_ptr() as usize) + close_pos + 3;
                     result = format!("{}{}", &result[..start], result[end..].trim_start());
                     continue;
                 }
@@ -1640,7 +1457,10 @@ fn deduplicate_adjacent_sections(sections: &[String]) -> String {
         let next_lines: Vec<&str> = section.lines().collect();
 
         // Find the longest suffix of prev that matches a prefix of next
-        let max_overlap = prev_lines.len().min(next_lines.len()).min(5);
+        let max_overlap = prev_lines
+            .len()
+            .min(next_lines.len())
+            .min(5);
         let mut overlap = 0;
 
         for n in (1..=max_overlap).rev() {

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use aphelios_asr::qwen3asr::{self, AsrInference, StreamingOptions, load_audio_wav};
+use aphelios_asr::qwen3asr::{self, load_audio_wav, AsrInference, StreamingOptions};
 use aphelios_core::init_logging;
 use tracing::info;
 
@@ -20,26 +20,21 @@ async fn vad_and_qwen3asr() -> Result<()> {
     let audio_li = vec![
         // AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
         AudioInfo {
-            path_str: "/Volumes/sw/video/mQlxALUw3h4.wav".to_string(),
+            path_str: "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.enhanced.wav".to_string(),
             language_str: "English".to_string(),
         }, // 150s
-        // AudioInfo{path_str:"/Volumes/sw/download_video/Every Constitutional Crisis (in American History).mp4".to_string(), language_str:"English".to_string()}
+           // AudioInfo{path_str:"/Volumes/sw/download_video/Every Constitutional Crisis (in American History).mp4".to_string(), language_str:"English".to_string()}
     ];
     // let context = "the title of this audio : 1917 Centennial Series: War, Revolution, Socialism, War. Stephen Kotkin";
     let context = "the audio is a News";
     for au in audio_li {
         info!("Running ASR with audio: {}", au.path_str);
-        let items = qwen3asr::qwen3asr_with_vad(
-            Some(ASR_MODEL_DIR),
-            Some(ALIGNER_MODEL_DIR),
-            Some("/Volumes/sw/onnx_models/silero-vad/onnx"),
-            &au.path_str,
-            &au.language_str,
-            Some(context),
-        )
-        .await?;
+        let items = qwen3asr::qwen3asr_with_vad(Some(ASR_MODEL_DIR), Some(ALIGNER_MODEL_DIR), Some("/Volumes/sw/onnx_models/silero-vad/onnx"), &au.path_str, &au.language_str, Some(context)).await?;
 
-        let final_text: Vec<String> = items.iter().map(|i| i.text.to_string()).collect();
+        let final_text: Vec<String> = items
+            .iter()
+            .map(|i| i.text.to_string())
+            .collect();
         info!("final_text : {}", final_text.join(" "));
     }
     Ok(())
@@ -61,8 +56,7 @@ fn qwen3asr_simple_test() -> Result<()> {
     let language = "Chinese";
 
     tracing::info!("Running simple ASR with audio: {}", input);
-    let text = qwen3asr::qwen3asr_simple(Some(qwen3asr_model), input, language)
-        .context("qwen3asr_simple error")?;
+    let text = qwen3asr::qwen3asr_simple(Some(qwen3asr_model), input, language).context("qwen3asr_simple error")?;
     tracing::info!("Result: {}", text);
     tracing::info!("qwen3asr_simple_test completed successfully");
     Ok(())
@@ -89,7 +83,7 @@ async fn streaming_test() -> anyhow::Result<()> {
     // ── Configure streaming ─────────────────────────────────────────────
     let options = StreamingOptions::default()
         .with_language(language)
-        .with_chunk_size_sec(1.0)       // 1-second chunks
+        .with_chunk_size_sec(1.0) // 1-second chunks
         .with_max_new_tokens_streaming(64);
 
     let mut state = asr.init_streaming(options);
@@ -105,11 +99,7 @@ async fn streaming_test() -> anyhow::Result<()> {
 
         if let Some(result) = asr.feed_audio(&mut state, chunk)? {
             step += 1;
-            info!(
-                "[stream step {}] partial: {}",
-                step,
-                result.text
-            );
+            info!("[stream step {}] partial: {}", step, result.text);
         }
 
         offset = end;

@@ -42,21 +42,18 @@ impl SensevoiceEncoder {
         let t = feats.len_of(Axis(1));
         let d = feats.len_of(Axis(2));
         ensure!(d == 560, "expect feature dim 560 but got {}", d);
-        ensure!(
-            language_id >= 0 && language_id < 16,
-            "invalid language id {language_id}"
-        );
+        ensure!(language_id >= 0 && language_id < 16, "invalid language id {language_id}");
 
-        let text_norm_idx = if use_itn { 14 } else { 15 };
+        let text_norm_idx = if use_itn {
+            14
+        } else {
+            15
+        };
 
-        let input_tensor =
-            Tensor::from_array(feats.to_owned()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let len_tensor = Tensor::from_array(Array1::from_vec(vec![t as i32]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let lang_tensor = Tensor::from_array(Array1::from_vec(vec![language_id]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let tn_tensor = Tensor::from_array(Array1::from_vec(vec![text_norm_idx]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let input_tensor = Tensor::from_array(feats.to_owned()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let len_tensor = Tensor::from_array(Array1::from_vec(vec![t as i32])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let lang_tensor = Tensor::from_array(Array1::from_vec(vec![language_id])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let tn_tensor = Tensor::from_array(Array1::from_vec(vec![text_norm_idx])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
 
         let mut x_val = Some(input_tensor.into_dyn());
         let mut len_val = Some(len_tensor.into_dyn());
@@ -91,7 +88,10 @@ impl SensevoiceEncoder {
         let (shape, data) = logits_value
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow!("ORT extract tensor error: {e}"))?;
-        let dims: Vec<usize> = shape.iter().map(|d| *d as usize).collect();
+        let dims: Vec<usize> = shape
+            .iter()
+            .map(|d| *d as usize)
+            .collect();
         ensure!(dims.len() == 3, "unexpected logits rank: {:?}", dims);
         ensure!(dims[0] == 1, "expect batch=1 but got {}", dims[0]);
         let logits = Array3::from_shape_vec((dims[0], dims[1], dims[2]), data.to_vec())?;
@@ -111,21 +111,18 @@ impl SensevoiceEncoder {
         let t = feats.len_of(Axis(1));
         let d = feats.len_of(Axis(2));
         ensure!(d == 560, "expect feature dim 560 but got {}", d);
-        ensure!(
-            language_id >= 0 && language_id < 16,
-            "invalid language id {language_id}"
-        );
+        ensure!(language_id >= 0 && language_id < 16, "invalid language id {language_id}");
 
-        let text_norm_idx = if use_itn { 14 } else { 15 };
+        let text_norm_idx = if use_itn {
+            14
+        } else {
+            15
+        };
 
-        let input_tensor =
-            Tensor::from_array(feats.to_owned()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let len_tensor = Tensor::from_array(Array1::from_vec(vec![t as i32]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let lang_tensor = Tensor::from_array(Array1::from_vec(vec![language_id]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
-        let tn_tensor = Tensor::from_array(Array1::from_vec(vec![text_norm_idx]))
-            .map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let input_tensor = Tensor::from_array(feats.to_owned()).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let len_tensor = Tensor::from_array(Array1::from_vec(vec![t as i32])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let lang_tensor = Tensor::from_array(Array1::from_vec(vec![language_id])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
+        let tn_tensor = Tensor::from_array(Array1::from_vec(vec![text_norm_idx])).map_err(|e| anyhow!("ORT tensor error: {e}"))?;
 
         let mut x_val = Some(input_tensor.into_dyn());
         let mut len_val = Some(len_tensor.into_dyn());
@@ -160,7 +157,10 @@ impl SensevoiceEncoder {
         let (shape, data) = logits_value
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow!("ORT extract tensor error: {e}"))?;
-        let dims: Vec<usize> = shape.iter().map(|d| *d as usize).collect();
+        let dims: Vec<usize> = shape
+            .iter()
+            .map(|d| *d as usize)
+            .collect();
         ensure!(dims.len() == 3, "unexpected logits rank: {:?}", dims);
         ensure!(dims[0] == 1, "expect batch=1 but got {}", dims[0]);
         let logits = Array3::from_shape_vec((dims[0], dims[1], dims[2]), data.to_vec())?;
@@ -227,8 +227,7 @@ fn build_session_with_ort_cache(model_path: &Path, intra_threads: usize) -> Resu
         .with_intra_threads(intra_threads)
         .map_err(|e| anyhow!("ORT intra threads error: {e}"))?;
 
-    let model_bytes = fs::read(model_path)
-        .with_context(|| format!("read encoder model {}", model_path.display()))?;
+    let model_bytes = fs::read(model_path).with_context(|| format!("read encoder model {}", model_path.display()))?;
     fallback_builder
         .commit_from_memory(&model_bytes)
         .map_err(|e| anyhow!("ORT load model error: {e}"))

@@ -9,12 +9,15 @@
 // dynamic-shape models. Use `--device cuda` on Linux with NVIDIA GPU for real
 // acceleration.
 
-use crate::{SIDON_MODEL_ID, voiceclear::preprocess};
+use crate::{voiceclear::preprocess, SIDON_MODEL_ID};
 use anyhow::Result;
-use aphelios_core::{hub::load_file_local_or_download, utils::{bytes_to_f32_vec, common::get_available_ep}};
+use aphelios_core::{
+    hub::load_file_local_or_download,
+    utils::{bytes_to_f32_vec, common::get_available_ep},
+};
 use ort::{inputs, session::Session, value::Tensor};
-use tracing::info;
 use std::{fs, path::PathBuf, time::Instant};
+use tracing::info;
 
 const PRED_IN_DIM: usize = 160;
 const PRED_OUT_DIM: usize = 1024;
@@ -50,26 +53,31 @@ struct ChunkOutput {
 
 /// Full pipeline. Two-pass: predictor phase then vocoder phase, only one model
 /// session alive at a time.
-pub struct SidonPipeline{
+pub struct SidonPipeline {
     model_id: String,
     mel_filters_f64: Vec<f64>,
-    window_f64: Vec<f64>
+    window_f64: Vec<f64>,
 }
 
 impl SidonPipeline {
     pub fn new(model: Option<impl Into<String>>) -> Result<Self> {
-
         let model_id = model
-                    .map(|m| m.into())
-                    .unwrap_or_else(|| SIDON_MODEL_ID.to_string());
+            .map(|m| m.into())
+            .unwrap_or_else(|| SIDON_MODEL_ID.to_string());
 
         if !ort::init().with_name("sidon").commit() {
             anyhow::bail!("Failed to initialize ONNX Runtime");
         }
 
         Ok(Self {
-            mel_filters_f64: bytes_to_f32_vec(&fs::read(load_file_local_or_download(&model_id, "mel_filters_f32.bin"))?).iter().map(|&v| v as f64).collect(),
-            window_f64: bytes_to_f32_vec(&fs::read(load_file_local_or_download(&model_id, "mel_window_f32.bin"))?).iter().map(|&v| v as f64).collect(),
+            mel_filters_f64: bytes_to_f32_vec(&fs::read(load_file_local_or_download(&model_id, "mel_filters_f32.bin"))?)
+                .iter()
+                .map(|&v| v as f64)
+                .collect(),
+            window_f64: bytes_to_f32_vec(&fs::read(load_file_local_or_download(&model_id, "mel_window_f32.bin"))?)
+                .iter()
+                .map(|&v| v as f64)
+                .collect(),
             model_id: model_id,
         })
     }
@@ -97,7 +105,9 @@ impl SidonPipeline {
         info!("--- Phase 1: predictor ---");
         let (chunk_outputs, t_mel, t_pred) = {
             let session = make_session(&load_file_local_or_download(&self.model_id, "sidon-predictor-fp16.onnx"))?;
-            let mut pred_session = PredictorSession { session };
+            let mut pred_session = PredictorSession {
+                session,
+            };
             let mut chunk_outputs: Vec<ChunkOutput> = Vec::new();
             let mut feature_cache: Option<Vec<f32>> = None;
             let mut pos = 0usize;
@@ -152,15 +162,14 @@ impl SidonPipeline {
                     feature_cache = Some(hidden[(t_hidden - 1) * PRED_OUT_DIM..].to_vec());
                     let t_decode = t_hidden - 1;
                     let decode_features = hidden[..t_decode * PRED_OUT_DIM].to_vec();
-                    chunk_outputs.push(ChunkOutput { features: decode_features });
+                    chunk_outputs.push(ChunkOutput {
+                        features: decode_features,
+                    });
                 } else if t_hidden == 1 {
                     feature_cache = Some(hidden.clone());
                 }
 
-                info!(
-                    "[pred chunk {:>2}] {:.0}s audio | mel={:.2}s pred={:.2}s | feats={} hidden={}",
-                    chunk_idx, chunk_dur, dt_mel, dt_pred, t_feat, t_hidden
-                );
+                info!("[pred chunk {:>2}] {:.0}s audio | mel={:.2}s pred={:.2}s | feats={} hidden={}", chunk_idx, chunk_dur, dt_mel, dt_pred, t_feat, t_hidden);
                 chunk_idx += 1;
                 pos += CHUNK_SAMPLES;
             }
@@ -175,7 +184,9 @@ impl SidonPipeline {
         info!("--- Phase 2: vocoder ({} chunks) ---", chunk_outputs.len());
         let (mut output, t_voc) = {
             let session = make_session(&load_file_local_or_download(&self.model_id, "sidon-vocoder-fp16.onnx"))?;
-            let mut voc_session = VocoderSession { session };
+            let mut voc_session = VocoderSession {
+                session,
+            };
             let mut output = Vec::new();
             let mut t_voc = 0.0f64;
 
@@ -197,10 +208,7 @@ impl SidonPipeline {
                 t_voc += dt;
                 output.extend_from_slice(&decoded);
                 let out_dur = decoded.len() as f32 / SAMPLE_RATE_OUT as f32;
-                info!(
-                    "[voc chunk {:>2}] {:.1}s audio | voc={:.2}s",
-                    i, out_dur, dt
-                );
+                info!("[voc chunk {:>2}] {:.1}s audio | voc={:.2}s", i, out_dur, dt);
             }
             (output, t_voc)
         }; // ← voc_session DROPPED here
@@ -214,11 +222,7 @@ impl SidonPipeline {
         }
 
         let total = t_total.elapsed().as_secs_f64();
-        info!(
-            "[summary] mel={:.1}s pred={:.1}s voc={:.1}s pre={:.1}s | total={:.1}s ({:.1}x realtime)",
-            t_mel, t_pred, t_voc, t_pre.as_secs_f64(),
-            total, (n as f64 / SAMPLE_RATE_IN as f64) / total
-        );
+        info!("[summary] mel={:.1}s pred={:.1}s voc={:.1}s pre={:.1}s | total={:.1}s ({:.1}x realtime)", t_mel, t_pred, t_voc, t_pre.as_secs_f64(), total, (n as f64 / SAMPLE_RATE_IN as f64) / total);
 
         Ok(output)
     }
@@ -233,7 +237,9 @@ struct PredictorSession {
 impl PredictorSession {
     fn predict(&mut self, features: &[f32], t: usize) -> Result<Vec<f32>> {
         let tensor = Tensor::from_array(([1i64, t as i64, PRED_IN_DIM as i64], features.to_vec()))?;
-        let out = self.session.run(inputs!["input_features" => tensor])?;
+        let out = self
+            .session
+            .run(inputs!["input_features" => tensor])?;
         let (_, data) = out["features"].try_extract_tensor::<f32>()?;
         Ok(data.to_vec())
     }
@@ -246,7 +252,9 @@ struct VocoderSession {
 impl VocoderSession {
     fn decode(&mut self, features: &[f32], t: usize) -> Result<Vec<f32>> {
         let tensor = Tensor::from_array(([1i64, t as i64, PRED_OUT_DIM as i64], features.to_vec()))?;
-        let out = self.session.run(inputs!["features" => tensor])?;
+        let out = self
+            .session
+            .run(inputs!["features" => tensor])?;
         let (_, data) = out["audio"].try_extract_tensor::<f32>()?;
         Ok(data.to_vec())
     }
@@ -254,7 +262,8 @@ impl VocoderSession {
 
 fn make_session(model_path: &PathBuf) -> Result<Session> {
     let mut b = Session::builder()?;
-    b = b.with_execution_providers(get_available_ep())
+    b = b
+        .with_execution_providers(get_available_ep())
         .map_err(|e| anyhow::anyhow!("load model file faile: {}", e))?;
     Ok(b.commit_from_file(model_path)?)
 }

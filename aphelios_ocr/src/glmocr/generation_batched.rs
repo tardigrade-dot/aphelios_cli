@@ -18,23 +18,13 @@ use crate::glmocr::MAX_MERGED_PATCHES;
 ///
 /// Each image + prompt pair is processed independently but batched through the
 /// text decoder for efficient GPU/accelerator utilization.
-pub fn generate_batched(
-    model: &GlmOcrModel,
-    tokenizer: &GlmOcrTokenizer,
-    images: &[DynamicImage],
-    prompts: &[&str],
-    max_tokens: usize,
-) -> Result<Vec<String>> {
+pub fn generate_batched(model: &GlmOcrModel, tokenizer: &GlmOcrTokenizer, images: &[DynamicImage], prompts: &[&str], max_tokens: usize) -> Result<Vec<String>> {
     let batch = images.len();
     if batch == 0 {
         return Ok(Vec::new());
     }
     if batch != prompts.len() {
-        anyhow::bail!(
-            "generate_batched: {} images but {} prompts",
-            batch,
-            prompts.len()
-        );
+        anyhow::bail!("generate_batched: {} images but {} prompts", batch, prompts.len());
     }
 
     let device = &model.device;
@@ -43,15 +33,15 @@ pub fn generate_batched(
     // =========================================================================
     // Phase 1: Preprocess each region independently
     // =========================================================================
-    tracing::info!(
-        "generate_batched: batch={}, max_tokens={}",
-        batch,
-        max_tokens
-    );
+    tracing::info!("generate_batched: batch={}, max_tokens={}", batch, max_tokens);
     let mut per_region = Vec::with_capacity(batch);
     let mut max_seq_len = 0usize;
 
-    for (i, (img, prompt)) in images.iter().zip(prompts.iter()).enumerate() {
+    for (i, (img, prompt)) in images
+        .iter()
+        .zip(prompts.iter())
+        .enumerate()
+    {
         // Warn if over patch budget (scale_to_patch_budget rounds to unit=28,
         // so a small overshoot is expected). Proceed regardless since the vision
         // encoder output determines the actual token count.
@@ -59,10 +49,7 @@ pub fn generate_batched(
         let w_merged = ((img.width() + unit / 2) / unit).max(1);
         let h_merged = ((img.height() + unit / 2) / unit).max(1);
         if w_merged * h_merged > MAX_MERGED_PATCHES {
-            tracing::warn!(
-                "Region {i} has {} merged patches (max {MAX_MERGED_PATCHES}) — proceeding",
-                w_merged * h_merged
-            );
+            tracing::warn!("Region {i} has {} merged patches (max {MAX_MERGED_PATCHES}) — proceeding", w_merged * h_merged);
         }
 
         // 1a. Preprocess image
@@ -70,7 +57,9 @@ pub fn generate_batched(
         let pixel_values = pixel_values.to_dtype(model.dtype)?;
 
         // 1b. Vision encoder → image embeddings
-        let image_embeds = model.vision_encoder.forward(&pixel_values, grid_thw)?;
+        let image_embeds = model
+            .vision_encoder
+            .forward(&pixel_values, grid_thw)?;
         let num_image_tokens = image_embeds.dim(0)?;
 
         // 1c. Build input token sequence
@@ -95,11 +84,7 @@ pub fn generate_batched(
     // =========================================================================
     // Phase 2: Pad + stack into batched tensors
     // =========================================================================
-    tracing::info!(
-        "Phase 2: padding {} regions to max_seq_len={}",
-        batch,
-        max_seq_len
-    );
+    tracing::info!("Phase 2: padding {} regions to max_seq_len={}", batch, max_seq_len);
     let hidden_size = per_region[0].inputs_embeds.dim(2)?;
 
     let mut batched_embeds_data = vec![0.0f32; batch * max_seq_len * hidden_size];
@@ -127,21 +112,14 @@ pub fn generate_batched(
         }
     }
 
-    let batched_inputs_embeds = Tensor::from_vec(
-        batched_embeds_data,
-        (batch, max_seq_len, hidden_size),
-        device,
-    )?
-    .to_dtype(model.dtype)?;
+    let batched_inputs_embeds = Tensor::from_vec(batched_embeds_data, (batch, max_seq_len, hidden_size), device)?.to_dtype(model.dtype)?;
 
     let batched_position_ids = Tensor::from_vec(batched_pos_data, (3, batch, max_seq_len), device)?;
 
     // =========================================================================
     // Phase 3: Batched attention mask
     // =========================================================================
-    tracing::info!(
-        "Phase 3: building batched causal mask [{batch}, 1, {max_seq_len}, {max_seq_len}]"
-    );
+    tracing::info!("Phase 3: building batched causal mask [{batch}, 1, {max_seq_len}, {max_seq_len}]");
     let attention_mask = build_batched_causal_mask(&per_region, max_seq_len, device)?;
 
     // =========================================================================
@@ -149,12 +127,9 @@ pub fn generate_batched(
     // =========================================================================
     tracing::info!("Phase 4: batched prefill");
     let kv_caches = Vec::new();
-    let (hidden_states, mut kv_caches) = model.text_decoder.forward_to_hidden(
-        &batched_inputs_embeds,
-        &batched_position_ids,
-        Some(&attention_mask),
-        kv_caches,
-    )?;
+    let (hidden_states, mut kv_caches) = model
+        .text_decoder
+        .forward_to_hidden(&batched_inputs_embeds, &batched_position_ids, Some(&attention_mask), kv_caches)?;
 
     // Gather logits from the last REAL token per batch element (not padding)
     let gather_positions: Vec<usize> = per_region
@@ -164,34 +139,33 @@ pub fn generate_batched(
 
     let mut hidden_at_pos = Vec::with_capacity(batch);
     for i in 0..batch {
-        let h = hidden_states.i(i)?.narrow(0, gather_positions[i], 1)?; // [1, hidden]
+        let h = hidden_states
+            .i(i)?
+            .narrow(0, gather_positions[i], 1)?; // [1, hidden]
         hidden_at_pos.push(h);
     }
     let last_hidden = Tensor::stack(&hidden_at_pos, 0)?; // [batch, 1, hidden]
-    let logits = model.text_decoder.lm_head_forward(&last_hidden)?; // [batch, 1, vocab_size]
+    let logits = model
+        .text_decoder
+        .lm_head_forward(&last_hidden)?; // [batch, 1, vocab_size]
 
     // Get first token for each batch element (greedy)
     let mut next_tokens = batch_argmax(&logits)?; // [batch]
     let mut output_tokens: Vec<Vec<u32>> = (0..batch).map(|_| Vec::new()).collect();
     let mut finished = vec![false; batch];
-    let mut current_positions: Vec<i64> = per_region.iter().map(|r| r.next_pos).collect();
+    let mut current_positions: Vec<i64> = per_region
+        .iter()
+        .map(|r| r.next_pos)
+        .collect();
 
-    tracing::info!(
-        "Prefill done. Starting autoregressive decode (max {} steps)",
-        max_tokens
-    );
+    tracing::info!("Prefill done. Starting autoregressive decode (max {} steps)", max_tokens);
 
     // =========================================================================
     // Phase 5: Batched autoregressive decode
     // =========================================================================
     for step in 0..max_tokens {
         if step % 100 == 0 {
-            tracing::info!(
-                "Decode step {}/{} (finished: {:?})",
-                step,
-                max_tokens,
-                finished
-            );
+            tracing::info!("Decode step {}/{} (finished: {:?})", step, max_tokens, finished);
         }
         // Check each element for EOS
         for i in 0..batch {
@@ -222,7 +196,9 @@ pub fn generate_batched(
             .collect();
 
         let token_tensor = Tensor::from_vec(token_ids_i64, (batch, 1), device)?;
-        let token_embeds = model.text_decoder.embed(&token_tensor)?; // [batch, 1, hidden]
+        let token_embeds = model
+            .text_decoder
+            .embed(&token_tensor)?; // [batch, 1, hidden]
 
         // Position IDs: all 3 dims get the same position value per element
         let mut pos_vals = vec![0i64; 3 * batch];
@@ -235,18 +211,22 @@ pub fn generate_batched(
         let pos = Tensor::from_vec(pos_vals, (3, batch, 1), device)?;
 
         // Single-token decode (no attention mask needed)
-        let (hidden, new_caches) =
-            model
-                .text_decoder
-                .forward_to_hidden(&token_embeds, &pos, None, kv_caches)?;
+        let (hidden, new_caches) = model
+            .text_decoder
+            .forward_to_hidden(&token_embeds, &pos, None, kv_caches)?;
         kv_caches = new_caches;
 
         // Apply lm_head to get logits [batch, 1, vocab_size]
-        let logits = model.text_decoder.lm_head_forward(&hidden)?;
+        let logits = model
+            .text_decoder
+            .lm_head_forward(&hidden)?;
 
         // Get next token for each unfinished element
         // For finished elements, use pad_token (won't be used)
-        let logits_vec = logits.squeeze(1)?.to_dtype(DType::F32)?.to_vec2::<f32>()?;
+        let logits_vec = logits
+            .squeeze(1)?
+            .to_dtype(DType::F32)?
+            .to_vec2::<f32>()?;
         for i in 0..batch {
             if !finished[i] {
                 let (best_idx, _) = logits_vec[i]
@@ -260,11 +240,7 @@ pub fn generate_batched(
         }
     }
 
-    tracing::info!(
-        "Decode done in {} steps. Decoding {} sequences to text.",
-        max_tokens,
-        batch
-    );
+    tracing::info!("Decode done in {} steps. Decoding {} sequences to text.", max_tokens, batch);
 
     // =========================================================================
     // Phase 6: Decode per-sequence tokens
@@ -299,11 +275,7 @@ struct RegionData {
 ///   - positions >= eff are masked to -inf (both query and key sides)
 ///
 /// Returns: [batch, 1, max_seq_len, max_seq_len]
-fn build_batched_causal_mask(
-    regions: &[RegionData],
-    max_seq_len: usize,
-    device: &Device,
-) -> Result<Tensor> {
+fn build_batched_causal_mask(regions: &[RegionData], max_seq_len: usize, device: &Device) -> Result<Tensor> {
     let batch = regions.len();
     let mut mask_data = vec![f32::NEG_INFINITY; batch * max_seq_len * max_seq_len];
 
@@ -320,11 +292,7 @@ fn build_batched_causal_mask(
         }
     }
 
-    Ok(Tensor::from_vec(
-        mask_data,
-        (batch, 1, max_seq_len, max_seq_len),
-        device,
-    )?)
+    Ok(Tensor::from_vec(mask_data, (batch, 1, max_seq_len, max_seq_len), device)?)
 }
 
 /// Get argmax for each batch element from a [batch, 1, vocab_size] logits tensor.

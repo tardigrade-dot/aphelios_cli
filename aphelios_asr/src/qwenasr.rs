@@ -27,21 +27,17 @@ pub mod preset;
 pub mod tokenizer;
 pub mod transcribe;
 
-pub fn qwen3asr_simple(
-    asr_model: Option<&str>,
-    aligner_model: Option<&str>,
-    input: &str,
-    language: &str,
-) -> Result<()> {
-    let mut pipeline =
-        transcribe::Pipeline::load_with_device(asr_model).unwrap_or_else(|e| {
-            error!("error: {e}");
-            std::process::exit(1)
-        });
+pub fn qwen3asr_simple(asr_model: Option<&str>, aligner_model: Option<&str>, input: &str, language: &str) -> Result<()> {
+    let mut pipeline = transcribe::Pipeline::load_with_device(asr_model).unwrap_or_else(|e| {
+        error!("error: {e}");
+        std::process::exit(1)
+    });
 
     let text = measure_time!(
         "Qwen3ASR",
-        pipeline.transcribe(input).context("Qwen3ASR task")
+        pipeline
+            .transcribe(input)
+            .context("Qwen3ASR task")
     )?;
 
     info!("{text}");
@@ -55,10 +51,7 @@ pub fn qwen3asr_simple(
     info!("\nAlignment results:");
     let mut items_info = Vec::new();
     for item in &items {
-        items_info.push(format!(
-            "[{:.3} - {:.3}] {}",
-            item.start_time, item.end_time, item.text
-        ));
+        items_info.push(format!("[{:.3} - {:.3}] {}", item.start_time, item.end_time, item.text));
     }
     info!("{}", items_info.join(""));
     Ok(())
@@ -76,21 +69,13 @@ struct TranscribeBatch {
     text: String,
 }
 
-struct AlignedBatch {
-    text: String,
-    items: Vec<AlignItem>,
-    speech_end_time: f64,
+pub struct AlignedBatch {
+    pub text: String,
+    pub items: Vec<AlignItem>,
+    pub speech_end_time: f64,
 }
 
-pub async fn qwen3asr_with_vad(
-    qwen3asr_model: Option<&str>,
-    aligner_model: Option<&str>,
-    vad_model_dir: Option<&str>,
-    audio_path: &str,
-    language: &str,
-    ctx: Option<&str>,
-) -> Result<Vec<AlignItem>> {
-
+pub async fn qwen3asr_with_vad(qwen3asr_model: Option<&str>, aligner_model: Option<&str>, vad_model_dir: Option<&str>, audio_path: &str, language: &str, ctx: Option<&str>) -> Result<Vec<AlignItem>> {
     assert!(Path::new(audio_path).exists(), "file not exists!");
     // ==================== Phase 1: VAD + ASR Transcription ====================
     let mut vad = measure_time!("load VAD model", VadProcessor::new_default(vad_model_dir)?);
@@ -100,7 +85,13 @@ pub async fn qwen3asr_with_vad(
     #[cfg(feature = "profiling")]
     {
         let output_path = Path::new(audio_path)
-            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_file_name(
+                Path::new(audio_path)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+            )
             .with_extension("vad.srt")
             .to_str()
             .unwrap()
@@ -110,10 +101,7 @@ pub async fn qwen3asr_with_vad(
     }
     info!("[Phase 1] Detected {} speech segments", segments.len());
 
-    assert!(
-        !segments.is_empty(),
-        "Should detect at least one speech segment"
-    );
+    assert!(!segments.is_empty(), "Should detect at least one speech segment");
     info!("[Phase 1] Aggregating segments...");
     let batches = vad.aggregate_segments(&segments, 30.0, 0.3);
 
@@ -121,10 +109,7 @@ pub async fn qwen3asr_with_vad(
 
     let device = get_device();
 
-    let mut pipeline = measure_time!(
-        "load ASR model",
-        Pipeline::load_with_prompt(qwen3asr_model, ctx)?
-    );
+    let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_prompt(qwen3asr_model, ctx)?);
 
     // Load entire audio as float samples
     let samples = audio::load_wav(Path::new(audio_path), &pipeline.audio_cfg)?;
@@ -156,25 +141,11 @@ pub async fn qwen3asr_with_vad(
                 let mel_device = pipeline.device.clone();
                 let mel = Tensor::from_vec(flat, (mel_bins, n_frames), &mel_device)?;
 
-                let (text, timings) = measure_time!(
-                    format!(
-                        "transcribe Batch {}/{}: duration {:.2}s",
-                        i + 1,
-                        batch_size,
-                        audio_ms / 1000.0
-                    ),
-                    pipeline.transcribe_mel_with_context(&mel, audio_ms, ctx)?
-                );
+                let (text, timings) =
+                    measure_time!(format!("transcribe Batch {}/{}: duration {:.2}s", i + 1, batch_size, audio_ms / 1000.0), pipeline.transcribe_mel_with_context(&mel, audio_ms, ctx)?);
 
                 let preview = truncate_by_chars(&text, 30);
-                info!(
-                    "[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...",
-                    i + 1,
-                    batch_size,
-                    (timings.encode_ms + timings.decode_ms) / audio_ms,
-                    &text.len(),
-                    preview,
-                );
+                info!("[Phase 1] Batch {}/{} Result: RT={:.2}x, total length {} text: {}...", i + 1, batch_size, (timings.encode_ms + timings.decode_ms) / audio_ms, &text.len(), preview,);
 
                 let text_str = text.trim();
                 if !text_str.is_empty() {
@@ -190,28 +161,19 @@ pub async fn qwen3asr_with_vad(
         }
     }
 
-    info!(
-        "[Phase 1] Transcription complete. Total batches: {}",
-        transcription_batches.len()
-    );
+    info!("[Phase 1] Transcription complete. Total batches: {}", transcription_batches.len());
 
     // ==================== Phase 2: Alignment ====================
     let aligner = ForcedAligner::load_with_device(aligner_model)?;
 
     let mut total_aligned_items = Vec::new();
     let mut aligned_batches = Vec::new();
-    info!(
-        "[Phase 2] Running alignment on {} batches...",
-        transcription_batches.len()
-    );
+    info!("[Phase 2] Running alignment on {} batches...", transcription_batches.len());
 
     for (i, batch) in transcription_batches.iter().enumerate() {
         #[cfg(not(feature = "profiling"))]
         let _ = i;
-        let mut items = measure_time!(
-            format!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size),
-            aligner.align_samples(&batch.pcm, &batch.text, language)?
-        );
+        let mut items = measure_time!(format!("[Phase 2] Batch {}/{} alignment...", i + 1, batch_size), aligner.align_samples(&batch.pcm, &batch.text, language)?);
 
         // Convert to absolute timestamps by adding the segment start time
         for item in &mut items {
@@ -226,10 +188,7 @@ pub async fn qwen3asr_with_vad(
         });
     }
 
-    info!(
-        "[Phase 2] Alignment complete. Total aligned items: {}",
-        total_aligned_items.len()
-    );
+    info!("[Phase 2] Alignment complete. Total aligned items: {}", total_aligned_items.len());
     // for (_, item) in total_aligned_items.iter().enumerate() {
     //     info!(
     //         "{}",
@@ -301,7 +260,9 @@ fn is_token_char(ch: char) -> bool {
 }
 
 fn visible_char_count(text: &str) -> usize {
-    text.chars().filter(|ch| !ch.is_whitespace()).count()
+    text.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .count()
 }
 
 fn is_sentence_break_text(text: &str) -> bool {
@@ -316,11 +277,7 @@ fn is_soft_break_text(text: &str) -> bool {
         .any(|ch| !ch.is_whitespace() && SOFT_BREAK_PUNCTUATION.contains(&ch))
 }
 
-fn restore_tokens_from_text(
-    text: &str,
-    items: &[AlignItem],
-    segment_boundary_after_last: bool,
-) -> Vec<SubtitleToken> {
+fn restore_tokens_from_text(text: &str, items: &[AlignItem], segment_boundary_after_last: bool) -> Vec<SubtitleToken> {
     if items.is_empty() {
         return Vec::new();
     }
@@ -369,7 +326,9 @@ fn restore_tokens_from_text(
             cursor += 1;
         }
 
-        let fragment: String = chars[token_start..cursor].iter().collect();
+        let fragment: String = chars[token_start..cursor]
+            .iter()
+            .collect();
         restored.push(SubtitleToken {
             text: fragment,
             start_time: item.start_time,
@@ -396,30 +355,29 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
     const MIN_CHARS: usize = 20;
     const MAX_CHARS: usize = 70;
 
-    let finalize_range =
-        |entries: &mut Vec<SubtitleEntry>, tokens: &[SubtitleToken], start: usize, end: usize| {
-            if start > end || start >= tokens.len() {
-                return;
-            }
-            let text: String = tokens[start..=end]
-                .iter()
-                .map(|token| token.text.as_str())
-                .collect();
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                return;
-            }
-            let mut end_time = tokens[end].end_time;
-            if end + 1 < tokens.len() {
-                let next_start_time = tokens[end + 1].start_time;
-                end_time = next_start_time.min(end_time + 0.3); //对句尾添加补偿, 避免字幕提前消失
-            }
-            entries.push(SubtitleEntry {
-                text: trimmed.to_string(),
-                start_time: tokens[start].start_time,
-                end_time: end_time,
-            });
-        };
+    let finalize_range = |entries: &mut Vec<SubtitleEntry>, tokens: &[SubtitleToken], start: usize, end: usize| {
+        if start > end || start >= tokens.len() {
+            return;
+        }
+        let text: String = tokens[start..=end]
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect();
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let mut end_time = tokens[end].end_time;
+        if end + 1 < tokens.len() {
+            let next_start_time = tokens[end + 1].start_time;
+            end_time = next_start_time.min(end_time + 0.3); //对句尾添加补偿, 避免字幕提前消失
+        }
+        entries.push(SubtitleEntry {
+            text: trimmed.to_string(),
+            start_time: tokens[start].start_time,
+            end_time: end_time,
+        });
+    };
 
     let mut entries = Vec::new();
     let mut start_idx = 0usize;
@@ -478,7 +436,7 @@ fn split_subtitle_entries(tokens: &[SubtitleToken]) -> Vec<SubtitleEntry> {
     entries
 }
 
-fn generate_srt_from_aligned_batches(batches: &[AlignedBatch]) -> String {
+pub fn generate_srt_from_aligned_batches(batches: &[AlignedBatch]) -> String {
     let mut tokens = Vec::new();
     for batch in batches {
         let mut batch_tokens = restore_tokens_from_text(&batch.text, &batch.items, true);
@@ -503,30 +461,25 @@ fn generate_srt_from_aligned_batches(batches: &[AlignedBatch]) -> String {
 fn generate_srt_from_entries(entries: &[SubtitleEntry]) -> String {
     let mut srt_content = String::new();
     for (idx, entry) in entries.iter().enumerate() {
-        let next_start = entries.get(idx + 1).map(|entry| entry.start_time);
+        let next_start = entries
+            .get(idx + 1)
+            .map(|entry| entry.start_time);
         let end_time = next_start
-            .map(|next_start| entry.end_time.max((entry.end_time + 0.25).min(next_start)))
+            .map(|next_start| {
+                entry
+                    .end_time
+                    .max((entry.end_time + 0.25).min(next_start))
+            })
             .unwrap_or(entry.end_time + 0.25);
 
         srt_content.push_str(&format!("{}\n", idx + 1));
-        srt_content.push_str(&format!(
-            "{} --> {}\n",
-            format_srt_time(entry.start_time),
-            format_srt_time(end_time)
-        ));
+        srt_content.push_str(&format!("{} --> {}\n", format_srt_time(entry.start_time), format_srt_time(end_time)));
         srt_content.push_str(&format!("{}\n\n", entry.text));
     }
     srt_content
 }
 
-fn finalize_subtitle(
-    srt_content: &mut String,
-    subtitle_index: &mut usize,
-    current_sentence: &str,
-    sentence_start: Option<f64>,
-    sentence_end: Option<f64>,
-    next_item_start: Option<f64>,
-) {
+fn finalize_subtitle(srt_content: &mut String, subtitle_index: &mut usize, current_sentence: &str, sentence_start: Option<f64>, sentence_end: Option<f64>, next_item_start: Option<f64>) {
     if current_sentence.trim().is_empty() {
         return;
     }
@@ -540,11 +493,7 @@ fn finalize_subtitle(
         .unwrap_or(raw_end_time + MAX_TAIL_HOLD);
 
     srt_content.push_str(&format!("{}\n", *subtitle_index));
-    srt_content.push_str(&format!(
-        "{} --> {}\n",
-        format_srt_time(start_time),
-        format_srt_time(end_time)
-    ));
+    srt_content.push_str(&format!("{} --> {}\n", format_srt_time(start_time), format_srt_time(end_time)));
     srt_content.push_str(&format!("{}\n\n", current_sentence.trim()));
     *subtitle_index += 1;
 }
@@ -570,10 +519,14 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
     const MAX_GAP: f64 = 1.0;
 
     for (idx, item) in items.iter().enumerate() {
-        let next_item_start = items.get(idx + 1).map(|next| next.start_time);
-        let is_punctuation = item.text.chars().any(|c| SENTENCE_ENDINGS.contains(&c));
-        let too_long = !current_sentence.is_empty()
-            && current_sentence.chars().count() + item.text.chars().count() > MAX_CHARS;
+        let next_item_start = items
+            .get(idx + 1)
+            .map(|next| next.start_time);
+        let is_punctuation = item
+            .text
+            .chars()
+            .any(|c| SENTENCE_ENDINGS.contains(&c));
+        let too_long = !current_sentence.is_empty() && current_sentence.chars().count() + item.text.chars().count() > MAX_CHARS;
         let too_much_time = if let Some(start) = sentence_start {
             item.end_time - start > MAX_DURATION
         } else {
@@ -587,14 +540,7 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
 
         // If we need to split BEFORE adding this word
         if (too_long || too_much_time || big_gap) && !current_sentence.is_empty() {
-            finalize_subtitle(
-                &mut srt_content,
-                &mut subtitle_index,
-                &current_sentence,
-                sentence_start,
-                sentence_end,
-                Some(item.start_time),
-            );
+            finalize_subtitle(&mut srt_content, &mut subtitle_index, &current_sentence, sentence_start, sentence_end, Some(item.start_time));
             current_sentence.clear();
             sentence_start = None;
             sentence_end = None;
@@ -619,14 +565,7 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
 
         // If we need to split AFTER adding this word (due to punctuation)
         if is_punctuation {
-            finalize_subtitle(
-                &mut srt_content,
-                &mut subtitle_index,
-                &current_sentence,
-                sentence_start,
-                sentence_end,
-                next_item_start,
-            );
+            finalize_subtitle(&mut srt_content, &mut subtitle_index, &current_sentence, sentence_start, sentence_end, next_item_start);
             current_sentence.clear();
             sentence_start = None;
             sentence_end = None;
@@ -636,14 +575,7 @@ pub fn generate_srt_from_align_items(items: &[AlignItem]) -> String {
 
     // Handle any remaining content
     if !current_sentence.is_empty() {
-        finalize_subtitle(
-            &mut srt_content,
-            &mut subtitle_index,
-            &current_sentence,
-            sentence_start,
-            sentence_end,
-            None,
-        );
+        finalize_subtitle(&mut srt_content, &mut subtitle_index, &current_sentence, sentence_start, sentence_end, None);
     }
 
     srt_content
@@ -733,7 +665,10 @@ mod tests {
         };
 
         let tokens = restore_tokens_from_text(&batch.text, &batch.items, true);
-        let text: String = tokens.iter().map(|token| token.text.as_str()).collect();
+        let text: String = tokens
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect();
         assert_eq!(text, "你好，世界。再见，朋友。");
     }
 
@@ -784,12 +719,7 @@ mod tests {
     fn split_subtitle_entries_prefers_punctuation_within_target_window() {
         let mut tokens = Vec::new();
         let mut current_time = 0.0;
-        let chunks = vec![
-            "甲".repeat(40),
-            "乙".repeat(45) + "。",
-            "丙".repeat(35),
-            "丁".repeat(50) + "。",
-        ];
+        let chunks = vec!["甲".repeat(40), "乙".repeat(45) + "。", "丙".repeat(35), "丁".repeat(50) + "。"];
 
         for (idx, chunk) in chunks.into_iter().enumerate() {
             let duration = 0.5;

@@ -10,9 +10,7 @@ use aphelios_asr::qwenasr;
 use aphelios_core::traits::{OcrEngine, SearchEngine, SearchMode, TtsEngine};
 use aphelios_core::utils::logger;
 use config::AppSettings;
-use controllers::{
-    demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext,
-};
+use controllers::{demucs::DemucsLogic, ocr::OcrLogic, search::SearchLogic, tts::TtsLogic, AppContext};
 use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -37,19 +35,17 @@ fn main() -> Result<()> {
     let settings = AppSettings::load().unwrap_or_default();
 
     let ocr_engine: Arc<Mutex<dyn OcrEngine>> = Arc::new(Mutex::new(services::DolphinOcrClient));
-    let book_dir = settings.books_dir.as_deref().unwrap_or("/Volumes/sw/books");
+    let book_dir = settings
+        .books_dir
+        .as_deref()
+        .unwrap_or("/Volumes/sw/books");
     let search_client = Arc::new(services::InMemorySearchClient::new(book_dir));
     let search_engine: Arc<dyn SearchEngine> = search_client.clone();
     let search_engine_for_rescan = search_engine.clone();
     let tts_engine: Arc<dyn TtsEngine> = Arc::new(services::QwenTtsClient);
 
     // 创建应用上下文
-    let ctx = Arc::new(AppContext::new(
-        ocr_engine,
-        tts_engine,
-        search_engine,
-        settings,
-    ));
+    let ctx = Arc::new(AppContext::new(ocr_engine, tts_engine, search_engine, settings));
 
     // ── 创建主窗口 ──
     let window = AppWindow::new()?;
@@ -207,9 +203,15 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let logic = logic_ocr.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
-            let input_file: String = win.get_ocr_input_file_path().to_string();
-            let output_dir: String = win.get_ocr_output_dir_path().to_string();
+            let Some(win) = w.upgrade() else {
+                return;
+            };
+            let input_file: String = win
+                .get_ocr_input_file_path()
+                .to_string();
+            let output_dir: String = win
+                .get_ocr_output_dir_path()
+                .to_string();
             let model_path: String = win.get_ocr_model_path().to_string();
 
             win.set_ocr_is_running(true);
@@ -217,7 +219,10 @@ fn main() -> Result<()> {
             win.set_ocr_status_message("OCR 执行中...".into());
 
             let log_model = win.get_ocr_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push(format!("📝 开始 OCR: {}", input_file).into());
                 vm.push(format!("📂 输出目录：{}", output_dir).into());
                 vm.push(format!("🤖 模型路径：{}", model_path).into());
@@ -245,26 +250,23 @@ fn main() -> Result<()> {
                 move |result| {
                     let w3 = w2.clone();
                     let _ = slint::invoke_from_event_loop(move || {
-                        let Some(win) = w3.upgrade() else { return };
+                        let Some(win) = w3.upgrade() else {
+                            return;
+                        };
                         match result {
                             Ok(results) => {
                                 info!("OCR completed with {} results", results.len());
                                 let log_model = win.get_ocr_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
-                                    vm.push(
-                                        format!("✅ OCR 完成！识别出 {} 条结果", results.len())
-                                            .into(),
-                                    );
+                                    vm.push(format!("✅ OCR 完成！识别出 {} 条结果", results.len()).into());
                                     for (i, result) in results.iter().take(10).enumerate() {
                                         vm.push(format!("  [{}] {}", i + 1, result).into());
                                     }
                                     if results.len() > 10 {
-                                        vm.push(
-                                            format!("  ... 还有 {} 条结果", results.len() - 10)
-                                                .into(),
-                                        );
+                                        vm.push(format!("  ... 还有 {} 条结果", results.len() - 10).into());
                                     }
                                     win.invoke_ocr_scroll_to_bottom();
                                 }
@@ -274,8 +276,9 @@ fn main() -> Result<()> {
                             Err(e) => {
                                 error!("OCR failed: {}", e);
                                 let log_model = win.get_ocr_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push(format!("❌ OCR 失败：{}", e).into());
                                     win.invoke_ocr_scroll_to_bottom();
@@ -301,7 +304,10 @@ fn main() -> Result<()> {
                 win.set_ocr_progress(0.0);
                 win.set_ocr_status_message("OCR 已停止".into());
                 let log_model = win.get_ocr_log_messages();
-                if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                if let Some(vm) = log_model
+                    .as_any()
+                    .downcast_ref::<VecModel<SharedString>>()
+                {
                     vm.push("⏹️ OCR 已停止".into());
                     win.invoke_ocr_scroll_to_bottom();
                 }
@@ -325,7 +331,12 @@ fn main() -> Result<()> {
                 if !path.is_empty() {
                     let audio_path_buf = std::path::PathBuf::from(&path);
                     let srt_path = audio_path_buf.with_extension("srt");
-                    win.set_asr_output_path(srt_path.to_string_lossy().to_string().into());
+                    win.set_asr_output_path(
+                        srt_path
+                            .to_string_lossy()
+                            .to_string()
+                            .into(),
+                    );
                 }
             }
         }
@@ -349,11 +360,17 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let ctx = ctx.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             let asr_model: String = win.get_asr_model_path().to_string();
-            let aligner_model: String = win.get_asr_aligner_model_path().to_string();
+            let aligner_model: String = win
+                .get_asr_aligner_model_path()
+                .to_string();
             let vad_model: String = win.get_asr_vad_model_path().to_string();
-            let audio_file: String = win.get_asr_audio_file_path().to_string();
+            let audio_file: String = win
+                .get_asr_audio_file_path()
+                .to_string();
             let output_path: String = win.get_asr_output_path().to_string();
             let language: String = win.get_asr_language().to_string();
 
@@ -368,7 +385,10 @@ fn main() -> Result<()> {
             win.set_asr_status_message("ASR 识别中...".into());
 
             let log_model = win.get_asr_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push("=== Aphelios Qwen3 ASR 语音识别 ===".into());
                 vm.push(format!("🎤 音频文件：{}", audio_file).into());
                 vm.push(format!("🤖 ASR模型：{}", asr_model).into());
@@ -382,17 +402,12 @@ fn main() -> Result<()> {
             let w2 = w.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
-                let result = rt.block_on(aphelios_asr::qwenasr::qwen3asr_with_vad(
-                    Some(&asr_model),
-                    Some(&aligner_model),
-                    Some(&vad_model),
-                    &audio_file,
-                    &language,
-                    None
-                ));
+                let result = rt.block_on(aphelios_asr::qwenasr::qwen3asr_with_vad(Some(&asr_model), Some(&aligner_model), Some(&vad_model), &audio_file, &language, None));
 
                 let _ = slint::invoke_from_event_loop(move || {
-                    let Some(win) = w2.upgrade() else { return };
+                    let Some(win) = w2.upgrade() else {
+                        return;
+                    };
                     win.set_asr_is_running(false);
                     match result {
                         Ok(items) => {
@@ -400,8 +415,9 @@ fn main() -> Result<()> {
                             win.set_asr_progress(1.0);
                             win.set_asr_status_message("识别完成!".into());
                             let log_model = win.get_asr_log_messages();
-                            if let Some(vm) =
-                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            if let Some(vm) = log_model
+                                .as_any()
+                                .downcast_ref::<VecModel<SharedString>>()
                             {
                                 vm.push(format!("✅ 识别完成！共 {} 个词/字", items.len()).into());
                             }
@@ -416,8 +432,9 @@ fn main() -> Result<()> {
                             win.set_asr_progress(0.0);
                             win.set_asr_status_message("识别失败".into());
                             let log_model = win.get_asr_log_messages();
-                            if let Some(vm) =
-                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            if let Some(vm) = log_model
+                                .as_any()
+                                .downcast_ref::<VecModel<SharedString>>()
                             {
                                 vm.push(format!("❌ 识别失败：{}", e).into());
                             }
@@ -495,7 +512,10 @@ fn main() -> Result<()> {
                     .unwrap_or_default();
                 if !path.is_empty() {
                     let line_count = if let Ok(content) = std::fs::read_to_string(&path) {
-                        content.lines().filter(|l| !l.trim().is_empty()).count()
+                        content
+                            .lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .count()
                     } else {
                         0
                     };
@@ -510,7 +530,9 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let logic = logic_tts.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             let input_text: String = win.get_tts_input_text().to_string();
             let model_path: String = win.get_tts_model_path().to_string();
             let output_path: String = win.get_tts_output_path().to_string();
@@ -523,7 +545,10 @@ fn main() -> Result<()> {
             win.set_tts_progress(0.0);
 
             let log_model = win.get_tts_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push(format!("🔊 开始 TTS 合成：{}", input_text).into());
                 vm.push(format!("🤖 模型路径：{}", model_path).into());
                 vm.push(format!("📂 输出路径：{}", output_path).into());
@@ -556,7 +581,9 @@ fn main() -> Result<()> {
                     let w3 = w2.clone();
                     let logic_final = logic_inner.clone();
                     let _ = slint::invoke_from_event_loop(move || {
-                        let Some(win) = w3.upgrade() else { return };
+                        let Some(win) = w3.upgrade() else {
+                            return;
+                        };
                         win.set_tts_is_running(false);
                         match result {
                             Ok(_) => {
@@ -564,13 +591,18 @@ fn main() -> Result<()> {
                                 win.set_tts_status_message("TTS 完成!".into());
                                 win.set_tts_has_audio(true);
                                 let log_model = win.get_tts_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push("✅ TTS 合成完成!".into());
                                     win.invoke_tts_scroll_to_bottom();
                                 }
-                                if let Ok(mut path) = logic_final.ctx().audio_output_path.lock() {
+                                if let Ok(mut path) = logic_final
+                                    .ctx()
+                                    .audio_output_path
+                                    .lock()
+                                {
                                     *path = Some(output_path_inner);
                                 }
                             }
@@ -578,8 +610,9 @@ fn main() -> Result<()> {
                                 error!("TTS failed: {}", e);
                                 win.set_tts_status_message("TTS 失败".into());
                                 let log_model = win.get_tts_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push(format!("❌ TTS 失败：{}", e).into());
                                     win.invoke_tts_scroll_to_bottom();
@@ -596,7 +629,9 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let logic = logic_tts.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             let txt_file_path: String = win.get_tts_txt_file_path().to_string();
             let model_path: String = win.get_tts_model_path().to_string();
             let ref_audio_path: String = win.get_tts_ref_audio_path().to_string();
@@ -608,7 +643,10 @@ fn main() -> Result<()> {
             win.set_tts_progress(0.0);
 
             let log_model = win.get_tts_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push(format!("📄 开始批量 TTS 合成：{}", txt_file_path).into());
                 vm.push(format!("🤖 模型路径：{}", model_path).into());
                 vm.push("⚙️  批次大小：3，每行一个音频文件".into());
@@ -639,7 +677,9 @@ fn main() -> Result<()> {
                     let w3 = w2.clone();
                     let logic_final = logic_inner.clone();
                     let _ = slint::invoke_from_event_loop(move || {
-                        let Some(win) = w3.upgrade() else { return };
+                        let Some(win) = w3.upgrade() else {
+                            return;
+                        };
                         win.set_tts_is_running(false);
                         match result {
                             Ok(output_paths) => {
@@ -647,28 +687,24 @@ fn main() -> Result<()> {
                                 win.set_tts_status_message("批量 TTS 完成!".into());
                                 win.set_tts_has_audio(true);
                                 let log_model = win.get_tts_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
-                                    vm.push(
-                                        format!(
-                                            "✅ 批量 TTS 合成完成！共 {} 个音频文件",
-                                            output_paths.len()
-                                        )
-                                        .into(),
-                                    );
+                                    vm.push(format!("✅ 批量 TTS 合成完成！共 {} 个音频文件", output_paths.len()).into());
                                     for (i, path) in output_paths.iter().take(5).enumerate() {
                                         vm.push(format!("  [{}] {}", i + 1, path).into());
                                     }
                                     if output_paths.len() > 5 {
-                                        vm.push(
-                                            format!("  ... 还有 {} 个文件", output_paths.len() - 5)
-                                                .into(),
-                                        );
+                                        vm.push(format!("  ... 还有 {} 个文件", output_paths.len() - 5).into());
                                     }
                                     win.invoke_tts_scroll_to_bottom();
                                 }
-                                if let Ok(mut path) = logic_final.ctx().audio_output_path.lock() {
+                                if let Ok(mut path) = logic_final
+                                    .ctx()
+                                    .audio_output_path
+                                    .lock()
+                                {
                                     if !output_paths.is_empty() {
                                         *path = Some(output_paths[0].clone());
                                     }
@@ -678,8 +714,9 @@ fn main() -> Result<()> {
                                 error!("Batch TTS failed: {}", e);
                                 win.set_tts_status_message("批量 TTS 失败".into());
                                 let log_model = win.get_tts_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push(format!("❌ 批量 TTS 失败：{}", e).into());
                                     win.invoke_tts_scroll_to_bottom();
@@ -700,8 +737,9 @@ fn main() -> Result<()> {
                 if let Ok(path_guard) = ctx.audio_output_path.lock() {
                     if let Some(ref path) = *path_guard {
                         let log_model = win.get_tts_log_messages();
-                        if let Some(vm) =
-                            log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                        if let Some(vm) = log_model
+                            .as_any()
+                            .downcast_ref::<VecModel<SharedString>>()
                         {
                             vm.push(format!("🔊 播放音频：{}", path).into());
                             win.invoke_tts_scroll_to_bottom();
@@ -723,7 +761,9 @@ fn main() -> Result<()> {
 
     // 初始化书籍搜索页面数据
     {
-        let book_count = logic_search.get_book_count().unwrap_or(0);
+        let book_count = logic_search
+            .get_book_count()
+            .unwrap_or(0);
         window.set_bs_book_count(book_count as i32);
     }
 
@@ -732,7 +772,9 @@ fn main() -> Result<()> {
         let engine = search_engine_for_rescan.clone();
         let search_client = search_client.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             let book_dir = win.get_bs_books_dir().to_string();
             win.set_bs_status_message("正在扫描书籍目录...".into());
 
@@ -744,13 +786,13 @@ fn main() -> Result<()> {
             std::thread::spawn(move || {
                 let result = eng.build_index(None);
                 let _ = slint::invoke_from_event_loop(move || {
-                    let Some(win) = w2.upgrade() else { return };
+                    let Some(win) = w2.upgrade() else {
+                        return;
+                    };
                     match result {
                         Ok(count) => {
                             win.set_bs_book_count(count as i32);
-                            win.set_bs_status_message(
-                                format!("扫描完成，共 {} 本书", count).into(),
-                            );
+                            win.set_bs_status_message(format!("扫描完成，共 {} 本书", count).into());
                         }
                         Err(e) => {
                             error!("Rescan failed: {}", e);
@@ -766,48 +808,48 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let logic = logic_search.clone();
         move |query: slint::SharedString| {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             win.set_bs_status_message("搜索中...".into());
 
             let w2 = w.clone();
-            logic.search_books_with_mode(
-                query.to_string(),
-                50,
-                SearchMode::Keyword,
-                move |result| {
-                    let w3 = w2.clone();
-                    let _ = slint::invoke_from_event_loop(move || {
-                        let Some(win) = w3.upgrade() else { return };
-                        match result {
-                            Ok(search_result) => {
-                                let items = search_result.books;
-                                let book_items: Vec<BookItem> = items
-                                    .iter()
-                                    .map(|b| BookItem {
-                                        id: b.id.to_string().into(),
-                                        title: b.title.clone().into(),
-                                        author: b.author.clone().unwrap_or_default().into(),
-                                        file_path: b.file_path.clone().into(),
-                                        file_type: b.file_type.clone().into(),
-                                        file_size: format_file_size(b.file_size).into(),
-                                    })
-                                    .collect();
+            logic.search_books_with_mode(query.to_string(), 50, SearchMode::Keyword, move |result| {
+                let w3 = w2.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(win) = w3.upgrade() else {
+                        return;
+                    };
+                    match result {
+                        Ok(search_result) => {
+                            let items = search_result.books;
+                            let book_items: Vec<BookItem> = items
+                                .iter()
+                                .map(|b| BookItem {
+                                    id: b.id.to_string().into(),
+                                    title: b.title.clone().into(),
+                                    author: b
+                                        .author
+                                        .clone()
+                                        .unwrap_or_default()
+                                        .into(),
+                                    file_path: b.file_path.clone().into(),
+                                    file_type: b.file_type.clone().into(),
+                                    file_size: format_file_size(b.file_size).into(),
+                                })
+                                .collect();
 
-                                let model: Rc<VecModel<BookItem>> =
-                                    Rc::new(VecModel::from(book_items));
-                                win.set_bs_search_results(ModelRc::from(model));
-                                win.set_bs_status_message(
-                                    format!("找到 {} 个结果", search_result.total).into(),
-                                );
-                            }
-                            Err(e) => {
-                                error!("Search failed: {}", e);
-                                win.set_bs_status_message(format!("搜索失败: {}", e).into());
-                            }
+                            let model: Rc<VecModel<BookItem>> = Rc::new(VecModel::from(book_items));
+                            win.set_bs_search_results(ModelRc::from(model));
+                            win.set_bs_status_message(format!("找到 {} 个结果", search_result.total).into());
                         }
-                    });
-                },
-            );
+                        Err(e) => {
+                            error!("Search failed: {}", e);
+                            win.set_bs_status_message(format!("搜索失败: {}", e).into());
+                        }
+                    }
+                });
+            });
         }
     });
 
@@ -815,7 +857,10 @@ fn main() -> Result<()> {
         move |file_path: slint::SharedString| {
             let path: String = file_path.into();
             if !path.is_empty() {
-                std::process::Command::new("open").arg(&path).spawn().ok();
+                std::process::Command::new("open")
+                    .arg(&path)
+                    .spawn()
+                    .ok();
             }
         }
     });
@@ -890,9 +935,19 @@ fn main() -> Result<()> {
                     win.set_ta_audio_file_path(audio_path.clone().into());
                     let audio_path_buf = std::path::PathBuf::from(&audio_path);
                     let txt_path = audio_path_buf.with_extension("txt");
-                    win.set_ta_target_text_path(txt_path.to_string_lossy().to_string().into());
+                    win.set_ta_target_text_path(
+                        txt_path
+                            .to_string_lossy()
+                            .to_string()
+                            .into(),
+                    );
                     let srt_path = audio_path_buf.with_extension("srt");
-                    win.set_ta_output_path(srt_path.to_string_lossy().to_string().into());
+                    win.set_ta_output_path(
+                        srt_path
+                            .to_string_lossy()
+                            .to_string()
+                            .into(),
+                    );
                 }
             }
         }
@@ -929,19 +984,32 @@ fn main() -> Result<()> {
     window.on_ta_start_alignment({
         let w = window_weak.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             let model_path: String = win.get_ta_model_path().to_string();
             let audio_file: String = win.get_ta_audio_file_path().to_string();
-            let target_text: String = win.get_ta_target_text_path().to_string();
+            let target_text: String = win
+                .get_ta_target_text_path()
+                .to_string();
             let output_path: String = win.get_ta_output_path().to_string();
-            let min_len: i32 = win.get_ta_min_segment_length().parse().unwrap_or(80);
-            let max_len: i32 = win.get_ta_max_segment_length().parse().unwrap_or(120);
+            let min_len: i32 = win
+                .get_ta_min_segment_length()
+                .parse()
+                .unwrap_or(80);
+            let max_len: i32 = win
+                .get_ta_max_segment_length()
+                .parse()
+                .unwrap_or(120);
 
             win.set_ta_is_running(true);
             win.set_ta_status_message("正在对齐...".into());
 
             let log_model = win.get_ta_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push("🎤 开始文本对齐".into());
                 vm.push(format!("🤖 模型：{}", model_path).into());
                 vm.push(format!("🎵 音频：{}", audio_file).into());
@@ -968,18 +1036,19 @@ fn main() -> Result<()> {
                 );
 
                 let _ = slint::invoke_from_event_loop(move || {
-                    let Some(win) = w2.upgrade() else { return };
+                    let Some(win) = w2.upgrade() else {
+                        return;
+                    };
                     win.set_ta_is_running(false);
                     match result {
                         Ok(srt_path) => {
                             info!("文本对齐完成：{}", srt_path);
                             let log_model = win.get_ta_log_messages();
-                            if let Some(vm) =
-                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            if let Some(vm) = log_model
+                                .as_any()
+                                .downcast_ref::<VecModel<SharedString>>()
                             {
-                                vm.push(
-                                    format!("✅ 对齐完成！SRT 文件已保存到：{}", srt_path).into(),
-                                );
+                                vm.push(format!("✅ 对齐完成！SRT 文件已保存到：{}", srt_path).into());
                             }
                             win.set_ta_status_message("对齐完成!".into());
                             if let Ok(content) = std::fs::read_to_string(&srt_path) {
@@ -990,8 +1059,9 @@ fn main() -> Result<()> {
                         Err(e) => {
                             error!("文本对齐失败：{}", e);
                             let log_model = win.get_ta_log_messages();
-                            if let Some(vm) =
-                                log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                            if let Some(vm) = log_model
+                                .as_any()
+                                .downcast_ref::<VecModel<SharedString>>()
                             {
                                 vm.push(format!("❌ 对齐失败：{}", e).into());
                             }
@@ -1011,7 +1081,10 @@ fn main() -> Result<()> {
                 win.set_ta_is_running(false);
                 win.set_ta_status_message("已停止".into());
                 let log_model = win.get_ta_log_messages();
-                if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                if let Some(vm) = log_model
+                    .as_any()
+                    .downcast_ref::<VecModel<SharedString>>()
+                {
                     vm.push("⏹️ 已停止".into());
                     win.invoke_ta_scroll_to_bottom();
                 }
@@ -1068,7 +1141,9 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         move || {
             if let Some(win) = w.upgrade() {
-                let current = win.get_demucs_separation_mode().to_string();
+                let current = win
+                    .get_demucs_separation_mode()
+                    .to_string();
                 let new_mode = if current == "vocals_instrumental" {
                     "four_stem"
                 } else {
@@ -1083,11 +1158,17 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let logic = logic_demucs.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
-            let audio_file: String = win.get_demucs_audio_file_path().to_string();
+            let Some(win) = w.upgrade() else {
+                return;
+            };
+            let audio_file: String = win
+                .get_demucs_audio_file_path()
+                .to_string();
             let model_path: String = win.get_demucs_model_path().to_string();
             let output_dir: String = win.get_demucs_output_dir().to_string();
-            let separation_mode: String = win.get_demucs_separation_mode().to_string();
+            let separation_mode: String = win
+                .get_demucs_separation_mode()
+                .to_string();
 
             let actual_output = if output_dir.is_empty() {
                 std::path::Path::new(&audio_file)
@@ -1102,7 +1183,10 @@ fn main() -> Result<()> {
             win.set_demucs_status_message("分离执行中...".into());
 
             let log_model = win.get_demucs_log_messages();
-            if let Some(vm) = log_model.as_any().downcast_ref::<VecModel<SharedString>>() {
+            if let Some(vm) = log_model
+                .as_any()
+                .downcast_ref::<VecModel<SharedString>>()
+            {
                 vm.push(format!("🎵 开始 Demucs 分离：{}", audio_file).into());
                 vm.push(format!("📂 输出目录：{}", actual_output).into());
                 vm.push(format!("🤖 模型路径：{}", model_path).into());
@@ -1135,8 +1219,9 @@ fn main() -> Result<()> {
                             Ok(()) => {
                                 info!("Demucs separation completed");
                                 let log_model = win.get_demucs_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push("✅ 分离完成！文件已保存到输出目录".into());
                                     win.invoke_demucs_scroll_to_bottom();
@@ -1146,8 +1231,9 @@ fn main() -> Result<()> {
                             Err(e) => {
                                 error!("Demucs separation failed: {}", e);
                                 let log_model = win.get_demucs_log_messages();
-                                if let Some(vm) =
-                                    log_model.as_any().downcast_ref::<VecModel<SharedString>>()
+                                if let Some(vm) = log_model
+                                    .as_any()
+                                    .downcast_ref::<VecModel<SharedString>>()
                                 {
                                     vm.push(format!("❌ 分离失败：{}", e).into());
                                     win.invoke_demucs_scroll_to_bottom();
@@ -1169,16 +1255,36 @@ fn main() -> Result<()> {
         let w = window_weak.clone();
         let ctx = ctx.clone();
         move || {
-            let Some(win) = w.upgrade() else { return };
+            let Some(win) = w.upgrade() else {
+                return;
+            };
             win.set_settings_save_status_message("保存中...".into());
 
             let mut s = ctx.get_settings();
-            s.ocr_model_path = Some(win.get_settings_ocr_model_path().to_string());
-            s.ocr_output_dir = Some(win.get_settings_ocr_output_dir().to_string());
-            s.asr_model_path = Some(win.get_settings_asr_model_path().to_string());
-            s.asr_aligner_model_path = Some(win.get_settings_asr_aligner_model_path().to_string());
-            s.asr_vad_model_path = Some(win.get_settings_asr_vad_model_path().to_string());
-            s.srt_model_path = Some(win.get_settings_srt_model_path().to_string());
+            s.ocr_model_path = Some(
+                win.get_settings_ocr_model_path()
+                    .to_string(),
+            );
+            s.ocr_output_dir = Some(
+                win.get_settings_ocr_output_dir()
+                    .to_string(),
+            );
+            s.asr_model_path = Some(
+                win.get_settings_asr_model_path()
+                    .to_string(),
+            );
+            s.asr_aligner_model_path = Some(
+                win.get_settings_asr_aligner_model_path()
+                    .to_string(),
+            );
+            s.asr_vad_model_path = Some(
+                win.get_settings_asr_vad_model_path()
+                    .to_string(),
+            );
+            s.srt_model_path = Some(
+                win.get_settings_srt_model_path()
+                    .to_string(),
+            );
             s.srt_min_segment_length = Some(
                 win.get_settings_srt_min_segment_length()
                     .parse()
@@ -1189,11 +1295,26 @@ fn main() -> Result<()> {
                     .parse()
                     .unwrap_or(120),
             );
-            s.tts_model_path = Some(win.get_settings_tts_model_path().to_string());
-            s.tts_output_path = Some(win.get_settings_tts_output_path().to_string());
-            s.tts_ref_audio_path = Some(win.get_settings_tts_ref_audio_path().to_string());
-            s.tts_ref_text = Some(win.get_settings_tts_ref_text().to_string());
-            s.demucs_model_path = Some(win.get_settings_demucs_model_path().to_string());
+            s.tts_model_path = Some(
+                win.get_settings_tts_model_path()
+                    .to_string(),
+            );
+            s.tts_output_path = Some(
+                win.get_settings_tts_output_path()
+                    .to_string(),
+            );
+            s.tts_ref_audio_path = Some(
+                win.get_settings_tts_ref_audio_path()
+                    .to_string(),
+            );
+            s.tts_ref_text = Some(
+                win.get_settings_tts_ref_text()
+                    .to_string(),
+            );
+            s.demucs_model_path = Some(
+                win.get_settings_demucs_model_path()
+                    .to_string(),
+            );
             ctx.save_settings(s);
 
             let w2 = w.clone();
@@ -1353,37 +1474,20 @@ fn main() -> Result<()> {
     // ═══════════════════════════════════════════════════════════════
     // 日志订阅（OCR, ASR, TTS, TextAlign, Demucs）
     // ═══════════════════════════════════════════════════════════════
-    setup_log_subscription(
-        window.as_weak(),
-        |win| win.get_ocr_log_messages(),
-        |win| win.invoke_ocr_scroll_to_bottom(),
-    );
-    setup_log_subscription(
-        window.as_weak(),
-        |win| win.get_asr_log_messages(),
-        |win| win.invoke_asr_scroll_to_bottom(),
-    );
-    setup_log_subscription(
-        window.as_weak(),
-        |win| win.get_tts_log_messages(),
-        |win| win.invoke_tts_scroll_to_bottom(),
-    );
-    setup_log_subscription(
-        window.as_weak(),
-        |win| win.get_ta_log_messages(),
-        |win| win.invoke_ta_scroll_to_bottom(),
-    );
-    setup_log_subscription(
-        window.as_weak(),
-        |win| win.get_demucs_log_messages(),
-        |win| win.invoke_demucs_scroll_to_bottom(),
-    );
+    setup_log_subscription(window.as_weak(), |win| win.get_ocr_log_messages(), |win| win.invoke_ocr_scroll_to_bottom());
+    setup_log_subscription(window.as_weak(), |win| win.get_asr_log_messages(), |win| win.invoke_asr_scroll_to_bottom());
+    setup_log_subscription(window.as_weak(), |win| win.get_tts_log_messages(), |win| win.invoke_tts_scroll_to_bottom());
+    setup_log_subscription(window.as_weak(), |win| win.get_ta_log_messages(), |win| win.invoke_ta_scroll_to_bottom());
+    setup_log_subscription(window.as_weak(), |win| win.get_demucs_log_messages(), |win| win.invoke_demucs_scroll_to_bottom());
 
     // 设置初始日志
     {
         // OCR
         let model = window.get_ocr_log_messages();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+        if let Some(vm) = model
+            .as_any()
+            .downcast_ref::<VecModel<SharedString>>()
+        {
             vm.push("=== Aphelios OCR 文字识别 ===".into());
             vm.push("就绪，请选择输入文件开始识别".into());
         }
@@ -1391,7 +1495,10 @@ fn main() -> Result<()> {
 
         // ASR
         let model = window.get_asr_log_messages();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+        if let Some(vm) = model
+            .as_any()
+            .downcast_ref::<VecModel<SharedString>>()
+        {
             vm.push("=== Aphelios ASR 语音识别 ===".into());
             vm.push("就绪，请选择音频文件开始识别".into());
         }
@@ -1399,7 +1506,10 @@ fn main() -> Result<()> {
 
         // TTS
         let model = window.get_tts_log_messages();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+        if let Some(vm) = model
+            .as_any()
+            .downcast_ref::<VecModel<SharedString>>()
+        {
             vm.push("=== Aphelios TTS 语音合成 ===".into());
             vm.push("就绪，请输入文本开始合成".into());
         }
@@ -1407,7 +1517,10 @@ fn main() -> Result<()> {
 
         // 文本对齐
         let model = window.get_ta_log_messages();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+        if let Some(vm) = model
+            .as_any()
+            .downcast_ref::<VecModel<SharedString>>()
+        {
             vm.push("=== Aphelios 文本对齐 - 生成 SRT 字幕 ===".into());
             vm.push("就绪，请选择音频和目标文本开始对齐".into());
         }
@@ -1415,7 +1528,10 @@ fn main() -> Result<()> {
 
         // Demucs
         let model = window.get_demucs_log_messages();
-        if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+        if let Some(vm) = model
+            .as_any()
+            .downcast_ref::<VecModel<SharedString>>()
+        {
             vm.push("=== Aphelios Demucs 人声分离 ===".into());
             vm.push("就绪，请选择音频文件开始分离".into());
         }
@@ -1468,11 +1584,8 @@ fn main() -> Result<()> {
 }
 
 // ── 日志订阅辅助函数 ──
-fn setup_log_subscription<F, G>(
-    window: slint::Weak<AppWindow>,
-    get_log_messages: F,
-    invoke_scroll: G,
-) where
+fn setup_log_subscription<F, G>(window: slint::Weak<AppWindow>, get_log_messages: F, invoke_scroll: G)
+where
     F: Fn(&AppWindow) -> slint::ModelRc<slint::SharedString> + Clone + Send + 'static,
     G: Fn(&AppWindow) + Clone + Send + 'static,
 {
@@ -1486,7 +1599,10 @@ fn setup_log_subscription<F, G>(
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(win) = w.upgrade() {
                     let model = get_log(&win);
-                    if let Some(vm) = model.as_any().downcast_ref::<VecModel<SharedString>>() {
+                    if let Some(vm) = model
+                        .as_any()
+                        .downcast_ref::<VecModel<SharedString>>()
+                    {
                         vm.push(msg_clone.into());
                         if vm.row_count() > MAX_LOG_LINES {
                             vm.remove(0);

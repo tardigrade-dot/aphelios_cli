@@ -28,11 +28,7 @@ impl PatchMerger {
         let intermediate = 4608;
 
         let proj = linear_no_bias(dim, dim, vb.pp("proj"))?;
-        let post_projection_norm = LayerNorm::new(
-            vb.get(dim, "post_projection_norm.weight")?,
-            vb.get(dim, "post_projection_norm.bias")?,
-            config.rms_norm_eps,
-        );
+        let post_projection_norm = LayerNorm::new(vb.get(dim, "post_projection_norm.weight")?, vb.get(dim, "post_projection_norm.bias")?, config.rms_norm_eps);
         let gate_proj = linear_no_bias(dim, intermediate, vb.pp("gate_proj"))?;
         let up_proj = linear_no_bias(dim, intermediate, vb.pp("up_proj"))?;
         let down_proj = linear_no_bias(intermediate, dim, vb.pp("down_proj"))?;

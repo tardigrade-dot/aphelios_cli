@@ -9,11 +9,7 @@ use crate::glmocr::config::{VisionConfig, IMAGE_MEAN, IMAGE_STD};
 /// Returns:
 /// - `pixel_values`: `[num_patches, in_channels * temporal_patch_size * patch_size * patch_size]`
 /// - `image_grid_thw`: `[1, 3]` tensor `[temporal, grid_h, grid_w]`
-pub fn preprocess_image(
-    img: &DynamicImage,
-    config: &VisionConfig,
-    device: &Device,
-) -> Result<(Tensor, [u32; 3])> {
+pub fn preprocess_image(img: &DynamicImage, config: &VisionConfig, device: &Device) -> Result<(Tensor, [u32; 3])> {
     let patch_size = config.patch_size as u32;
     let merge_size = config.spatial_merge_size as u32;
     let unit = patch_size * merge_size; // 28
@@ -26,20 +22,14 @@ pub fn preprocess_image(
     let (target_h, target_w) = compute_target_size(orig_h, orig_w, unit);
 
     // Resize
-    let resized = image::imageops::resize(
-        &rgb,
-        target_w,
-        target_h,
-        image::imageops::FilterType::Lanczos3,
-    );
+    let resized = image::imageops::resize(&rgb, target_w, target_h, image::imageops::FilterType::Lanczos3);
 
     let grid_h = target_h / patch_size;
     let grid_w = target_w / patch_size;
     let temporal = 1u32;
 
     // Convert to float tensor [C, H, W], normalize
-    let mut pixel_data =
-        vec![0f32; (config.in_channels * target_h as usize * target_w as usize) as usize];
+    let mut pixel_data = vec![0f32; (config.in_channels * target_h as usize * target_w as usize) as usize];
 
     for y in 0..target_h {
         for x in 0..target_w {
@@ -47,9 +37,7 @@ pub fn preprocess_image(
             for c in 0..3 {
                 let val = pixel[c] as f32 / 255.0;
                 let normalized = (val - IMAGE_MEAN[c]) / IMAGE_STD[c];
-                let idx = c as usize * (target_h as usize * target_w as usize)
-                    + y as usize * target_w as usize
-                    + x as usize;
+                let idx = c as usize * (target_h as usize * target_w as usize) + y as usize * target_w as usize + x as usize;
                 pixel_data[idx] = normalized;
             }
         }
@@ -67,8 +55,7 @@ pub fn preprocess_image(
     //
     // Total patches = num_temporal_patches * grid_h * grid_w = 1 * grid_h * grid_w
     let num_patches = (grid_h * grid_w) as usize;
-    let patch_volume =
-        config.in_channels * config.temporal_patch_size * config.patch_size * config.patch_size;
+    let patch_volume = config.in_channels * config.temporal_patch_size * config.patch_size * config.patch_size;
 
     let mut patches = vec![0f32; num_patches * patch_volume];
 
@@ -98,21 +85,13 @@ pub fn preprocess_image(
                             for px in 0..config.patch_size {
                                 let img_y = ph * config.patch_size + py;
                                 let img_x = pw * config.patch_size + px;
-                                let src_idx = c * (target_h as usize * target_w as usize)
-                                    + img_y * target_w as usize
-                                    + img_x;
+                                let src_idx = c * (target_h as usize * target_w as usize) + img_y * target_w as usize + img_x;
                                 let pixel_val = pixel_data[src_idx];
 
                                 // Index into patch: [C, T, pH, pW]
                                 // Duplicate frame for both temporal slots
                                 for t in 0..config.temporal_patch_size {
-                                    let dst_idx = c
-                                        * (config.temporal_patch_size
-                                            * config.patch_size
-                                            * config.patch_size)
-                                        + t * (config.patch_size * config.patch_size)
-                                        + py * config.patch_size
-                                        + px;
+                                    let dst_idx = c * (config.temporal_patch_size * config.patch_size * config.patch_size) + t * (config.patch_size * config.patch_size) + py * config.patch_size + px;
                                     patches[base + dst_idx] = pixel_val;
                                 }
                             }
@@ -125,8 +104,7 @@ pub fn preprocess_image(
         }
     }
 
-    let pixel_values =
-        Tensor::from_vec(patches, (num_patches, patch_volume), device)?.to_dtype(DType::F32)?;
+    let pixel_values = Tensor::from_vec(patches, (num_patches, patch_volume), device)?.to_dtype(DType::F32)?;
 
     let grid_thw = [temporal, grid_h, grid_w];
 

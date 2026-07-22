@@ -2,9 +2,8 @@ use std::path::Path;
 
 use aphelios_core::audio::loader::AudioLoader;
 use aphelios_core::audio::types::AudioBuffer;
-use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
-};
+use rubato::audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use rustfft::{num_complex::Complex, FftPlanner};
 use thiserror::Error;
 
@@ -60,11 +59,7 @@ pub fn load_wav(path: &Path, cfg: &AudioConfig) -> Result<Vec<f32>, AudioError> 
     let (mono, loaded_sample_rate) = match buffer {
         AudioBuffer::Mono(mono_buf) => (mono_buf.samples.clone(), mono_buf.sample_rate),
         // This should not happen as AudioLoader always returns mono
-        _ => {
-            return Err(AudioError::Resample(
-                "Unexpected multi-channel buffer".to_string(),
-            ))
-        }
+        _ => return Err(AudioError::Resample("Unexpected multi-channel buffer".to_string())),
     };
 
     // Resample if needed (AudioLoader already resamples to 16000, but check anyway)
@@ -89,46 +84,56 @@ fn resample(samples: &[f32], from_hz: u32, to_hz: u32) -> Result<Vec<f32>, Audio
     }
 
     let ratio = to_hz as f64 / from_hz as f64;
-    let params = SincInterpolationParameters {
-        sinc_len: 256,
-        f_cutoff: 0.95,
-        interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 256,
-        window: WindowFunction::BlackmanHarris2,
-    };
+    let params = SincInterpolationParameters::new(256, WindowFunction::BlackmanHarris2)
+        .f_cutoff(0.95)
+        .interpolation(SincInterpolationType::Linear)
+        .oversampling_factor(256);
 
     // Fixed chunking keeps memory bounded for long recordings.
     let chunk = 4096usize;
-    let mut resampler = SincFixedIn::<f32>::new(ratio, 2.0, params, chunk, 1)
-        .map_err(|e| AudioError::Resample(e.to_string()))?;
+    let mut resampler = Async::<f32>::new_sinc(ratio, 2.0, &params, chunk, 1, FixedAsync::Input).map_err(|e| AudioError::Resample(e.to_string()))?;
 
-    let mut out_all = Vec::<f32>::new();
-    let mut offset = 0usize;
-    while offset < samples.len() {
-        let end = (offset + chunk).min(samples.len());
-        let mut frame = vec![0.0f32; chunk];
-        frame[..(end - offset)].copy_from_slice(&samples[offset..end]);
-        offset = end;
+    let n_samples = samples.len();
+    // Process full samples using InterleavedSlice adapters
+    let input_adapter = InterleavedSlice::new(samples, 1, n_samples).map_err(|e| AudioError::Resample(e.to_string()))?;
 
-        let waves_in = vec![frame];
-        let mut out = resampler
-            .process(&waves_in, None)
+    let estimated_out = 2 * ((n_samples as f64) * ratio).ceil() as usize + chunk;
+    let mut output_data = vec![0.0f32; estimated_out.max(1024)];
+    let out_len = output_data.len();
+    let mut output_adapter = InterleavedSlice::new_mut(&mut output_data, 1, out_len).map_err(|e| AudioError::Resample(e.to_string()))?;
+
+    let mut indexing = Indexing::new();
+    let mut input_frames_left = n_samples;
+    let mut input_frames_next = resampler.input_frames_next();
+
+    while input_frames_left >= input_frames_next {
+        let (nbr_in, nbr_out) = resampler
+            .process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))
             .map_err(|e| AudioError::Resample(e.to_string()))?;
-        if let Some(ch0) = out.pop() {
-            out_all.extend(ch0);
+        if nbr_in == 0 {
+            break;
         }
+        indexing.input_offset += nbr_in;
+        indexing.output_offset += nbr_out;
+        input_frames_left -= nbr_in;
+        input_frames_next = resampler.input_frames_next();
     }
 
-    // Flush resampler tail.
-    let waves_in = vec![vec![0.0f32; chunk]];
-    let mut tail = resampler
-        .process_partial(Some(&waves_in), None)
-        .map_err(|e| AudioError::Resample(e.to_string()))?;
-    if let Some(ch0) = tail.pop() {
-        out_all.extend(ch0);
+    if input_frames_left > 0 {
+        indexing.partial_len = Some(input_frames_left);
+        let Ok((_, nbr_out)) = resampler.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing)) else {
+            return Err(AudioError::Resample("resample tail failed".to_string()));
+        };
+        indexing.output_offset += nbr_out;
     }
 
-    Ok(out_all)
+    output_data.truncate(indexing.output_offset);
+    let target_len = (n_samples as f64 * ratio).floor() as usize;
+    if output_data.len() > target_len {
+        output_data.truncate(target_len);
+    }
+
+    Ok(output_data)
 }
 
 /// Build Slaney-style mel filterbank, matching the C implementation.
@@ -213,12 +218,20 @@ pub fn mel_spectrogram(samples: &[f32], cfg: &AudioConfig) -> (Vec<f32>, usize) 
     let mut padded = Vec::with_capacity(n_samples + 2 * pad_len);
     for i in 0..pad_len {
         let src = pad_len - i;
-        padded.push(if src < n_samples { samples[src] } else { 0.0 });
+        padded.push(if src < n_samples {
+            samples[src]
+        } else {
+            0.0
+        });
     }
     padded.extend_from_slice(samples);
     for i in 0..pad_len {
         let src = n_samples as isize - 2 - i as isize;
-        padded.push(if src >= 0 { samples[src as usize] } else { 0.0 });
+        padded.push(if src >= 0 {
+            samples[src as usize]
+        } else {
+            0.0
+        });
     }
 
     let padded_len = padded.len();
@@ -271,7 +284,11 @@ pub fn mel_spectrogram(samples: &[f32], cfg: &AudioConfig) -> (Vec<f32>, usize) 
 
         for m in 0..mel_bins {
             let filt = &mel_filters[m * n_freqs..(m + 1) * n_freqs];
-            let sum: f32 = filt.iter().zip(power.iter()).map(|(f, p)| f * p).sum();
+            let sum: f32 = filt
+                .iter()
+                .zip(power.iter())
+                .map(|(f, p)| f * p)
+                .sum();
             let val = sum.max(1e-10).log10();
             mel_tmp[t * mel_bins + m] = val;
             if val > global_max {

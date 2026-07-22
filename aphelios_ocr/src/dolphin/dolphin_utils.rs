@@ -11,9 +11,9 @@ use imageproc::rect::Rect;
 use pdfium_render::prelude::*;
 use tracing::info;
 
-use crate::ImageData;
-use crate::glmocr::ClipInfo;
 use crate::glmocr::layout::LayoutDetection;
+use crate::glmocr::ClipInfo;
+use crate::ImageData;
 
 /// Get the directory where the running executable resides.
 fn get_exe_dir() -> PathBuf {
@@ -39,16 +39,8 @@ fn bind_pdfium() -> Result<&'static Pdfium> {
 
             let pdfium = Pdfium::new(
                 Pdfium::bind_to_library(&pdfium_lib_path)
-                    .or_else(|_| {
-                        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(
-                            "../libs/",
-                        ))
-                    })
-                    .or_else(|_| {
-                        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(
-                            "./libs/",
-                        ))
-                    })
+                    .or_else(|_| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("../libs/")))
+                    .or_else(|_| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./libs/")))
                     .or_else(|_| Pdfium::bind_to_system_library())
                     .map_err(|e| anyhow::anyhow!("Failed to bind to pdfium library: {:?}", e))?,
             );
@@ -58,18 +50,17 @@ fn bind_pdfium() -> Result<&'static Pdfium> {
         .map_err(|e| anyhow::anyhow!("{}", e))
 }
 
-pub fn draw_bbox_and_save_multi(
-    img: &DynamicImage,
-    bbox_list: &Vec<[u32; 4]>,
-    pad: u32,
-    save_path: &PathBuf,
-) {
+pub fn draw_bbox_and_save_multi(img: &DynamicImage, bbox_list: &Vec<[u32; 4]>, pad: u32, save_path: &PathBuf) {
     let (img_width, img_height) = img.dimensions();
     let mut img = img.to_rgba8();
 
     for bbox in bbox_list {
-        let x1 = bbox[0].saturating_sub(pad).min(img_width - 1);
-        let y1 = bbox[1].saturating_sub(pad).min(img_height - 1);
+        let x1 = bbox[0]
+            .saturating_sub(pad)
+            .min(img_width - 1);
+        let y1 = bbox[1]
+            .saturating_sub(pad)
+            .min(img_height - 1);
         let x2 = (bbox[2] + pad).min(img_width);
         let y2 = (bbox[3] + pad).min(img_height);
 
@@ -87,18 +78,12 @@ pub fn draw_bbox_and_save_multi(
 ///
 /// Each detection is drawn with a distinct colored bounding box and a label tag
 /// showing the region class name and confidence score.
-pub fn draw_layout_detections(
-    img: &DynamicImage,
-    detections: &[LayoutDetection],
-    pad: u32,
-    save_path: impl AsRef<Path>,
-) {
+pub fn draw_layout_detections(img: &DynamicImage, detections: &[LayoutDetection], pad: u32, save_path: impl AsRef<Path>) {
     let mut canvas = img.to_rgb8();
     let (img_width, img_height) = img.dimensions();
 
     // Load system font for label text
-    let font_data =
-        std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf").unwrap_or_default();
+    let font_data = std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf").unwrap_or_default();
     let font_ref = if !font_data.is_empty() {
         FontRef::try_from_slice(&font_data).ok()
     } else {
@@ -120,8 +105,12 @@ pub fn draw_layout_detections(
     for (idx, det) in detections.iter().enumerate() {
         let color = colors[idx % colors.len()];
 
-        let x1 = (det.bbox[0] as i32).saturating_sub(pad as i32).max(0);
-        let y1 = (det.bbox[1] as i32).saturating_sub(pad as i32).max(0);
+        let x1 = (det.bbox[0] as i32)
+            .saturating_sub(pad as i32)
+            .max(0);
+        let y1 = (det.bbox[1] as i32)
+            .saturating_sub(pad as i32)
+            .max(0);
         let x2 = ((det.bbox[2] + pad as f32) as u32).min(img_width - 1) as i32;
         let y2 = ((det.bbox[3] + pad as f32) as u32).min(img_height - 1) as i32;
         let w = (x2 - x1).max(1) as u32;
@@ -138,24 +127,12 @@ pub fn draw_layout_detections(
             // Filled background
             for by in label_y..label_y + 18 {
                 for bx in x1..x1 + tw as i32 + 4 {
-                    if bx >= 0
-                        && by >= 0
-                        && bx < canvas.width() as i32
-                        && by < canvas.height() as i32
-                    {
+                    if bx >= 0 && by >= 0 && bx < canvas.width() as i32 && by < canvas.height() as i32 {
                         canvas.put_pixel(bx as u32, by as u32, color);
                     }
                 }
             }
-            draw_text_mut(
-                &mut canvas,
-                Rgb([255, 255, 255]),
-                x1 + 2,
-                label_y,
-                scale,
-                f,
-                &label,
-            );
+            draw_text_mut(&mut canvas, Rgb([255, 255, 255]), x1 + 2, label_y, scale, f, &label);
         }
     }
 
@@ -165,8 +142,12 @@ pub fn draw_layout_detections(
 pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage {
     let (img_width, img_height) = img.dimensions();
 
-    let x1 = bbox[0].saturating_sub(pad).min(img_width - 1);
-    let y1 = bbox[1].saturating_sub(pad).min(img_height - 1);
+    let x1 = bbox[0]
+        .saturating_sub(pad)
+        .min(img_width - 1);
+    let y1 = bbox[1]
+        .saturating_sub(pad)
+        .min(img_height - 1);
     let x2 = (bbox[2] + pad).min(img_width);
     let y2 = (bbox[3] + pad).min(img_height);
 
@@ -176,8 +157,7 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-pub fn load_pdf_images(path: impl AsRef<Path>) -> impl Stream<Item = Result<ImageData>>
-{
+pub fn load_pdf_images(path: impl AsRef<Path>) -> impl Stream<Item = Result<ImageData>> {
     try_stream! {
         let path_buf = path.as_ref();
         let pdfium = bind_pdfium()?;
@@ -199,29 +179,13 @@ pub fn load_pdf_images(path: impl AsRef<Path>) -> impl Stream<Item = Result<Imag
     }
 }
 
-pub fn get_tensor_from_image(
-    img: &DynamicImage,
-    target_height: u32,
-    target_width: u32,
-    device: &Device,
-    dtype: candle_core::DType,
-) -> Tensor {
-    let resized = img.resize(
-        target_width,
-        target_height,
-        image::imageops::FilterType::Triangle,
-    );
+pub fn get_tensor_from_image(img: &DynamicImage, target_height: u32, target_width: u32, device: &Device, dtype: candle_core::DType) -> Tensor {
+    let resized = img.resize(target_width, target_height, image::imageops::FilterType::Triangle);
     // Create a black canvas and center the resized image (HuggingFace uses black padding)
-    let mut canvas =
-        image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
+    let mut canvas = image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
     let x_offset = (target_width - resized.width()) / 2;
     let y_offset = (target_height - resized.height()) / 2;
-    image::imageops::overlay(
-        &mut canvas,
-        &resized.to_rgb8(),
-        x_offset.into(),
-        y_offset.into(),
-    );
+    image::imageops::overlay(&mut canvas, &resized.to_rgb8(), x_offset.into(), y_offset.into());
 
     let rgb = canvas;
     let (width, height) = (rgb.width() as usize, rgb.height() as usize);
@@ -233,7 +197,11 @@ pub fn get_tensor_from_image(
     // Normalize: (H, W, C) -> (C, H, W) with normalization
     let mut normalized = vec![0f32; 3 * height * width];
 
-    for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
+    for (c, (&mean, &std)) in image_mean
+        .iter()
+        .zip(image_std.iter())
+        .enumerate()
+    {
         for y in 0..height {
             for x in 0..width {
                 let pixel = rgb.get_pixel(x as u32, y as u32);
@@ -249,13 +217,7 @@ pub fn get_tensor_from_image(
     tensor
 }
 
-pub fn transform_to_pixel_dynamic(
-    bbox_coords: &[i32; 4],
-    img_width: u32,
-    img_height: u32,
-    target_width: u32,
-    target_height: u32,
-) -> [u32; 4] {
+pub fn transform_to_pixel_dynamic(bbox_coords: &[i32; 4], img_width: u32, img_height: u32, target_width: u32, target_height: u32) -> [u32; 4] {
     let [x1, y1, x2, y2] = bbox_coords;
 
     // Calculate the aspect ratio preserved resize
@@ -285,12 +247,7 @@ pub fn transform_to_pixel_dynamic(
     let y2_orig = (y2_model_space / scale).max(0.0) as u32;
 
     // Clamp to image bounds
-    [
-        x1_orig.min(img_width - 1),
-        y1_orig.min(img_height - 1),
-        x2_orig.min(img_width - 1),
-        y2_orig.min(img_height - 1),
-    ]
+    [x1_orig.min(img_width - 1), y1_orig.min(img_height - 1), x2_orig.min(img_width - 1), y2_orig.min(img_height - 1)]
 }
 
 /// Render a specific PDF page to a PNG image file.
@@ -305,23 +262,24 @@ pub fn pdf_page_to_png(pdf_path: &Path, page_num: usize, output_path: &Path) -> 
         None,
     )?;
 
-    let page = document.pages().get(page_num as PdfPageIndex)?;
+    let page = document
+        .pages()
+        .get(page_num as PdfPageIndex)?;
     // Render at the page's natural point dimensions (1 pt ≈ 1 pixel at 72 DPI).
     // Using set_target_width with double the page width gives 2x resolution
     // (Retina-quality ~144 DPI) while maintaining aspect ratio.
     let tw = (page.width().value * 2.0) as i32;
     let render_config = PdfRenderConfig::default().set_target_width(tw);
-    let image = page.render_with_config(&render_config)?.as_image()?;
+    let image = page
+        .render_with_config(&render_config)?
+        .as_image()?;
 
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     image.save(output_path)?;
-    info!(
-        "Saved page {} of {:?} to {:?}",
-        page_num, pdf_path, output_path
-    );
+    info!("Saved page {} of {:?} to {:?}", page_num, pdf_path, output_path);
 
     Ok(())
 }
@@ -329,12 +287,7 @@ pub fn pdf_page_to_png(pdf_path: &Path, page_num: usize, output_path: &Path) -> 
 /// Create a new PDF containing pages from `start_page` to the end of the source PDF.
 ///
 /// `start_page` is 0-indexed.
-pub fn pdf_extract_from(
-    pdf_path: &Path,
-    start_page: usize,
-    end_page: usize,
-    output_path: &Path,
-) -> Result<()> {
+pub fn pdf_extract_from(pdf_path: &Path, start_page: usize, end_page: usize, output_path: &Path) -> Result<()> {
     let pdfium = bind_pdfium()?;
     let source = pdfium.load_pdf_from_file(
         pdf_path
@@ -345,29 +298,19 @@ pub fn pdf_extract_from(
 
     let total_pages = source.pages().len() as usize;
     if start_page >= total_pages {
-        anyhow::bail!(
-            "start_page {} out of range, PDF has only {} pages",
-            start_page,
-            total_pages
-        );
+        anyhow::bail!("start_page {} out of range, PDF has only {} pages", start_page, total_pages);
     }
 
     let mut dest = pdfium.create_new_pdf()?;
-    dest.pages_mut().copy_page_range_from_document(
-        &source,
-        (start_page as i32)..=((end_page) as i32),
-        0,
-    )?;
+    dest.pages_mut()
+        .copy_page_range_from_document(&source, (start_page as i32)..=((end_page) as i32), 0)?;
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     dest.save_to_file(output_path)?;
 
-    info!(
-        "Extracted pages {}-{} from {:?} to {:?}",
-        start_page, end_page, pdf_path, output_path
-    );
+    info!("Extracted pages {}-{} from {:?} to {:?}", start_page, end_page, pdf_path, output_path);
 
     Ok(())
 }
@@ -399,8 +342,7 @@ pub fn group_clips_by_patches(
         // 组内同质性检查：新 clip 不能超过组内最小值的 (1 + ratio_threshold) 倍
         // 例如 ratio_threshold=0.8 表示允许比组内最小大 80%
         let is_first = current_group.is_empty();
-        let ratio_exceeded = !is_first
-            && (p_count as f32) > (1.0 + ratio_threshold) * (group_min_patches.max(1) as f32);
+        let ratio_exceeded = !is_first && (p_count as f32) > (1.0 + ratio_threshold) * (group_min_patches.max(1) as f32);
         let capacity_exceeded = current_patches_sum + p_count > max_patches_per_batch;
         let size_exceeded = current_group.len() >= max_batch_size;
 

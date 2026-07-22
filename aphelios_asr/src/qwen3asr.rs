@@ -21,24 +21,17 @@ use anyhow::Context;
 use aphelios_core::{measure_time, utils::common::get_device};
 use tracing::info;
 
+use crate::qwenasr::{generate_srt_from_aligned_batches, AlignedBatch};
+
 /// Simple transcription using Qwen3-ASR (new implementation).
 ///
 /// Loads the ASR model, transcribes a WAV file, and returns the transcribed text.
 /// Does NOT perform forced alignment — use the qwenasr aligner separately if needed.
-pub fn qwen3asr_simple(
-    asr_model: Option<&str>,
-    input: &str,
-    language: &str,
-) -> anyhow::Result<String> {
+pub fn qwen3asr_simple(asr_model: Option<&str>, input: &str, language: &str) -> anyhow::Result<String> {
     let device = get_device();
-    let asr = measure_time!(
-        "load Qwen3-ASR model",
-        AsrInference::load(asr_model, device)
-            .context("Failed to load Qwen3-ASR model")?
-    );
+    let asr = measure_time!("load Qwen3-ASR model", AsrInference::load(asr_model, device).context("Failed to load Qwen3-ASR model")?);
 
-    let options = TranscribeOptions::default()
-        .with_language(language);
+    let options = TranscribeOptions::default().with_language(language);
 
     let result = measure_time!(
         "Qwen3ASR",
@@ -55,22 +48,12 @@ pub fn qwen3asr_simple(
 ///
 /// Like [`qwen3asr_simple`] but injects a context string into the prompt
 /// to guide the model's output style and vocabulary.
-pub fn qwen3asr_simple_with_context(
-    asr_model: Option<&str>,
-    input: &str,
-    language: &str,
-    context: Option<&str>,
-) -> anyhow::Result<String> {
+pub fn qwen3asr_simple_with_context(asr_model: Option<&str>, input: &str, language: &str, context: Option<&str>) -> anyhow::Result<String> {
     let device = get_device();
 
-    let asr = measure_time!(
-        "load Qwen3-ASR model",
-        AsrInference::load(asr_model, device)
-            .context("Failed to load Qwen3-ASR model")?
-    );
+    let asr = measure_time!("load Qwen3-ASR model", AsrInference::load(asr_model, device).context("Failed to load Qwen3-ASR model")?);
 
-    let mut options = TranscribeOptions::default()
-        .with_language(language);
+    let mut options = TranscribeOptions::default().with_language(language);
     if let Some(ctx) = context {
         options = options.with_system_prompt(ctx);
     }
@@ -115,7 +98,13 @@ pub async fn qwen3asr_with_vad(
     #[cfg(feature = "profiling")]
     {
         let output_path = Path::new(audio_path)
-            .with_file_name(Path::new(audio_path).file_stem().unwrap().to_str().unwrap())
+            .with_file_name(
+                Path::new(audio_path)
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+            )
             .with_extension("vad.srt")
             .to_str()
             .unwrap()
@@ -133,10 +122,7 @@ pub async fn qwen3asr_with_vad(
     // ── Phase 2: Load models ──────────────────────────────────────────────
     let device = get_device();
     info!("[Phase 2] Loading Qwen3-ASR model");
-    let asr = measure_time!(
-        "load ASR model",
-        AsrInference::load(asr_model, device)?
-    );
+    let asr = measure_time!("load ASR model", AsrInference::load(asr_model, device)?);
 
     // Load entire audio as float samples for batch extraction
     let samples = load_audio_wav(audio_path, 16000)?;
@@ -161,31 +147,19 @@ pub async fn qwen3asr_with_vad(
 
             if !batch_pcm.is_empty() {
                 let audio_ms = batch_pcm.len() as f64 / sample_rate * 1000.0;
-                let mut options = TranscribeOptions::default()
-                    .with_language(language);
+                let mut options = TranscribeOptions::default().with_language(language);
                 if let Some(c) = ctx {
                     options = options.with_system_prompt(c);
                 }
 
                 let result = measure_time!(
-                    format!(
-                        "transcribe Batch {}/{}: duration {:.2}s",
-                        i + 1,
-                        batch_size,
-                        audio_ms / 1000.0
-                    ),
+                    format!("transcribe Batch {}/{}: duration {:.2}s", i + 1, batch_size, audio_ms / 1000.0),
                     asr.transcribe_samples(&batch_pcm, options)
                         .map_err(|e| anyhow::anyhow!("ASR error: {}", e))?
                 );
 
                 let preview: String = result.text.chars().take(30).collect();
-                info!(
-                    "[Phase 3] Batch {}/{}: text len={} text: {}...",
-                    i + 1,
-                    batch_size,
-                    result.text.len(),
-                    preview,
-                );
+                info!("[Phase 3] Batch {}/{}: text len={} text: {}...", i + 1, batch_size, result.text.len(), preview,);
 
                 let text_str = result.text.trim();
                 if !text_str.is_empty() {
@@ -200,10 +174,7 @@ pub async fn qwen3asr_with_vad(
         }
     }
 
-    info!(
-        "[Phase 3] Transcription complete. Total batches: {}",
-        transcription_batches.len()
-    );
+    info!("[Phase 3] Transcription complete. Total batches: {}", transcription_batches.len());
 
     // ── Phase 4: Alignment ────────────────────────────────────────────────
     let aligner = ForcedAligner::load_with_device(aligner_model)?;
@@ -211,13 +182,11 @@ pub async fn qwen3asr_with_vad(
     let mut total_aligned_items: Vec<crate::qwenasr::aligner::AlignItem> = Vec::new();
     info!("[Phase 4] Running alignment on {} batches...", transcription_batches.len());
 
+    let mut aligned_batches = Vec::new();
     for (i, batch) in transcription_batches.iter().enumerate() {
         #[cfg(not(feature = "profiling"))]
         let _ = i;
-        let mut items = measure_time!(
-            format!("[Phase 4] Batch {}/{} alignment...", i + 1, batch_size),
-            aligner.align_samples(&batch.pcm, &batch.text, language)?
-        );
+        let mut items = measure_time!(format!("[Phase 4] Batch {}/{} alignment...", i + 1, batch_size), aligner.align_samples(&batch.pcm, &batch.text, language)?);
 
         // Convert to absolute timestamps
         for item in &mut items {
@@ -225,13 +194,19 @@ pub async fn qwen3asr_with_vad(
             item.end_time += batch.start_time;
         }
         total_aligned_items.extend(items.iter().cloned());
+        aligned_batches.push(AlignedBatch {
+            text: batch.text.clone(),
+            items,
+            speech_end_time: batch.speech_end_time,
+        });
     }
 
-    info!(
-        "[Phase 4] Alignment complete. Total aligned items: {}",
-        total_aligned_items.len()
-    );
+    info!("[Phase 4] Alignment complete. Total aligned items: {}", total_aligned_items.len());
 
+    let srt_content = generate_srt_from_aligned_batches(&aligned_batches);
+    let srt_path = Path::new(audio_path).with_extension("srt");
+    std::fs::write(&srt_path, &srt_content)?;
+    info!("SRT file saved to: {}", srt_path.display());
     Ok(total_aligned_items)
 }
 

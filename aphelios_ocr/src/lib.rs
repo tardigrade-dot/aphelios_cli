@@ -1,8 +1,8 @@
 use anyhow::Result;
 use image::DynamicImage;
+pub mod doc_layout;
 pub mod dolphin;
 pub mod glmocr;
-pub mod doc_layout;
 
 #[derive(Debug, Clone)]
 pub struct ImageData {

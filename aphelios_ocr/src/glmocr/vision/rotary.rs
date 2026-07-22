@@ -17,7 +17,9 @@ impl VisionRotaryEmbedding {
             inv_freq_data[i] = 1.0 / theta.powf(2.0 * i as f64 / dim as f64) as f32;
         }
         let inv_freq = Tensor::from_vec(inv_freq_data, half_dim, device)?;
-        Ok(Self { inv_freq })
+        Ok(Self {
+            inv_freq,
+        })
     }
 
     /// Compute rotary embeddings for a sequence length.
@@ -25,10 +27,12 @@ impl VisionRotaryEmbedding {
     pub fn forward(&self, seqlen: u32, device: &Device) -> Result<Tensor> {
         let seq = Tensor::arange(0f32, seqlen as f32, device)?;
         // outer product: [seqlen] x [dim/2] -> [seqlen, dim/2]
-        let freqs = seq
-            .unsqueeze(1)?
-            .contiguous()?
-            .matmul(&self.inv_freq.unsqueeze(0)?.contiguous()?)?;
+        let freqs = seq.unsqueeze(1)?.contiguous()?.matmul(
+            &self
+                .inv_freq
+                .unsqueeze(0)?
+                .contiguous()?,
+        )?;
         Ok(freqs)
     }
 }
@@ -40,11 +44,7 @@ impl VisionRotaryEmbedding {
 /// the block. This matches the HuggingFace 9D reshape+transpose ordering.
 ///
 /// Returns position_ids tensor of shape [num_patches, 2] with (h, w) for each patch.
-pub fn compute_vision_position_ids(
-    grid_thw: [u32; 3],
-    spatial_merge_size: usize,
-    device: &Device,
-) -> Result<Tensor> {
+pub fn compute_vision_position_ids(grid_thw: [u32; 3], spatial_merge_size: usize, device: &Device) -> Result<Tensor> {
     let [t, h, w] = grid_thw;
     let merge = spatial_merge_size as u32;
 
@@ -82,12 +82,7 @@ pub fn compute_vision_position_ids(
 ///   cat([h_freqs, w_freqs], dim=-1) → [N, 32]
 ///   emb = cat([freqs, freqs], dim=-1) → [N, 64] = [N, head_dim]
 ///   cos, sin = emb.cos(), emb.sin()
-pub fn compute_vision_rotary_emb(
-    position_ids: &Tensor,
-    rotary_emb: &VisionRotaryEmbedding,
-    max_grid_size: u32,
-    device: &Device,
-) -> Result<(Tensor, Tensor)> {
+pub fn compute_vision_rotary_emb(position_ids: &Tensor, rotary_emb: &VisionRotaryEmbedding, max_grid_size: u32, device: &Device) -> Result<(Tensor, Tensor)> {
     // Compute base frequencies for max grid size
     // rotary_emb was created with dim = head_dim/2 = 32
     // inv_freq has dim/2 = 16 elements
@@ -118,12 +113,7 @@ pub fn compute_vision_rotary_emb(
 /// Uses the standard rotate_half (contiguous halves) method.
 /// q, k: [seq_len, num_heads, head_dim]
 /// cos, sin: [seq_len, head_dim]
-pub fn apply_rotary_pos_emb_vision(
-    q: &Tensor,
-    k: &Tensor,
-    cos: &Tensor,
-    sin: &Tensor,
-) -> Result<(Tensor, Tensor)> {
+pub fn apply_rotary_pos_emb_vision(q: &Tensor, k: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<(Tensor, Tensor)> {
     // Unsqueeze cos/sin to broadcast over heads: [seq_len, 1, head_dim]
     let cos = cos.unsqueeze(1)?;
     let sin = sin.unsqueeze(1)?;

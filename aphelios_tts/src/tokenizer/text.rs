@@ -74,53 +74,55 @@ impl TextTokenizer {
 
         // 3. Directory with vocab.json + merges.txt (Qwen2-style)
         if path.join("vocab.json").exists() && path.join("merges.txt").exists() {
-            tracing::info!(
-                "Building tokenizer from vocab.json + merges.txt in '{}'",
-                model_id
-            );
+            tracing::info!("Building tokenizer from vocab.json + merges.txt in '{}'", model_id);
             return Self::from_vocab_and_merges(path);
         }
 
         // 4. Local dir exists but has neither → clear error
         if path.is_dir() {
-            anyhow::bail!(
-                "No tokenizer files found in '{}'. Expected tokenizer.json or vocab.json + merges.txt.",
-                model_id
-            );
+            anyhow::bail!("No tokenizer files found in '{}'. Expected tokenizer.json or vocab.json + merges.txt.", model_id);
         }
 
         // 5. Treat as HF Hub repo ID
         #[cfg(feature = "hub")]
         {
             tracing::info!("Downloading tokenizer from HuggingFace Hub: {}", model_id);
-            let api = hf_hub::api::sync::Api::new()
-                .map_err(|e| anyhow!("Failed to create HuggingFace API: {}", e))?;
-            let repo = api.model(model_id.to_string());
+            let client = hf_hub::HFClientSync::new().map_err(|e| anyhow!("Failed to create HuggingFace API: {}", e))?;
+            let (owner, name) = hf_hub::split_id(model_id);
+            let repo = client.model(owner, name);
 
             // Try tokenizer.json first
-            if let Ok(file) = repo.get("tokenizer.json") {
+            if let Ok(file) = repo
+                .download_file()
+                .filename("tokenizer.json")
+                .send()
+            {
                 return Self::from_file(&file);
             }
 
             // Fall back to vocab.json + merges.txt (download both so they're cached locally)
             let vocab = repo
-                .get("vocab.json")
+                .download_file()
+                .filename("vocab.json")
+                .send()
                 .map_err(|e| anyhow!("Failed to download tokenizer from '{}': {}", model_id, e))?;
             let _merges = repo
-                .get("merges.txt")
+                .download_file()
+                .filename("merges.txt")
+                .send()
                 .map_err(|e| anyhow!("Failed to download merges from '{}': {}", model_id, e))?;
             // Also grab tokenizer_config.json for special tokens (optional)
-            let _ = repo.get("tokenizer_config.json");
+            let _ = repo
+                .download_file()
+                .filename("tokenizer_config.json")
+                .send();
 
             let vocab_dir = vocab.parent().unwrap_or(Path::new("."));
             Self::from_vocab_and_merges(vocab_dir)
         }
 
         #[cfg(not(feature = "hub"))]
-        Err(anyhow!(
-            "No tokenizer found at '{}' and hub feature is disabled",
-            model_id
-        ))
+        Err(anyhow!("No tokenizer found at '{}' and hub feature is disabled", model_id))
     }
 
     /// Build tokenizer from `vocab.json` + `merges.txt`, replicating Python's `Qwen2Converter`.
@@ -143,14 +145,11 @@ impl TextTokenizer {
         let merges_path = dir.join("merges.txt");
 
         // Build BPE model from files
-        let bpe = BPE::from_file(
-            &vocab_path.to_string_lossy(),
-            &merges_path.to_string_lossy(),
-        )
-        .unk_token("<|endoftext|>".to_string())
-        .byte_fallback(false)
-        .build()
-        .map_err(|e| anyhow!("Failed to build BPE from vocab.json + merges.txt: {}", e))?;
+        let bpe = BPE::from_file(&vocab_path.to_string_lossy(), &merges_path.to_string_lossy())
+            .unk_token("<|endoftext|>".to_string())
+            .byte_fallback(false)
+            .build()
+            .map_err(|e| anyhow!("Failed to build BPE from vocab.json + merges.txt: {}", e))?;
 
         let mut tokenizer = Tokenizer::new(bpe);
 
@@ -158,8 +157,7 @@ impl TextTokenizer {
         tokenizer.with_normalizer(Some(NFC));
 
         // Pre-tokenizer: Split on regex (Isolated) + ByteLevel
-        let split = Split::new(PRETOKENIZE_REGEX, SplitDelimiterBehavior::Isolated, false)
-            .map_err(|e| anyhow!("Failed to create Split pre-tokenizer: {}", e))?;
+        let split = Split::new(PRETOKENIZE_REGEX, SplitDelimiterBehavior::Isolated, false).map_err(|e| anyhow!("Failed to create Split pre-tokenizer: {}", e))?;
         let byte_level = ByteLevel::new(false, false, false);
         tokenizer.with_pre_tokenizer(Some(Sequence::new(vec![split.into(), byte_level.into()])));
 
@@ -181,8 +179,7 @@ impl TextTokenizer {
     /// Load tokenizer from a local file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let tokenizer = Tokenizer::from_file(path)
-            .map_err(|e| anyhow!("Failed to load tokenizer from {}: {}", path.display(), e))?;
+        let tokenizer = Tokenizer::from_file(path).map_err(|e| anyhow!("Failed to load tokenizer from {}: {}", path.display(), e))?;
 
         Self::from_tokenizer(tokenizer)
     }
@@ -192,11 +189,17 @@ impl TextTokenizer {
     /// This is useful for creating tokenizers from custom configurations in tests.
     pub fn from_tokenizer(tokenizer: Tokenizer) -> Result<Self> {
         // Get special token IDs (Qwen2 defaults)
-        let bos_token_id = tokenizer.token_to_id("<|im_start|>").unwrap_or(151643);
+        let bos_token_id = tokenizer
+            .token_to_id("<|im_start|>")
+            .unwrap_or(151643);
 
-        let eos_token_id = tokenizer.token_to_id("<|im_end|>").unwrap_or(151645);
+        let eos_token_id = tokenizer
+            .token_to_id("<|im_end|>")
+            .unwrap_or(151645);
 
-        let pad_token_id = tokenizer.token_to_id("<|endoftext|>").unwrap_or(151643);
+        let pad_token_id = tokenizer
+            .token_to_id("<|endoftext|>")
+            .unwrap_or(151643);
 
         Ok(Self {
             tokenizer,
@@ -306,10 +309,8 @@ impl TextTokenizer {
 fn add_special_tokens_from_config(tokenizer: &mut Tokenizer, config_path: &Path) -> Result<()> {
     use tokenizers::AddedToken;
 
-    let content = std::fs::read_to_string(config_path)
-        .map_err(|e| anyhow!("Failed to read tokenizer_config.json: {}", e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| anyhow!("Failed to parse tokenizer_config.json: {}", e))?;
+    let content = std::fs::read_to_string(config_path).map_err(|e| anyhow!("Failed to read tokenizer_config.json: {}", e))?;
+    let config: serde_json::Value = serde_json::from_str(&content).map_err(|e| anyhow!("Failed to parse tokenizer_config.json: {}", e))?;
 
     // Extract added_tokens_decoder: { "151643": { "content": "<|endoftext|>", "special": true, ... }, ... }
     if let Some(added_tokens) = config
@@ -319,7 +320,10 @@ fn add_special_tokens_from_config(tokenizer: &mut Tokenizer, config_path: &Path)
         let mut special_tokens = Vec::new();
 
         for (_id_str, token_info) in added_tokens {
-            let content = match token_info.get("content").and_then(|v| v.as_str()) {
+            let content = match token_info
+                .get("content")
+                .and_then(|v| v.as_str())
+            {
                 Some(c) => c,
                 None => continue,
             };
@@ -330,16 +334,28 @@ fn add_special_tokens_from_config(tokenizer: &mut Tokenizer, config_path: &Path)
 
             if is_special {
                 let mut token = AddedToken::from(content, true);
-                if let Some(lstrip) = token_info.get("lstrip").and_then(|v| v.as_bool()) {
+                if let Some(lstrip) = token_info
+                    .get("lstrip")
+                    .and_then(|v| v.as_bool())
+                {
                     token = token.lstrip(lstrip);
                 }
-                if let Some(rstrip) = token_info.get("rstrip").and_then(|v| v.as_bool()) {
+                if let Some(rstrip) = token_info
+                    .get("rstrip")
+                    .and_then(|v| v.as_bool())
+                {
                     token = token.rstrip(rstrip);
                 }
-                if let Some(normalized) = token_info.get("normalized").and_then(|v| v.as_bool()) {
+                if let Some(normalized) = token_info
+                    .get("normalized")
+                    .and_then(|v| v.as_bool())
+                {
                     token = token.normalized(normalized);
                 }
-                if let Some(single_word) = token_info.get("single_word").and_then(|v| v.as_bool()) {
+                if let Some(single_word) = token_info
+                    .get("single_word")
+                    .and_then(|v| v.as_bool())
+                {
                     token = token.single_word(single_word);
                 }
                 special_tokens.push(token);
@@ -347,11 +363,8 @@ fn add_special_tokens_from_config(tokenizer: &mut Tokenizer, config_path: &Path)
         }
 
         if !special_tokens.is_empty() {
-            tracing::debug!(
-                "Adding {} special tokens from tokenizer_config.json",
-                special_tokens.len()
-            );
-            tokenizer.add_special_tokens(&special_tokens);
+            tracing::debug!("Adding {} special tokens from tokenizer_config.json", special_tokens.len());
+            tokenizer.add_special_tokens(special_tokens);
         }
     }
 
@@ -469,7 +482,9 @@ mod tests {
     #[test]
     fn test_encode_batch_returns_correct_count() {
         let tokenizer = create_test_tokenizer();
-        let batch = tokenizer.encode_batch(&["", "", ""]).unwrap();
+        let batch = tokenizer
+            .encode_batch(&["", "", ""])
+            .unwrap();
         assert_eq!(batch.len(), 3);
     }
 

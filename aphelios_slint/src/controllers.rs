@@ -17,12 +17,7 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub fn new(
-        ocr: Arc<Mutex<dyn OcrEngine>>,
-        tts: Arc<dyn TtsEngine>,
-        search: Arc<dyn SearchEngine>,
-        settings: AppSettings,
-    ) -> Self {
+    pub fn new(ocr: Arc<Mutex<dyn OcrEngine>>, tts: Arc<dyn TtsEngine>, search: Arc<dyn SearchEngine>, settings: AppSettings) -> Self {
         Self {
             ocr_engine: ocr,
             tts_engine: tts,

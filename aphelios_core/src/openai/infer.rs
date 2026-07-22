@@ -1,10 +1,7 @@
 use anyhow::{Ok, Result};
 use async_openai::{
     config::OpenAIConfig,
-    types::chat::{
-        ChatCompletionRequestMessage, ChatCompletionRequestUserMessage,
-        CreateChatCompletionRequestArgs,
-    },
+    types::chat::{ChatCompletionRequestMessage, ChatCompletionRequestUserMessage, CreateChatCompletionRequestArgs},
     Client,
 };
 use indicatif::{ProgressBar, ProgressStyle};
@@ -20,7 +17,10 @@ const MSG_PREFIX: &str = "zh-Hant|zh-Hans|";
 
 /// 估算文本的 token 数量（简单估算：中文字符数 + 英文单词数）
 fn estimate_tokens(text: &str) -> usize {
-    let chinese_chars = text.chars().filter(|c| *c as u32 >= 0x4E00).count();
+    let chinese_chars = text
+        .chars()
+        .filter(|c| *c as u32 >= 0x4E00)
+        .count();
     let english_words = text.split_whitespace().count();
     chinese_chars + english_words
 }
@@ -33,12 +33,20 @@ pub async fn translate_file_zh_hant_zh_hans(txt_path: &str) -> Result<()> {
     let total_size = metadata.len();
     // 2. 初始化进度条
     let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
+            .progress_chars("#>-"),
+    );
 
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     let target_txt_path = path.with_file_name(format!("{}_target.{}", stem, extension));
 
     // 使用 Tokio 的异步文件操作
@@ -65,7 +73,9 @@ pub async fn translate_file_zh_hant_zh_hans(txt_path: &str) -> Result<()> {
             let results = translate_zh_hant_zh_hans(batch.iter().map(|s| s).collect()).await?;
             for r in results {
                 info!("model result : {}", r);
-                writer.write_all(format!("{}\n", r).as_bytes()).await?;
+                writer
+                    .write_all(format!("{}\n", r).as_bytes())
+                    .await?;
             }
             batch.clear();
             batch_tokens = 0;
@@ -83,7 +93,9 @@ pub async fn translate_file_zh_hant_zh_hans(txt_path: &str) -> Result<()> {
         let results = translate_zh_hant_zh_hans(batch.iter().map(|s| s).collect()).await?;
         for r in results {
             info!("model result : {}", r);
-            writer.write_all(format!("{}\n", r).as_bytes()).await?;
+            writer
+                .write_all(format!("{}\n", r).as_bytes())
+                .await?;
         }
     }
 
@@ -97,7 +109,6 @@ pub async fn simple_infer<S>(client: &Client<OpenAIConfig>, model_id: &str, prom
 where
     S: AsRef<str> + Send + Clone,
 {
-
     simple_chat(&client, model_id, prompt).await
 }
 
@@ -105,9 +116,7 @@ pub async fn simple_chat<S>(client: &Client<OpenAIConfig>, model_id: &str, input
 where
     S: AsRef<str> + Send + Clone,
 {
-
-    let messages: Vec<ChatCompletionRequestMessage> =
-        vec![ChatCompletionRequestUserMessage::from(format!("{}", input.as_ref().to_string())).into()];
+    let messages: Vec<ChatCompletionRequestMessage> = vec![ChatCompletionRequestUserMessage::from(format!("{}", input.as_ref().to_string())).into()];
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(20480u32)
         .model(model_id)
@@ -115,13 +124,12 @@ where
         .build()?;
 
     let response = client.chat().create(request).await?;
-    if let Some(msg) = &response.choices[0].message.content{
+    if let Some(msg) = &response.choices[0].message.content {
         Ok(msg.to_string())
-    }else {
+    } else {
         Ok("None".to_string())
     }
 }
-
 
 pub async fn translate_zh_hant_zh_hans<S>(inputs: Vec<S>) -> Result<Vec<String>>
 where
@@ -135,18 +143,9 @@ where
     let futures = inputs.into_iter().map(|input| {
         let client = client.clone();
         async move {
-            info!(
-                "input : {}",
-                format!("{}{}", MSG_PREFIX, input.as_ref().to_string())
-            );
+            info!("input : {}", format!("{}{}", MSG_PREFIX, input.as_ref().to_string()));
 
-            let messages: Vec<ChatCompletionRequestMessage> =
-                vec![ChatCompletionRequestUserMessage::from(format!(
-                    "{}{}",
-                    MSG_PREFIX,
-                    input.as_ref().to_string()
-                ))
-                .into()];
+            let messages: Vec<ChatCompletionRequestMessage> = vec![ChatCompletionRequestUserMessage::from(format!("{}{}", MSG_PREFIX, input.as_ref().to_string())).into()];
             let request = CreateChatCompletionRequestArgs::default()
                 .max_tokens(4096u32)
                 .model(model_id)
@@ -174,5 +173,8 @@ where
 
     let batch_results = futures_util::future::try_join_all(futures).await?;
     // 展平所有 batch 的结果
-    Ok(batch_results.into_iter().flatten().collect())
+    Ok(batch_results
+        .into_iter()
+        .flatten()
+        .collect())
 }

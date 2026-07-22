@@ -6,8 +6,7 @@ pub const SR: u32 = 48_000;
 
 /// Read a WAV file, convert to mono f32 at 48 kHz.
 pub fn read_wav(path: &Path) -> Result<(Vec<f32>, u32)> {
-    let mut reader = WavReader::open(path)
-        .with_context(|| format!("Failed to open WAV: {}", path.display()))?;
+    let mut reader = WavReader::open(path).with_context(|| format!("Failed to open WAV: {}", path.display()))?;
     let spec = reader.spec();
     let channels = spec.channels as usize;
     let sample_rate = spec.sample_rate;
@@ -80,8 +79,7 @@ pub fn write_wav(output: &PathBuf, samples: &[f32], sample_rate: u32) -> Result<
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(output, spec)
-        .with_context(|| format!("Failed to create WAV: {}", output.display()))?;
+    let mut writer = WavWriter::create(output, spec).with_context(|| format!("Failed to create WAV: {}", output.display()))?;
 
     for &s in samples {
         let clamped = s.clamp(-1.0, 1.0);
@@ -90,8 +88,12 @@ pub fn write_wav(output: &PathBuf, samples: &[f32], sample_rate: u32) -> Result<
         } else {
             (clamped * 32767.0) as i16
         };
-        writer.write_sample(v).context("Failed to write sample")?;
+        writer
+            .write_sample(v)
+            .context("Failed to write sample")?;
     }
-    writer.finalize().context("Failed to finalize WAV")?;
+    writer
+        .finalize()
+        .context("Failed to finalize WAV")?;
     Ok(())
 }

@@ -18,8 +18,12 @@ pub const SAMPLE_RATE: usize = 16000;
 pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage {
     let (img_width, img_height) = img.dimensions();
 
-    let x1 = bbox[0].saturating_sub(pad).min(img_width - 1);
-    let y1 = bbox[1].saturating_sub(pad).min(img_height - 1);
+    let x1 = bbox[0]
+        .saturating_sub(pad)
+        .min(img_width - 1);
+    let y1 = bbox[1]
+        .saturating_sub(pad)
+        .min(img_height - 1);
     let x2 = (bbox[2] + pad).min(img_width);
     let y2 = (bbox[3] + pad).min(img_height);
 
@@ -30,33 +34,18 @@ pub fn crop_image(img: &DynamicImage, bbox: [u32; 4], pad: u32) -> DynamicImage 
     img.crop_imm(x1, y1, crop_width, crop_height)
 }
 
-pub fn load_image(
-    path: &str,
-    target_height: u32,
-    target_width: u32,
-    device: &Device,
-) -> Result<Tensor> {
+pub fn load_image(path: &str, target_height: u32, target_width: u32, device: &Device) -> Result<Tensor> {
     let img = image::ImageReader::open(path)?
         .decode()
         .map_err(|e| E::msg(format!("Failed to decode image: {}", e)))?;
 
-    let resized = img.resize(
-        target_width,
-        target_height,
-        image::imageops::FilterType::Triangle,
-    );
+    let resized = img.resize(target_width, target_height, image::imageops::FilterType::Triangle);
 
     // Create a black canvas and center the resized image (HuggingFace uses black padding)
-    let mut canvas =
-        image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
+    let mut canvas = image::RgbImage::from_pixel(target_width, target_height, image::Rgb([0, 0, 0]));
     let x_offset = (target_width - resized.width()) / 2;
     let y_offset = (target_height - resized.height()) / 2;
-    image::imageops::overlay(
-        &mut canvas,
-        &resized.to_rgb8(),
-        x_offset.into(),
-        y_offset.into(),
-    );
+    image::imageops::overlay(&mut canvas, &resized.to_rgb8(), x_offset.into(), y_offset.into());
 
     let rgb = canvas;
     let (width, height) = (rgb.width() as usize, rgb.height() as usize);
@@ -68,7 +57,11 @@ pub fn load_image(
     // Normalize: (H, W, C) -> (C, H, W) with normalization
     let mut normalized = vec![0f32; 3 * height * width];
 
-    for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
+    for (c, (&mean, &std)) in image_mean
+        .iter()
+        .zip(image_std.iter())
+        .enumerate()
+    {
         for y in 0..height {
             for x in 0..width {
                 let pixel = rgb.get_pixel(x as u32, y as u32);
@@ -90,10 +83,14 @@ pub fn truncate_by_chars(s: &str, max_chars: usize) -> String {
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("{msg}")]
-    FileNotExists { msg: &'static str },
+    FileNotExists {
+        msg: &'static str,
+    },
 
     #[error("{msg}")]
-    PathMustDir { msg: &'static str },
+    PathMustDir {
+        msg: &'static str,
+    },
 }
 
 /// 使用线性插值重采样音频（参考 Web Audio API 实现）
@@ -136,7 +133,10 @@ pub fn load_and_resample_audio(path: &str, target_sr: Option<u32>) -> Result<Vec
 
     // 2. 读取并归一化
     let raw_samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap()).collect(),
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .map(|s| s.unwrap())
+            .collect(),
         hound::SampleFormat::Int => match spec.bits_per_sample {
             16 => reader
                 .samples::<i16>()
@@ -186,25 +186,38 @@ pub fn get_append_filename_with_ext(input: &str, appender: &str, ext: &str) -> S
     let path = Path::new(input);
 
     // 1. 获取父目录，如果没有则默认为当前目录 "."
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let parent = path
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
 
     // 2. 获取文件名主体 (Stem)
-    let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let file_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
 
     // 4. 使用 join 构建新路径，自动处理路径分隔符
     let new_filename = format!("{}{}.{}", file_stem, appender, ext);
 
-    parent.join(new_filename).to_string_lossy().into_owned()
+    parent
+        .join(new_filename)
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn get_append_filename(input: &str, appender: &str) -> String {
     let path = Path::new(input);
 
     // 1. 获取父目录，如果没有则默认为当前目录 "."
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let parent = path
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
 
     // 2. 获取文件名主体 (Stem)
-    let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let file_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
 
     // 3. 获取原始扩展名 (Extension)
     let extension = path
@@ -216,7 +229,10 @@ pub fn get_append_filename(input: &str, appender: &str) -> String {
     // 4. 使用 join 构建新路径，自动处理路径分隔符
     let new_filename = format!("{}{}{}", file_stem, appender, extension);
 
-    parent.join(new_filename).to_string_lossy().into_owned()
+    parent
+        .join(new_filename)
+        .to_string_lossy()
+        .into_owned()
 }
 
 // 辅助函数：合并多个立体声音轨
@@ -268,7 +284,9 @@ pub fn save_audio_track_with_spec(audio: &StereoAudio, filename: &str, sample_ra
             .expect("Failed to write right sample");
     }
 
-    writer.finalize().expect("Failed to finalize WAV writer");
+    writer
+        .finalize()
+        .expect("Failed to finalize WAV writer");
 }
 
 pub fn get_cpu_ep() -> Vec<ExecutionProviderDispatch> {
@@ -299,9 +317,7 @@ pub fn get_default_device(cpu: bool) -> Result<Device> {
     }
     #[cfg(feature = "metal")]
     {
-        return try_metal_device().with_context(|| {
-            "Metal support is compiled in, but the current process could not initialize a Metal device"
-        });
+        return try_metal_device().with_context(|| "Metal support is compiled in, but the current process could not initialize a Metal device");
     }
     #[cfg(not(feature = "metal"))]
     #[cfg(feature = "cuda")]
@@ -339,16 +355,11 @@ fn try_metal_device() -> Result<Device> {
     match result {
         Ok(Ok(device)) => Ok(device),
         Ok(Err(err)) => Err(anyhow!("Metal device init failed: {err}")),
-        Err(_) => Err(anyhow!(
-            "Metal device init panicked, likely because no default Metal device was exposed to this process"
-        )),
+        Err(_) => Err(anyhow!("Metal device init panicked, likely because no default Metal device was exposed to this process")),
     }
 }
 
-pub fn normalize_audio<P: AsRef<Path>>(
-    audio_path: P,
-    target_sample_rate: u32,
-) -> Result<(MonoBuffer, Vec<f32>)> {
+pub fn normalize_audio<P: AsRef<Path>>(audio_path: P, target_sample_rate: u32) -> Result<(MonoBuffer, Vec<f32>)> {
     let audio_path = audio_path.as_ref();
 
     // Load audio using AudioLoader (supports multiple formats)
@@ -360,7 +371,11 @@ pub fn normalize_audio<P: AsRef<Path>>(
         "Loaded audio: {} samples @ {}Hz, {} channels, {:.2}s",
         audio.len(),
         audio.sample_rate(),
-        if audio.is_stereo() { 2 } else { 1 },
+        if audio.is_stereo() {
+            2
+        } else {
+            1
+        },
         audio.duration_secs()
     );
 
@@ -374,10 +389,7 @@ pub fn normalize_audio<P: AsRef<Path>>(
 
     // Resample to 16kHz if needed
     let mono = if mono.sample_rate != target_sample_rate {
-        info!(
-            "Resampling: {}Hz -> {}Hz",
-            mono.sample_rate, target_sample_rate
-        );
+        info!("Resampling: {}Hz -> {}Hz", mono.sample_rate, target_sample_rate);
         let resampler = Resampler::new().with_quality(ResampleQuality::Fast);
         resampler.resample_mono(&mono, target_sample_rate)?
     } else {
@@ -392,12 +404,7 @@ pub fn normalize_audio<P: AsRef<Path>>(
         .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0))
         .collect();
 
-    info!(
-        "Prepared audio: {} samples @ {}Hz ({:.2}s)",
-        mono.samples.len(),
-        mono.sample_rate,
-        mono.duration_secs()
-    );
+    info!("Prepared audio: {} samples @ {}Hz ({:.2}s)", mono.samples.len(), mono.sample_rate, mono.duration_secs());
 
     Ok((mono, samples_i16))
 }
@@ -410,19 +417,18 @@ pub async fn write_to_file(content: &Vec<String>, save_file: &str) -> Result<()>
     let file = tokio::fs::File::create(save_file).await?;
     let mut writer = BufWriter::new(file);
     for line in content {
-        writer.write_all(line.as_bytes()).await?;
+        writer
+            .write_all(line.as_bytes())
+            .await?;
         writer.write_all(b"\n").await?;
     }
     writer.flush().await?;
     Ok(())
 }
 
-pub const TEXIFY2_MODEL_DECODER_PATH: &str =
-    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/decoder_model_merged.onnx";
-pub const TEXIFY2_MODEL_ENCODER_PATH: &str =
-    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/encoder_model.onnx";
-pub const TEXIFY2_TOKENIZER_PATH: &str =
-    "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/tokenizer.json";
+pub const TEXIFY2_MODEL_DECODER_PATH: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/decoder_model_merged.onnx";
+pub const TEXIFY2_MODEL_ENCODER_PATH: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/encoder_model.onnx";
+pub const TEXIFY2_TOKENIZER_PATH: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/texify2/tokenizer.json";
 
 pub const RTDETR_V4_M: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/rtdetr_v4_m.onnx";
 

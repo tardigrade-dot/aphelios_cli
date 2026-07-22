@@ -97,8 +97,7 @@ impl LayoutDetector {
         // scale_factor: [scale_y, scale_x]
         let scale_y = INPUT_SIZE as f32 / orig_h as f32;
         let scale_x = INPUT_SIZE as f32 / orig_w as f32;
-        let scale_array = ndarray::Array2::from_shape_vec((1, 2), vec![scale_y, scale_x])
-            .context("Failed to create scale array")?;
+        let scale_array = ndarray::Array2::from_shape_vec((1, 2), vec![scale_y, scale_x]).context("Failed to create scale array")?;
         let scale_tensor = ort::value::Tensor::from_array(scale_array)?;
 
         // Run inference
@@ -172,12 +171,7 @@ impl LayoutDetector {
 
     /// Preprocess an image for PP-DocLayout-M: resize to 640x640, ImageNet normalize.
     fn preprocess(img: &image::RgbImage) -> Array4<f32> {
-        let resized = image::imageops::resize(
-            img,
-            INPUT_SIZE,
-            INPUT_SIZE,
-            image::imageops::FilterType::Lanczos3,
-        );
+        let resized = image::imageops::resize(img, INPUT_SIZE, INPUT_SIZE, image::imageops::FilterType::Lanczos3);
 
         let mut tensor = Array4::<f32>::zeros((1, 3, INPUT_SIZE as usize, INPUT_SIZE as usize));
         for y in 0..INPUT_SIZE as usize {

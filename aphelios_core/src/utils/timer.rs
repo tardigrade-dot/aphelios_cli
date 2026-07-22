@@ -10,11 +10,7 @@ macro_rules! measure_time {
             let __start = ::std::time::Instant::now();
             ::tracing::info!("[profiling] >>>>> start {}", $desc);
             let __result = $block;
-            ::tracing::info!(
-                "[profiling] <<<<< {} cost [{:.3}s]",
-                $desc,
-                __start.elapsed().as_secs_f64()
-            );
+            ::tracing::info!("[profiling] <<<<< {} cost [{:.3}s]", $desc, __start.elapsed().as_secs_f64());
             __result
         }
         #[cfg(not(feature = "profiling"))]
@@ -33,11 +29,7 @@ macro_rules! measure_time {
             let __start = ::std::time::Instant::now();
             ::tracing::info!("[profiling] >>>>> start {}", $desc);
             let __result = $expr;
-            ::tracing::info!(
-                "[profiling] <<<<< {} cost [{:.3}s]",
-                $desc,
-                __start.elapsed().as_secs_f64()
-            );
+            ::tracing::info!("[profiling] <<<<< {} cost [{:.3}s]", $desc, __start.elapsed().as_secs_f64());
             __result
         }
         #[cfg(not(feature = "profiling"))]
@@ -59,9 +51,7 @@ macro_rules! measure_time {
     //   measure_time!(expr?)
     // ----------------------------------------------------------------
     ($expr:expr) => {
-        $crate::measure_time!(::std::concat!(::std::file!(), ":", ::std::line!()), {
-            $expr
-        })
+        $crate::measure_time!(::std::concat!(::std::file!(), ":", ::std::line!()), { $expr })
     };
 }
 
@@ -74,11 +64,7 @@ macro_rules! profile_only {
             {
                 $block
             };
-            ::tracing::info!(
-                "[profiling] ✓ {} -> {:.3}s",
-                $desc,
-                __start.elapsed().as_secs_f64()
-            );
+            ::tracing::info!("[profiling] ✓ {} -> {:.3}s", $desc, __start.elapsed().as_secs_f64());
         }
     }};
 
@@ -104,10 +90,6 @@ impl ScopedTimer {
 
 impl Drop for ScopedTimer {
     fn drop(&mut self) {
-        ::tracing::info!(
-            "[Timer] {} -> {:.3}s",
-            self.name,
-            self.start.elapsed().as_secs_f64()
-        );
+        ::tracing::info!("[Timer] {} -> {:.3}s", self.name, self.start.elapsed().as_secs_f64());
     }
 }

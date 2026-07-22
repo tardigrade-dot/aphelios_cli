@@ -32,16 +32,7 @@ struct TextGeneration {
 }
 
 impl TextGeneration {
-    fn new(
-        model: Model,
-        tokenizer: Tokenizer,
-        seed: u64,
-        temp: Option<f64>,
-        top_p: Option<f64>,
-        repeat_penalty: f32,
-        repeat_last_n: usize,
-        device: &Device,
-    ) -> Self {
+    fn new(model: Model, tokenizer: Tokenizer, seed: u64, temp: Option<f64>, top_p: Option<f64>, repeat_penalty: f32, repeat_last_n: usize, device: &Device) -> Self {
         let logits_processor = LogitsProcessor::new(seed, temp, top_p);
         Self {
             model,
@@ -71,7 +62,10 @@ impl TextGeneration {
         std::io::stdout().flush()?;
 
         let mut generated_tokens = 0usize;
-        let eos_token = match self.tokenizer.get_token("<|endoftext|>") {
+        let eos_token = match self
+            .tokenizer
+            .get_token("<|endoftext|>")
+        {
             Some(token) => token,
             None => anyhow::bail!("cannot find the <|endoftext|> token"),
         };
@@ -81,21 +75,28 @@ impl TextGeneration {
         };
         let start_gen = std::time::Instant::now();
         for index in 0..sample_len {
-            let context_size = if index > 0 { 1 } else { tokens.len() };
-            let start_pos = tokens.len().saturating_sub(context_size);
+            let context_size = if index > 0 {
+                1
+            } else {
+                tokens.len()
+            };
+            let start_pos = tokens
+                .len()
+                .saturating_sub(context_size);
             let ctxt = &tokens[start_pos..];
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
             let logits = self.model.forward(&input, start_pos)?;
-            let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
+            let logits = logits
+                .squeeze(0)?
+                .squeeze(0)?
+                .to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1. {
                 logits
             } else {
-                let start_at = tokens.len().saturating_sub(self.repeat_last_n);
-                candle_transformers::utils::apply_repeat_penalty(
-                    &logits,
-                    self.repeat_penalty,
-                    &tokens[start_at..],
-                )?
+                let start_at = tokens
+                    .len()
+                    .saturating_sub(self.repeat_last_n);
+                candle_transformers::utils::apply_repeat_penalty(&logits, self.repeat_penalty, &tokens[start_at..])?
             };
 
             let next_token = self.logits_processor.sample(&logits)?;
@@ -110,14 +111,15 @@ impl TextGeneration {
             }
         }
         let dt = start_gen.elapsed();
-        if let Some(rest) = self.tokenizer.decode_rest().map_err(E::msg)? {
+        if let Some(rest) = self
+            .tokenizer
+            .decode_rest()
+            .map_err(E::msg)?
+        {
             print!("{rest}");
         }
         std::io::stdout().flush()?;
-        println!(
-            "\n{generated_tokens} tokens generated ({:.2} token/s)",
-            generated_tokens as f64 / dt.as_secs_f64(),
-        );
+        println!("\n{generated_tokens} tokens generated ({:.2} token/s)", generated_tokens as f64 / dt.as_secs_f64(),);
         Ok(())
     }
 }
@@ -126,7 +128,11 @@ fn format_prompt(prompt: &str, use_chat_template: bool, thinking: bool) -> Strin
     if !use_chat_template {
         return prompt.to_string();
     }
-    let think_tag = if thinking { " /think" } else { " /no_think" };
+    let think_tag = if thinking {
+        " /think"
+    } else {
+        " /no_think"
+    };
     format!("<|im_start|>user\n{prompt}{think_tag}<|im_end|>\n<|im_start|>assistant\n")
 }
 
@@ -151,8 +157,7 @@ pub fn qwen3_llm(prompt: &str, model_dir: &str) -> Result<()> {
 
     println!("loaded the model in {:?}", start.elapsed());
 
-    let mut pipeline =
-        TextGeneration::new(model, tokenizer, 299792458, None, None, 1.1, 64, &device);
+    let mut pipeline = TextGeneration::new(model, tokenizer, 299792458, None, None, 1.1, 64, &device);
     let prompt = format_prompt(prompt, use_chat_template, thinking);
     pipeline.run(&prompt, 10000)?;
     Ok(())

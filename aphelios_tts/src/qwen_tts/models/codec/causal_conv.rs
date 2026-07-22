@@ -26,13 +26,7 @@ impl CausalConv1d {
     /// * `kernel_size` - Size of the convolving kernel
     /// * `dilation` - Spacing between kernel elements (default 1)
     /// * `vb` - Variable builder for loading weights
-    pub fn new(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        dilation: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize, dilation: usize, vb: VarBuilder) -> Result<Self> {
         // Conv with no padding - we'll handle padding manually
         let config = Conv1dConfig {
             padding: 0,
@@ -62,12 +56,7 @@ impl CausalConv1d {
     ///
     /// Weight should have shape [out_channels, in_channels/groups, kernel_size].
     /// For depthwise conv, groups = in_channels = out_channels.
-    pub fn from_weights_grouped(
-        weight: Tensor,
-        bias: Option<Tensor>,
-        dilation: usize,
-        groups: usize,
-    ) -> Result<Self> {
+    pub fn from_weights_grouped(weight: Tensor, bias: Option<Tensor>, dilation: usize, groups: usize) -> Result<Self> {
         let kernel_size = weight.dim(2)?;
         let causal_padding = dilation * (kernel_size - 1);
 
@@ -163,13 +152,7 @@ mod tests {
             let input = Tensor::randn(0.0f32, 1.0, (2, 4, 15), &device).unwrap();
             let output = conv.forward(&input).unwrap();
 
-            assert_eq!(
-                output.dims(),
-                &[2, 8, 15],
-                "Failed for kernel_size={}, dilation={}",
-                kernel_size,
-                dilation
-            );
+            assert_eq!(output.dims(), &[2, 8, 15], "Failed for kernel_size={}, dilation={}", kernel_size, dilation);
         }
     }
 
@@ -207,7 +190,11 @@ mod tests {
         // Shape is [batch, channels, seq] = [1, 4, 5]
         // Candle uses row-major order, so we need to modify position 4 for each channel
         // Flattened order: [c0p0, c0p1, c0p2, c0p3, c0p4, c1p0, c1p1, ...]
-        let input2_data: Vec<f32> = input1.flatten_all().unwrap().to_vec1().unwrap();
+        let input2_data: Vec<f32> = input1
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         let mut input2_data_modified = input2_data.clone();
         let seq_len = 5;
         // Modify position 4 (index 4) for each channel
@@ -230,10 +217,6 @@ mod tests {
             .to_scalar()
             .unwrap();
 
-        assert!(
-            diff < 1e-6,
-            "Causal property violated: modifying future input changed past output, diff={}",
-            diff
-        );
+        assert!(diff < 1e-6, "Causal property violated: modifying future input changed past output, diff={}", diff);
     }
 }

@@ -20,7 +20,8 @@ impl OcrLogic {
     }
 
     pub fn stop(&self) {
-        self.stop_flag.store(true, Ordering::Relaxed);
+        self.stop_flag
+            .store(true, Ordering::Relaxed);
     }
 
     pub fn start_ocr(
@@ -31,7 +32,8 @@ impl OcrLogic {
         progress_callback: impl Fn(f32) + Send + Sync + 'static,
         on_complete: impl Fn(Result<Vec<String>>) + Send + 'static,
     ) {
-        self.stop_flag.store(false, Ordering::Relaxed);
+        self.stop_flag
+            .store(false, Ordering::Relaxed);
 
         // 更新设置
         let mut settings = self.ctx.get_settings();
@@ -43,15 +45,9 @@ impl OcrLogic {
         let _stop_flag = self.stop_flag.clone();
 
         std::thread::spawn(move || {
-            info!(
-                "Starting OCR: input={}, output={}, model={}",
-                input_file, output_dir, model_path
-            );
+            info!("Starting OCR: input={}, output={}, model={}", input_file, output_dir, model_path);
 
-            let progress_bar =
-                AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| {
-                    progress_callback(p)
-                });
+            let progress_bar = AppProgressBar::with_ui(indicatif::ProgressBar::hidden(), move |p| progress_callback(p));
 
             let result = {
                 let mut engine_guard = engine.lock().unwrap();

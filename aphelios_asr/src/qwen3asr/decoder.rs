@@ -1,7 +1,7 @@
 use anyhow::Result;
 use candle_core::{Device, Tensor};
-use candle_nn::{Module, RmsNorm};
 use candle_nn::ops::softmax_last_dim;
+use candle_nn::{Module, RmsNorm};
 use std::collections::HashMap;
 
 use crate::qwen3asr::config::TextDecoderConfig;
@@ -26,14 +26,7 @@ fn load_rms_norm(weights: &HashMap<String, Tensor>, prefix: &str, eps: f64) -> R
 
 // ─── MRoPE ───────────────────────────────────────────────────────────────────
 
-pub(crate) fn compute_mrope_cos_sin(
-    position_ids: &[Vec<i64>; 3],
-    head_dim: usize,
-    rope_theta: f64,
-    mrope_section: &[usize],
-    interleaved: bool,
-    device: &Device,
-) -> Result<(Tensor, Tensor)> {
+pub(crate) fn compute_mrope_cos_sin(position_ids: &[Vec<i64>; 3], head_dim: usize, rope_theta: f64, mrope_section: &[usize], interleaved: bool, device: &Device) -> Result<(Tensor, Tensor)> {
     let half_dim = head_dim / 2;
     let seq_len = position_ids[0].len();
 
@@ -145,7 +138,9 @@ pub(crate) struct KvCache {
 
 impl KvCache {
     pub(crate) fn new(num_layers: usize) -> Self {
-        Self { layers: vec![None; num_layers] }
+        Self {
+            layers: vec![None; num_layers],
+        }
     }
 
     pub(crate) fn get(&self, layer: usize) -> Option<&(Tensor, Tensor)> {
@@ -179,14 +174,7 @@ struct TextAttention {
 }
 
 impl TextAttention {
-    fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        num_q_heads: usize,
-        num_kv_heads: usize,
-        head_dim: usize,
-        rms_norm_eps: f64,
-    ) -> Result<Self> {
+    fn load(weights: &HashMap<String, Tensor>, prefix: &str, num_q_heads: usize, num_kv_heads: usize, head_dim: usize, rms_norm_eps: f64) -> Result<Self> {
         Ok(Self {
             q_proj: load_linear(weights, &format!("{}.q_proj", prefix))?,
             k_proj: load_linear(weights, &format!("{}.k_proj", prefix))?,
@@ -200,22 +188,30 @@ impl TextAttention {
         })
     }
 
-    fn forward(
-        &self,
-        x: &Tensor,
-        cos: &Tensor,
-        sin: &Tensor,
-        kv_cache: Option<&(Tensor, Tensor)>,
-        mask: Option<&Tensor>,
-    ) -> Result<(Tensor, (Tensor, Tensor))> {
+    fn forward(&self, x: &Tensor, cos: &Tensor, sin: &Tensor, kv_cache: Option<&(Tensor, Tensor)>, mask: Option<&Tensor>) -> Result<(Tensor, (Tensor, Tensor))> {
         let (bsz, seq_len, _) = x.dims3()?;
         let nqh = self.num_q_heads;
         let nkvh = self.num_kv_heads;
         let hd = self.head_dim;
 
-        let q = self.q_proj.forward(x)?.reshape((bsz, seq_len, nqh, hd))?.transpose(1, 2)?.contiguous()?;
-        let k = self.k_proj.forward(x)?.reshape((bsz, seq_len, nkvh, hd))?.transpose(1, 2)?.contiguous()?;
-        let v = self.v_proj.forward(x)?.reshape((bsz, seq_len, nkvh, hd))?.transpose(1, 2)?.contiguous()?;
+        let q = self
+            .q_proj
+            .forward(x)?
+            .reshape((bsz, seq_len, nqh, hd))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let k = self
+            .k_proj
+            .forward(x)?
+            .reshape((bsz, seq_len, nkvh, hd))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let v = self
+            .v_proj
+            .forward(x)?
+            .reshape((bsz, seq_len, nkvh, hd))?
+            .transpose(1, 2)?
+            .contiguous()?;
 
         // QK normalization (applied per-head, on last dim)
         let q = self.q_norm.forward(&q)?;
@@ -250,7 +246,10 @@ impl TextAttention {
 
         let attn = softmax_last_dim(&attn)?;
         let out = attn.matmul(&v)?;
-        let out = out.transpose(1, 2)?.contiguous()?.reshape((bsz, seq_len, nqh * hd))?;
+        let out = out
+            .transpose(1, 2)?
+            .contiguous()?
+            .reshape((bsz, seq_len, nqh * hd))?;
         let out = self.o_proj.forward(&out)?;
 
         Ok((out, new_cache))
@@ -269,7 +268,7 @@ impl TextMlp {
     fn load(weights: &HashMap<String, Tensor>, prefix: &str) -> Result<Self> {
         Ok(Self {
             gate_proj: load_linear(weights, &format!("{}.gate_proj", prefix))?,
-            up_proj:   load_linear(weights, &format!("{}.up_proj", prefix))?,
+            up_proj: load_linear(weights, &format!("{}.up_proj", prefix))?,
             down_proj: load_linear(weights, &format!("{}.down_proj", prefix))?,
         })
     }
@@ -277,7 +276,9 @@ impl TextMlp {
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
         let gate = self.gate_proj.forward(x)?.silu()?;
         let up = self.up_proj.forward(x)?;
-        self.down_proj.forward(&(gate * up)?).map_err(Into::into)
+        self.down_proj
+            .forward(&(gate * up)?)
+            .map_err(Into::into)
     }
 }
 
@@ -291,52 +292,27 @@ struct TextDecoderLayer {
 }
 
 impl TextDecoderLayer {
-    fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        num_q_heads: usize,
-        num_kv_heads: usize,
-        head_dim: usize,
-        rms_norm_eps: f64,
-    ) -> Result<Self> {
+    fn load(weights: &HashMap<String, Tensor>, prefix: &str, num_q_heads: usize, num_kv_heads: usize, head_dim: usize, rms_norm_eps: f64) -> Result<Self> {
         Ok(Self {
-            input_layernorm: load_rms_norm(
-                weights,
-                &format!("{}.input_layernorm", prefix),
-                rms_norm_eps,
-            )?,
-            self_attn: TextAttention::load(
-                weights,
-                &format!("{}.self_attn", prefix),
-                num_q_heads,
-                num_kv_heads,
-                head_dim,
-                rms_norm_eps,
-            )?,
-            post_attention_layernorm: load_rms_norm(
-                weights,
-                &format!("{}.post_attention_layernorm", prefix),
-                rms_norm_eps,
-            )?,
+            input_layernorm: load_rms_norm(weights, &format!("{}.input_layernorm", prefix), rms_norm_eps)?,
+            self_attn: TextAttention::load(weights, &format!("{}.self_attn", prefix), num_q_heads, num_kv_heads, head_dim, rms_norm_eps)?,
+            post_attention_layernorm: load_rms_norm(weights, &format!("{}.post_attention_layernorm", prefix), rms_norm_eps)?,
             mlp: TextMlp::load(weights, &format!("{}.mlp", prefix))?,
         })
     }
 
-    fn forward(
-        &self,
-        x: &Tensor,
-        cos: &Tensor,
-        sin: &Tensor,
-        kv_cache: Option<&(Tensor, Tensor)>,
-        mask: Option<&Tensor>,
-    ) -> Result<(Tensor, (Tensor, Tensor))> {
+    fn forward(&self, x: &Tensor, cos: &Tensor, sin: &Tensor, kv_cache: Option<&(Tensor, Tensor)>, mask: Option<&Tensor>) -> Result<(Tensor, (Tensor, Tensor))> {
         // Pre-norm + attention + residual
         let h = self.input_layernorm.forward(x)?;
-        let (h, new_cache) = self.self_attn.forward(&h, cos, sin, kv_cache, mask)?;
+        let (h, new_cache) = self
+            .self_attn
+            .forward(&h, cos, sin, kv_cache, mask)?;
         let x = (x + &h)?;
 
         // Pre-norm + MLP + residual
-        let h = self.post_attention_layernorm.forward(&x)?;
+        let h = self
+            .post_attention_layernorm
+            .forward(&x)?;
         let h = self.mlp.forward(&h)?;
         let out = (&x + &h)?;
 
@@ -369,24 +345,12 @@ pub(crate) struct TextDecoder {
 }
 
 impl TextDecoder {
-    pub(crate) fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        config: &TextDecoderConfig,
-    ) -> Result<Self> {
-        let embed_tokens =
-            get_w(weights, &format!("{}.embed_tokens.weight", prefix))?;
+    pub(crate) fn load(weights: &HashMap<String, Tensor>, prefix: &str, config: &TextDecoderConfig) -> Result<Self> {
+        let embed_tokens = get_w(weights, &format!("{}.embed_tokens.weight", prefix))?;
 
         let mut layers = Vec::new();
         for i in 0..config.num_hidden_layers {
-            let layer = TextDecoderLayer::load(
-                weights,
-                &format!("{}.layers.{}", prefix, i),
-                config.num_attention_heads,
-                config.num_key_value_heads,
-                config.head_dim,
-                config.rms_norm_eps,
-            )?;
+            let layer = TextDecoderLayer::load(weights, &format!("{}.layers.{}", prefix, i), config.num_attention_heads, config.num_key_value_heads, config.head_dim, config.rms_norm_eps)?;
             layers.push(layer);
         }
 
@@ -394,7 +358,12 @@ impl TextDecoder {
         // Tie lm_head weights to embed_tokens (weight tying).
         let lm_head = LinearW::new(embed_tokens.clone(), None);
 
-        Ok(Self { embed_tokens, layers, norm, lm_head })
+        Ok(Self {
+            embed_tokens,
+            layers,
+            norm,
+            lm_head,
+        })
     }
 
     /// Look up token embeddings. Returns the native dtype of the embedding table (BF16).
@@ -416,8 +385,14 @@ impl TextDecoder {
 
         // Cast cos/sin to compute dtype and unsqueeze to [1, 1, seq, head_dim] once.
         let compute_dtype = hidden.dtype();
-        let cos4d = cos.to_dtype(compute_dtype)?.unsqueeze(0)?.unsqueeze(0)?;
-        let sin4d = sin.to_dtype(compute_dtype)?.unsqueeze(0)?.unsqueeze(0)?;
+        let cos4d = cos
+            .to_dtype(compute_dtype)?
+            .unsqueeze(0)?
+            .unsqueeze(0)?;
+        let sin4d = sin
+            .to_dtype(compute_dtype)?
+            .unsqueeze(0)?
+            .unsqueeze(0)?;
 
         for (i, layer) in self.layers.iter().enumerate() {
             let cache = kv_cache.get(i);
@@ -429,7 +404,9 @@ impl TextDecoder {
         // LN → lm_head (weight-tied to embed_tokens).
         // LinearW::Dense: candle_nn::Linear::forward has 3D fast path.
         // LinearW::Quant: QMatMul::forward uses broadcast_matmul (also 3D-safe).
-        self.lm_head.forward(&self.norm.forward(&hidden)?).map_err(Into::into)
+        self.lm_head
+            .forward(&self.norm.forward(&hidden)?)
+            .map_err(Into::into)
     }
 }
 
@@ -444,10 +421,14 @@ mod tests {
         let mask = create_causal_mask(3, 0, &device).unwrap();
         assert_eq!(mask.dims(), &[1, 1, 3, 3]);
         let data: Vec<f32> = mask
-            .squeeze(0).unwrap()
-            .squeeze(0).unwrap()
-            .flatten_all().unwrap()
-            .to_vec1().unwrap();
+            .squeeze(0)
+            .unwrap()
+            .squeeze(0)
+            .unwrap()
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Row 0: [0, -inf, -inf]
         assert_eq!(data[0], 0.0);
         assert_eq!(data[1], f32::NEG_INFINITY);
@@ -468,7 +449,11 @@ mod tests {
         // seq=1, past=5 → total_len=6; j > 5+0 never triggers → all zeros
         let mask = create_causal_mask(1, 5, &device).unwrap();
         assert_eq!(mask.dims(), &[1, 1, 1, 6]);
-        let data: Vec<f32> = mask.flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!(data.iter().all(|&v| v == 0.0), "decode-step mask should be all zeros");
     }
 
@@ -493,25 +478,25 @@ mod tests {
         let head_dim = 8;
         let mrope_section = [2usize, 3, 3];
         // All positions = 0 → angle = 0 → cos = 1, sin = 0 everywhere
-        let position_ids: [Vec<i64>; 3] = [
-            vec![0i64; seq_len],
-            vec![0i64; seq_len],
-            vec![0i64; seq_len],
-        ];
-        let (cos, sin) = compute_mrope_cos_sin(
-            &position_ids,
-            head_dim,
-            10000.0,
-            &mrope_section,
-            false,
-            &device,
-        )
-        .unwrap();
+        let position_ids: [Vec<i64>; 3] = [vec![0i64; seq_len], vec![0i64; seq_len], vec![0i64; seq_len]];
+        let (cos, sin) = compute_mrope_cos_sin(&position_ids, head_dim, 10000.0, &mrope_section, false, &device).unwrap();
         assert_eq!(cos.dims(), &[seq_len, head_dim]);
         assert_eq!(sin.dims(), &[seq_len, head_dim]);
-        let cos_data: Vec<f32> = cos.flatten_all().unwrap().to_vec1().unwrap();
-        let sin_data: Vec<f32> = sin.flatten_all().unwrap().to_vec1().unwrap();
-        for (i, (&c, &s)) in cos_data.iter().zip(sin_data.iter()).enumerate() {
+        let cos_data: Vec<f32> = cos
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let sin_data: Vec<f32> = sin
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        for (i, (&c, &s)) in cos_data
+            .iter()
+            .zip(sin_data.iter())
+            .enumerate()
+        {
             assert!((c - 1.0).abs() < 1e-6, "cos[{}] should be 1.0, got {}", i, c);
             assert!(s.abs() < 1e-6, "sin[{}] should be 0.0, got {}", i, s);
         }
@@ -523,23 +508,23 @@ mod tests {
         let device = Device::Cpu;
         let head_dim = 8;
         let mrope_section = [2usize, 2, 2];
-        let position_ids: [Vec<i64>; 3] = [
-            vec![0, 1, 2],
-            vec![0, 1, 2],
-            vec![0, 1, 2],
-        ];
-        let (cos, sin) = compute_mrope_cos_sin(
-            &position_ids,
-            head_dim,
-            10000.0,
-            &mrope_section,
-            false,
-            &device,
-        )
-        .unwrap();
-        let cos_data: Vec<f32> = cos.flatten_all().unwrap().to_vec1().unwrap();
-        let sin_data: Vec<f32> = sin.flatten_all().unwrap().to_vec1().unwrap();
-        for (i, (&c, &s)) in cos_data.iter().zip(sin_data.iter()).enumerate() {
+        let position_ids: [Vec<i64>; 3] = [vec![0, 1, 2], vec![0, 1, 2], vec![0, 1, 2]];
+        let (cos, sin) = compute_mrope_cos_sin(&position_ids, head_dim, 10000.0, &mrope_section, false, &device).unwrap();
+        let cos_data: Vec<f32> = cos
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        let sin_data: Vec<f32> = sin
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        for (i, (&c, &s)) in cos_data
+            .iter()
+            .zip(sin_data.iter())
+            .enumerate()
+        {
             let r = c * c + s * s;
             assert!((r - 1.0).abs() < 1e-5, "cos²+sin² at [{}] = {}, want 1", i, r);
         }
@@ -551,7 +536,11 @@ mod tests {
         // x = [[1, 2, 3, 4]] → rotate_half → [[-3, -4, 1, 2]]
         let x = Tensor::from_vec(vec![1.0f32, 2.0, 3.0, 4.0], (1, 4), &device).unwrap();
         let rotated = rotate_half(&x).unwrap();
-        let data: Vec<f32> = rotated.flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = rotated
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert_eq!(data, vec![-3.0f32, -4.0, 1.0, 2.0]);
     }
 }

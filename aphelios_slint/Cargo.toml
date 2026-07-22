@@ -24,10 +24,10 @@ rodio = { workspace = true }
 candle-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-dirs = { workspace = true }
 indicatif = { workspace = true }
 tray-icon = { workspace = true }
 image = { workspace = true }
+dirs = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"

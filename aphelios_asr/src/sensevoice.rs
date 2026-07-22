@@ -120,11 +120,7 @@ pub struct SenseVoiceResult {
     pub words: Vec<String>,
 }
 
-pub fn sensevoice_asr(
-    sensevoice_model_path: &str,
-    audio_path: &str,
-    sense_voice_config: SenseVoiceConfig,
-) -> Result<SenseVoiceResult> {
+pub fn sensevoice_asr(sensevoice_model_path: &str, audio_path: &str, sense_voice_config: SenseVoiceConfig) -> Result<SenseVoiceResult> {
     init_logging();
 
     let input_audio = PathBuf::from(audio_path);
@@ -146,12 +142,7 @@ pub fn sensevoice_asr(
         sense_voice_config.vad_speech_pad_ms,
         sense_voice_config.vad_merge_gap_ms,
     );
-    let mut silero_vad = SileroVadEngine::new(
-        &vad_model_path,
-        fe_cfg.sample_rate,
-        sense_voice_config.num_threads,
-        vad_config,
-    )?;
+    let mut silero_vad = SileroVadEngine::new(&vad_model_path, fe_cfg.sample_rate, sense_voice_config.num_threads, vad_config)?;
 
     let vad_config = silero_vad.config();
 
@@ -171,8 +162,7 @@ pub fn sensevoice_asr(
     let lang_id = language_id_from_code(&sense_voice_config.language);
     // 2) Audio decode and downmix to mono
     let t0 = Instant::now();
-    let (decoded_sample_rate, total_channels, samples_per_channel) =
-        decode_audio_multi(&input_audio)?;
+    let (decoded_sample_rate, total_channels, samples_per_channel) = decode_audio_multi(&input_audio)?;
 
     let mut ch = downmix_to_mono(samples_per_channel);
     if ch.is_empty() {
@@ -181,17 +171,11 @@ pub fn sensevoice_asr(
 
     let audio_duration_sec = ch.len() as f32 / decoded_sample_rate as f32;
     if decoded_sample_rate != target_sample_rate {
-        debug!(
-            "resampling audio from {} Hz to {} Hz",
-            decoded_sample_rate, target_sample_rate
-        );
+        debug!("resampling audio from {} Hz to {} Hz", decoded_sample_rate, target_sample_rate);
         let resampled = resample_channels(vec![ch], decoded_sample_rate, target_sample_rate)?;
         ch = resampled.into_iter().next().unwrap();
     }
-    debug!(
-        "decoded audio: {} Hz, {} ch (downmixed to 1), duration ~{:.2}s",
-        decoded_sample_rate, total_channels, audio_duration_sec
-    );
+    debug!("decoded audio: {} Hz, {} ch (downmixed to 1), duration ~{:.2}s", decoded_sample_rate, total_channels, audio_duration_sec);
 
     // 3) Frontend: fbank + LFR + CMVN (Kaldi-like defaults)
     let mut fe = FeaturePipeline::new(fe_cfg);
@@ -229,20 +213,11 @@ pub fn sensevoice_asr(
             }
         };
         if feats.is_empty() {
-            warn!(
-                start = start,
-                end = end,
-                "empty feature matrix for segment, skipping"
-            );
+            warn!(start = start, end = end, "empty feature matrix for segment, skipping");
             continue;
         }
         let feats = feats.insert_axis(Axis(0));
-        let (raw_text, word_timestamps) = encoder.run_and_decode_with_timestamps(
-            &decoder,
-            feats.view(),
-            lang_id,
-            sense_voice_config.use_itn,
-        )?;
+        let (raw_text, word_timestamps) = encoder.run_and_decode_with_timestamps(&decoder, feats.view(), lang_id, sense_voice_config.use_itn)?;
 
         let (clean_text, _tags) = extract_tags(&raw_text);
         if !consolidated_text.is_empty() && !clean_text.is_empty() {

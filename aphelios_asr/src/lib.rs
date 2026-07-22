@@ -1,7 +1,7 @@
 pub mod granite;
+pub mod qwen3asr;
 pub mod qwen3llm;
 pub mod qwenasr;
-pub mod qwen3asr;
 pub mod sensevoice;
 pub mod silerovad;
 pub mod text_match;
@@ -77,7 +77,10 @@ pub struct VadResult {
 
 impl VadResult {
     pub fn new(audio_duration: f64, segments: Vec<VadSegment>) -> Self {
-        let total_speech_duration: f64 = segments.iter().map(|s| (s.end - s.start) as f64).sum();
+        let total_speech_duration: f64 = segments
+            .iter()
+            .map(|s| (s.end - s.start) as f64)
+            .sum();
         let speech_ratio = if audio_duration > 0.0 {
             total_speech_duration as f32 / audio_duration as f32
         } else {
@@ -115,7 +118,11 @@ impl VadResult {
         merged.push(current);
         self.segments = merged;
 
-        self.total_speech_duration = self.segments.iter().map(|s| (s.end - s.start) as f64).sum();
+        self.total_speech_duration = self
+            .segments
+            .iter()
+            .map(|s| (s.end - s.start) as f64)
+            .sum();
         self.speech_ratio = if self.audio_duration > 0.0 {
             self.total_speech_duration as f32 / self.audio_duration as f32
         } else {

@@ -6,7 +6,8 @@
 写这本书的目的在于通过我的走访和观察
 
 https://huggingface.co/lfaviate/sherpa-onnx-sense-voice-small/tree/main
-https://huggingface.co/aoiandroid/sherpa-onnx-sense-voice-funasr-nano-2025-12-17/tree/main
+https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-funasr-nano-2025-12-17
+ // https://huggingface.co/spaces/k2-fsa/automatic-speech-recognition/blob/main/model.py
 https://modelscope.cn/models/wuyangwang/funasr-nano/files
 
 ffmpeg -i /Volumes/sw/video/qinsheng-4s-isolated.wav -ar 24000 /Volumes/sw/video/qinsheng-4s-24k.wav

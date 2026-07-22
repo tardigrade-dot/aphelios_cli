@@ -127,11 +127,7 @@ fn strip_punctuation(text: &str) -> (String, Vec<usize>) {
 /// 未匹配的字符时间戳为 None
 /// 如果两个对齐块之间的文字数一样，就当作是完全匹配
 /// 对齐时会忽略 target 中的标点符号（因为 ASR 结果通常无标点）
-fn align_timestamps_to_target(
-    asr_timestamps: &[WordTimestamp],
-    asr_text: &str,
-    target_text: &str,
-) -> Vec<Option<WordTimestamp>> {
+fn align_timestamps_to_target(asr_timestamps: &[WordTimestamp], asr_text: &str, target_text: &str) -> Vec<Option<WordTimestamp>> {
     // 先去除 target 中的标点，用纯文本与 ASR 结果对齐
     let (target_stripped, target_index_map) = strip_punctuation(target_text);
 
@@ -153,7 +149,10 @@ fn align_timestamps_to_target(
         let op = &ops[op_idx];
 
         if let Some(next_op) = ops.get(op_idx + 1) {
-            let delete_count = if diff.iter_changes(op).any(|c| c.tag() == ChangeTag::Delete) {
+            let delete_count = if diff
+                .iter_changes(op)
+                .any(|c| c.tag() == ChangeTag::Delete)
+            {
                 diff.iter_changes(op)
                     .filter(|c| c.tag() == ChangeTag::Delete)
                     .count()
@@ -205,7 +204,9 @@ fn align_timestamps_to_target(
         for change in diff.iter_changes(op) {
             match change.tag() {
                 ChangeTag::Equal => {
-                    let ts = asr_char_to_ts.get(&asr_char_idx).cloned();
+                    let ts = asr_char_to_ts
+                        .get(&asr_char_idx)
+                        .cloned();
                     aligned_stripped.push(ts);
                     asr_char_idx += 1;
                 }
@@ -234,10 +235,7 @@ fn align_timestamps_to_target(
 }
 
 /// 构建字符索引到时间戳的映射
-fn build_char_to_timestamp_map(
-    timestamps: &[WordTimestamp],
-    text: &str,
-) -> HashMap<usize, WordTimestamp> {
+fn build_char_to_timestamp_map(timestamps: &[WordTimestamp], text: &str) -> HashMap<usize, WordTimestamp> {
     let mut char_to_ts = HashMap::new();
     let mut char_idx = 0;
 
@@ -247,7 +245,12 @@ fn build_char_to_timestamp_map(
             char_to_ts.insert(
                 char_idx + i,
                 WordTimestamp {
-                    word: ts.word.chars().nth(i).unwrap_or(' ').to_string(),
+                    word: ts
+                        .word
+                        .chars()
+                        .nth(i)
+                        .unwrap_or(' ')
+                        .to_string(),
                     start_sec: ts.start_sec,
                     end_sec: ts.end_sec,
                 },
@@ -282,12 +285,7 @@ struct SrtSegment {
 /// 按照 100-200 字从符号处切断，保证尾部符号的一致性
 /// 只需要切割点附近有准确的时间戳即可
 /// 如果切割点附近没有时间戳，返回错误
-fn generate_srt_with_segmentation(
-    timestamps: &[Option<WordTimestamp>],
-    target_text: &str,
-    min_len: Option<usize>,
-    max_len: Option<usize>,
-) -> Result<String> {
+fn generate_srt_with_segmentation(timestamps: &[Option<WordTimestamp>], target_text: &str, min_len: Option<usize>, max_len: Option<usize>) -> Result<String> {
     let min_len = min_len.unwrap_or(80);
     let max_len = max_len.unwrap_or(120);
     // 中文标点符号，用于断句
@@ -316,7 +314,10 @@ fn generate_srt_with_segmentation(
         current_char_count += 1;
 
         // 更新当前段的时间戳范围
-        if let Some(ts) = timestamps.get(char_idx).and_then(|t| t.as_ref()) {
+        if let Some(ts) = timestamps
+            .get(char_idx)
+            .and_then(|t| t.as_ref())
+        {
             if segment_start_time.is_none() {
                 segment_start_time = Some(ts.start_sec);
             }
@@ -326,9 +327,7 @@ fn generate_srt_with_segmentation(
         // 检查是否应该在此处切断 (100-200 字规则)
         let should_break = if current_char_count >= min_len {
             // 达到最小长度，寻找合适的切断点
-            sentence_endings.contains(&ch)
-                || (current_char_count >= (min_len + max_len) / 2 && pause_marks.contains(&ch))
-                || current_char_count >= max_len
+            sentence_endings.contains(&ch) || (current_char_count >= (min_len + max_len) / 2 && pause_marks.contains(&ch)) || current_char_count >= max_len
         } else {
             current_char_count >= max_len
         };
@@ -345,25 +344,29 @@ fn generate_srt_with_segmentation(
             };
 
             if segment_end_idx > 0 {
-                let segment_text: String = current_segment.chars().take(segment_end_idx).collect();
+                let segment_text: String = current_segment
+                    .chars()
+                    .take(segment_end_idx)
+                    .collect();
 
                 // 计算切断点在整体 target 中的位置
                 // 需要找到当前段第一个字符在 target 中的位置，然后加上 segment_end_idx
                 // 简化处理：使用当前字符位置向前推算
-                let break_position =
-                    char_idx.saturating_sub(current_char_count.saturating_sub(segment_end_idx));
+                let break_position = char_idx.saturating_sub(current_char_count.saturating_sub(segment_end_idx));
 
                 // 获取该段的结束时间戳（从切割点附近查找）
-                let end_time =
-                    find_timestamp_near_position(timestamps, break_position).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "在位置 {} 附近（段长 {} 字，切断点 {}）找不到有效时间戳，无法生成字幕分段。target 文本：\"{}\"",
-                            break_position,
-                            current_char_count,
-                            segment_end_idx,
-                            segment_text.chars().take(50).collect::<String>()
-                        )
-                    })?;
+                let end_time = find_timestamp_near_position(timestamps, break_position).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "在位置 {} 附近（段长 {} 字，切断点 {}）找不到有效时间戳，无法生成字幕分段。target 文本：\"{}\"",
+                        break_position,
+                        current_char_count,
+                        segment_end_idx,
+                        segment_text
+                            .chars()
+                            .take(50)
+                            .collect::<String>()
+                    )
+                })?;
                 // 起始时间：优先使用 segment_start_time，如果没有则使用 end_time
                 // 但要确保不早于上一段的结束时间
                 let mut start_time = segment_start_time.unwrap_or(end_time);
@@ -380,7 +383,10 @@ fn generate_srt_with_segmentation(
                 });
 
                 // 重置状态，开始新的一段
-                current_segment = current_segment.chars().skip(segment_end_idx).collect();
+                current_segment = current_segment
+                    .chars()
+                    .skip(segment_end_idx)
+                    .collect();
                 current_char_count = current_segment.chars().count();
                 segment_start_time = None;
                 segment_end_time = None;
@@ -426,11 +432,7 @@ fn generate_srt_with_segmentation(
     let mut srt_content = String::new();
     for (idx, segment) in segments.iter().enumerate() {
         srt_content.push_str(&format!("{}\n", idx + 1));
-        srt_content.push_str(&format!(
-            "{} --> {}\n",
-            format_srt_time(segment.start_sec as f64),
-            format_srt_time(segment.end_sec as f64)
-        ));
+        srt_content.push_str(&format!("{} --> {}\n", format_srt_time(segment.start_sec as f64), format_srt_time(segment.end_sec as f64)));
         srt_content.push_str(&format!("{}\n\n", segment.text));
     }
 
@@ -439,10 +441,7 @@ fn generate_srt_with_segmentation(
 
 /// 在指定位置附近查找有效的时间戳
 /// 先向后找，再向前找，找到第一个有有效时间戳的位置
-fn find_timestamp_near_position(
-    timestamps: &[Option<WordTimestamp>],
-    position: usize,
-) -> Option<f32> {
+fn find_timestamp_near_position(timestamps: &[Option<WordTimestamp>], position: usize) -> Option<f32> {
     // 先向后查找（包括当前位置）
     for i in position..timestamps.len() {
         if let Some(ts) = timestamps[i].as_ref() {
@@ -502,12 +501,7 @@ fn format_srt_time(seconds: f64) -> String {
     format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
 }
 
-pub fn generate_srt_with_sensevoice(
-    sv_result: &SenseVoiceResult,
-    target_text: &String,
-    min_len: Option<usize>,
-    max_len: Option<usize>,
-) -> Result<String> {
+pub fn generate_srt_with_sensevoice(sv_result: &SenseVoiceResult, target_text: &String, min_len: Option<usize>, max_len: Option<usize>) -> Result<String> {
     // 去除标点后计算匹配率（ASR 无标点）
     let (target_stripped, _) = strip_punctuation(target_text);
     let diff = TextDiff::configure()
@@ -536,19 +530,14 @@ pub fn generate_srt_with_sensevoice(
     // 检查匹配率，如果太低说明 target 和 ASR 不匹配，无法生成字幕
     let min_match_rate = 0.8;
     if match_rate < min_match_rate {
-        anyhow::bail!(
-            "target 和 ASR 文本匹配率过低 ({:.2}%)，无法生成字幕。请检查 TTS 合成或文本来源是否正确。",
-            match_rate * 100.0
-        );
+        anyhow::bail!("target 和 ASR 文本匹配率过低 ({:.2}%)，无法生成字幕。请检查 TTS 合成或文本来源是否正确。", match_rate * 100.0);
     }
 
     // 生成匹配 target 的 timestamp 数据，未匹配的字符时间戳为 None
-    let aligned_timestamps =
-        align_timestamps_to_target(&sv_result.timestamp, &sv_result.text, &target_text);
+    let aligned_timestamps = align_timestamps_to_target(&sv_result.timestamp, &sv_result.text, &target_text);
 
     // 生成 SRT 字幕文件
-    let srt_content =
-        generate_srt_with_segmentation(&aligned_timestamps, &target_text, min_len, max_len)?;
+    let srt_content = generate_srt_with_segmentation(&aligned_timestamps, &target_text, min_len, max_len)?;
     Ok(srt_content)
 }
 
@@ -587,8 +576,7 @@ pub fn audio_text_match_with_params(
     info!("asr_result.text: {}", sv_result.text);
     info!("target_text: {}", target_text);
 
-    let srt_content =
-        generate_srt_with_sensevoice(&sv_result, &target_text, min_segment_len, max_segment_len)?;
+    let srt_content = generate_srt_with_sensevoice(&sv_result, &target_text, min_segment_len, max_segment_len)?;
 
     // 保存 SRT 文件
     let srt_path = if let Some(path) = output_path {
@@ -605,25 +593,13 @@ pub fn audio_text_match_with_params(
 
 /// 音频和文本对齐生成 SRT 字幕文件（简化版本，使用默认参数）
 pub fn audio_text_match(input_audio: &str, target_txt_file: Option<&str>) -> Result<String> {
-    audio_text_match_with_params(
-        "/Volumes/sw/onnx_models/sensevoice",
-        input_audio,
-        target_txt_file,
-        None,
-        Some(50),
-        Some(80),
-    )
+    audio_text_match_with_params("/Volumes/sw/onnx_models/sensevoice", input_audio, target_txt_file, None, Some(50), Some(80))
 }
 
 /// 批量处理目录下所有 wav 文件及其同名 txt 文件
 /// 复用 SenseVoice 模型，避免频繁加载
 /// 输出 SRT 文件到同一目录
-pub fn batch_process_wav_txt_dir(
-    model_path: &str,
-    dir_path: &str,
-    min_segment_len: Option<usize>,
-    max_segment_len: Option<usize>,
-) -> Result<Vec<(String, String)>> {
+pub fn batch_process_wav_txt_dir(model_path: &str, dir_path: &str, min_segment_len: Option<usize>, max_segment_len: Option<usize>) -> Result<Vec<(String, String)>> {
     let dir = PathBuf::from(dir_path);
     if !dir.is_dir() {
         anyhow::bail!("路径不是目录: {}", dir.display());
@@ -635,7 +611,11 @@ pub fn batch_process_wav_txt_dir(
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() && path.extension().map_or(false, |e| e == "wav") {
+        if path.is_file()
+            && path
+                .extension()
+                .map_or(false, |e| e == "wav")
+        {
             wav_files.push(path);
         }
     }
@@ -678,42 +658,22 @@ pub fn batch_process_wav_txt_dir(
             continue;
         }
 
-        info!(
-            "处理 [{}/{}] {}",
-            idx + 1,
-            wav_files.len(),
-            wav_path.display()
-        );
+        info!("处理 [{}/{}] {}", idx + 1, wav_files.len(), wav_path.display());
 
         // 运行 ASR
-        let sv_result = run_sensevoice_single(
-            &mut encoder,
-            &decoder,
-            &mut silero_vad,
-            wav_path,
-            lang_id,
-            target_sample_rate,
-        )?;
+        let sv_result = run_sensevoice_single(&mut encoder, &decoder, &mut silero_vad, wav_path, lang_id, target_sample_rate)?;
 
         // 读取 target 文本
         let target_text = fs::read_to_string(&txt_path)?;
         // 生成 SRT
-        let srt_content = generate_srt_with_sensevoice(
-            &sv_result,
-            &target_text,
-            min_segment_len,
-            max_segment_len,
-        )?;
+        let srt_content = generate_srt_with_sensevoice(&sv_result, &target_text, min_segment_len, max_segment_len)?;
 
         // 保存 SRT
 
         let mut file = fs::File::create(&srt_path)?;
         file.write_all(srt_content.as_bytes())?;
 
-        results.push((
-            wav_path.to_str().unwrap().to_string(),
-            srt_path.to_str().unwrap().to_string(),
-        ));
+        results.push((wav_path.to_str().unwrap().to_string(), srt_path.to_str().unwrap().to_string()));
     }
 
     info!("批量处理完成，共生成 {} 个 SRT 文件", results.len());
@@ -733,8 +693,7 @@ fn run_sensevoice_single(
     use tracing::debug;
 
     let t0 = Instant::now();
-    let (decoded_sample_rate, total_channels, samples_per_channel) =
-        decode_audio_multi(audio_path)?;
+    let (decoded_sample_rate, total_channels, samples_per_channel) = decode_audio_multi(audio_path)?;
 
     let mut ch = downmix_to_mono(samples_per_channel);
     if ch.is_empty() {
@@ -743,10 +702,7 @@ fn run_sensevoice_single(
 
     let audio_duration_sec = ch.len() as f32 / decoded_sample_rate as f32;
     if decoded_sample_rate != target_sample_rate {
-        debug!(
-            "resampling audio from {} Hz to {} Hz",
-            decoded_sample_rate, target_sample_rate
-        );
+        debug!("resampling audio from {} Hz to {} Hz", decoded_sample_rate, target_sample_rate);
         let resampled = resample_channels(vec![ch], decoded_sample_rate, target_sample_rate)?;
         ch = resampled.into_iter().next().unwrap();
     }
@@ -790,8 +746,7 @@ fn run_sensevoice_single(
 
         use ndarray::Axis;
         let feats = feats.insert_axis(Axis(0));
-        let (raw_text, word_timestamps) =
-            encoder.run_and_decode_with_timestamps(decoder, feats.view(), lang_id, false)?;
+        let (raw_text, word_timestamps) = encoder.run_and_decode_with_timestamps(decoder, feats.view(), lang_id, false)?;
 
         let (clean_text, _tags) = extract_tags(&raw_text);
         if !consolidated_text.is_empty() && !clean_text.is_empty() {

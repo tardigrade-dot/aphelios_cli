@@ -45,28 +45,14 @@ impl Resampler {
             return Ok(input.clone());
         }
 
-        info!(
-            "Resampling mono audio: {}Hz -> {}Hz ({} samples)",
-            input.sample_rate,
-            target_rate,
-            input.samples.len()
-        );
+        info!("Resampling mono audio: {}Hz -> {}Hz ({} samples)", input.sample_rate, target_rate, input.samples.len());
 
         let samples = match self.quality {
-            ResampleQuality::Fast => {
-                self.linear_resample(&input.samples, input.sample_rate, target_rate)
-            }
-            ResampleQuality::High => {
-                self.sinc_resample(&input.samples, input.sample_rate, target_rate)
-            }
+            ResampleQuality::Fast => self.linear_resample(&input.samples, input.sample_rate, target_rate),
+            ResampleQuality::High => self.sinc_resample(&input.samples, input.sample_rate, target_rate),
         };
 
-        info!(
-            "Resampled mono audio: {}Hz -> {}Hz ({} samples)",
-            input.sample_rate,
-            target_rate,
-            samples.len()
-        );
+        info!("Resampled mono audio: {}Hz -> {}Hz ({} samples)", input.sample_rate, target_rate, samples.len());
         Ok(MonoBuffer::new(samples, target_rate))
     }
 
@@ -76,29 +62,16 @@ impl Resampler {
             return Ok(input.clone());
         }
 
-        info!(
-            "Resampling stereo audio: {}Hz -> {}Hz ({} samples)",
-            input.sample_rate,
-            target_rate,
-            input.left.len()
-        );
+        info!("Resampling stereo audio: {}Hz -> {}Hz ({} samples)", input.sample_rate, target_rate, input.left.len());
 
         let left = match self.quality {
-            ResampleQuality::Fast => {
-                self.linear_resample(&input.left, input.sample_rate, target_rate)
-            }
-            ResampleQuality::High => {
-                self.sinc_resample(&input.left, input.sample_rate, target_rate)
-            }
+            ResampleQuality::Fast => self.linear_resample(&input.left, input.sample_rate, target_rate),
+            ResampleQuality::High => self.sinc_resample(&input.left, input.sample_rate, target_rate),
         };
 
         let right = match self.quality {
-            ResampleQuality::Fast => {
-                self.linear_resample(&input.right, input.sample_rate, target_rate)
-            }
-            ResampleQuality::High => {
-                self.sinc_resample(&input.right, input.sample_rate, target_rate)
-            }
+            ResampleQuality::Fast => self.linear_resample(&input.right, input.sample_rate, target_rate),
+            ResampleQuality::High => self.sinc_resample(&input.right, input.sample_rate, target_rate),
         };
 
         Ok(StereoBuffer::new(left, right, target_rate))
@@ -131,61 +104,72 @@ impl Resampler {
     /// SINC 重采样（高质量）
     fn sinc_resample(&self, samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
         // 使用 rubato 库进行高质量重采样
-        use rubato::{
-            Resampler as RubatoResampler, SincFixedIn, SincInterpolationParameters,
-            SincInterpolationType, WindowFunction,
-        };
+        use rubato::audioadapter_buffers::direct::InterleavedSlice;
+        use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
         let ratio = dst_rate as f64 / src_rate as f64;
 
-        let params = SincInterpolationParameters {
-            sinc_len: 256,
-            f_cutoff: 0.95,
-            interpolation: SincInterpolationType::Linear,
-            window: WindowFunction::BlackmanHarris2,
-            oversampling_factor: 256,
-        };
+        let params = SincInterpolationParameters::new(256, WindowFunction::BlackmanHarris2)
+            .f_cutoff(0.95)
+            .oversampling_factor(256)
+            .interpolation(SincInterpolationType::Linear);
 
         let chunk_size = 4096;
-        let mut resampler = SincFixedIn::<f32>::new(ratio, 2.0, params, chunk_size, 1)
-            .expect("Failed to create resampler");
+        let mut resampler = Async::<f32>::new_sinc(ratio, 2.0, &params, chunk_size, 1, FixedAsync::Input).expect("Failed to create resampler");
 
-        let mut output = Vec::new();
-        let mut pos = 0;
+        let input_frames = samples.len();
+        if input_frames == 0 {
+            return Vec::new();
+        }
 
-        while pos < samples.len() {
-            let end = (pos + chunk_size).min(samples.len());
-            let mut chunk = samples[pos..end].to_vec();
+        // Create input adapter wrapping the entire sample buffer
+        let input_adapter = InterleavedSlice::new(samples, 1, input_frames).expect("Failed to create input adapter");
 
-            if chunk.len() < chunk_size {
-                chunk.resize(chunk_size, 0.0);
-            }
+        // Pre-allocate output buffer with generous capacity to avoid overflow
+        let estimated_frames = 2 * ((input_frames as f64) * ratio).ceil() as usize + resampler.output_delay() + chunk_size;
+        let mut output_data = vec![0.0f32; estimated_frames.max(1024)];
+        let output_adapter_frames = output_data.len(); // mono: frames = len
+        let mut output_adapter = InterleavedSlice::new_mut(&mut output_data, 1, output_adapter_frames).expect("Failed to create output adapter");
 
-            match resampler.process(&[chunk], None) {
-                Ok(processed) => {
-                    output.extend_from_slice(&processed[0]);
-                }
-                Err(e) => {
+        let mut indexing = Indexing::new();
+        let mut input_frames_left = input_frames;
+        let mut input_frames_next = resampler.input_frames_next();
+
+        // Process full chunks
+        while input_frames_left >= input_frames_next {
+            let (nbr_in, nbr_out) = resampler
+                .process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing))
+                .unwrap_or_else(|e| {
                     tracing::warn!("Resampling error: {:?}", e);
-                    break;
-                }
+                    (0, 0)
+                });
+            if nbr_in == 0 {
+                break;
             }
-
-            pos += chunk_size;
+            indexing.input_offset += nbr_in;
+            indexing.output_offset += nbr_out;
+            input_frames_left -= nbr_in;
+            input_frames_next = resampler.input_frames_next();
         }
 
-        // Flush
-        if let Ok(flushed) = resampler.process(&[vec![0.0; chunk_size]], None) {
-            output.extend_from_slice(&flushed[0]);
+        // Process remaining partial chunk
+        if input_frames_left > 0 {
+            indexing.partial_len = Some(input_frames_left);
+            if let Ok((_nbr_in, nbr_out)) = resampler.process_into_buffer(&input_adapter, &mut output_adapter, Some(&indexing)) {
+                indexing.output_offset += nbr_out;
+            }
         }
+
+        // Truncate to actual output size
+        output_data.truncate(indexing.output_offset);
 
         // 调整到精确的目标长度
-        let target_len = (samples.len() as f64 * ratio).floor() as usize;
-        if output.len() > target_len {
-            output.truncate(target_len);
+        let target_len = (input_frames as f64 * ratio).floor() as usize;
+        if output_data.len() > target_len {
+            output_data.truncate(target_len);
         }
 
-        output
+        output_data
     }
 }
 
@@ -204,7 +188,9 @@ mod tests {
         let resampler = Resampler::new().with_quality(ResampleQuality::Fast);
         let input = MonoBuffer::new(vec![1.0, 0.5, 0.0, -0.5, -1.0], 16000);
 
-        let output = resampler.resample_mono(&input, 8000).unwrap();
+        let output = resampler
+            .resample_mono(&input, 8000)
+            .unwrap();
         assert_eq!(output.sample_rate, 8000);
         assert!(output.len() > 0);
     }
@@ -214,7 +200,9 @@ mod tests {
         let resampler = Resampler::new();
         let input = MonoBuffer::new(vec![1.0, 0.5, 0.0], 16000);
 
-        let output = resampler.resample_mono(&input, 16000).unwrap();
+        let output = resampler
+            .resample_mono(&input, 16000)
+            .unwrap();
         assert_eq!(output.sample_rate, 16000);
         assert_eq!(output.len(), input.len());
     }

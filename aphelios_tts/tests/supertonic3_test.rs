@@ -3,17 +3,22 @@ use std::fs;
 use std::mem;
 use std::path::PathBuf;
 
-use aphelios_tts::supertonic3::helper::{
-    load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file,
-};
+use aphelios_tts::supertonic3::helper::{load_text_to_speech, load_voice_style, sanitize_filename, timer, write_wav_file};
 
 impl Args {
     fn default() -> Self {
-        Args { use_gpu: false, onnx_dir: "/Volumes/sw/onnx_models/supertonic-3/onnx".to_string(), total_step: 8,
-            speed: 1.05f32, n_test: 1, voice_style: vec!["/Volumes/sw/onnx_models/supertonic-3/voice_styles/F1.json".to_string()],
+        Args {
+            use_gpu: false,
+            onnx_dir: "/Volumes/sw/onnx_models/supertonic-3/onnx".to_string(),
+            total_step: 8,
+            speed: 1.05f32,
+            n_test: 1,
+            voice_style: vec!["/Volumes/sw/onnx_models/supertonic-3/voice_styles/F1.json".to_string()],
             text: vec!["This morning, I took a walk in the park, and the sound of the birds and the breeze was so pleasant that I stopped for a long time just to listen.".to_string()],
-            lang: vec!["en".to_string()], save_dir: "/Users/larry/coderesp/aphelios_cli/output".to_string(),
-            batch: false }
+            lang: vec!["en".to_string()],
+            save_dir: "/Users/larry/coderesp/aphelios_cli/output".to_string(),
+            batch: false,
+        }
     }
 }
 
@@ -65,18 +70,10 @@ fn main_test() -> Result<()> {
 
     if batch {
         if voice_style_paths.len() != text_list.len() {
-            anyhow::bail!(
-                "Number of voice styles ({}) must match number of texts ({})",
-                voice_style_paths.len(),
-                text_list.len()
-            );
+            anyhow::bail!("Number of voice styles ({}) must match number of texts ({})", voice_style_paths.len(), text_list.len());
         }
         if lang_list.len() != text_list.len() {
-            anyhow::bail!(
-                "Number of languages ({}) must match number of texts ({})",
-                lang_list.len(),
-                text_list.len()
-            );
+            anyhow::bail!("Number of languages ({}) must match number of texts ({})", lang_list.len(), text_list.len());
         }
     }
 
@@ -95,13 +92,9 @@ fn main_test() -> Result<()> {
         println!("\n[{}/{}] Starting synthesis...", n + 1, n_test);
 
         let (wav, duration) = if batch {
-            timer("Generating speech from text", || {
-                text_to_speech.batch(text_list, lang_list, &style, total_step, speed)
-            })?
+            timer("Generating speech from text", || text_to_speech.batch(text_list, lang_list, &style, total_step, speed))?
         } else {
-            let (w, d) = timer("Generating speech from text", || {
-                text_to_speech.call(&text_list[0], &lang_list[0], &style, total_step, speed, 0.3)
-            })?;
+            let (w, d) = timer("Generating speech from text", || text_to_speech.call(&text_list[0], &lang_list[0], &style, total_step, speed, 0.3))?;
             (w, vec![d])
         };
 

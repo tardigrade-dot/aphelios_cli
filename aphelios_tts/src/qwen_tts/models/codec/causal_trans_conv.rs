@@ -32,13 +32,7 @@ impl CausalTransConv1d {
     /// * `kernel_size` - Size of the convolving kernel
     /// * `stride` - Stride of the convolution (upsampling factor)
     /// * `vb` - Variable builder for loading weights
-    pub fn new(
-        in_channels: usize,
-        out_channels: usize,
-        kernel_size: usize,
-        stride: usize,
-        vb: VarBuilder,
-    ) -> Result<Self> {
+    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize, stride: usize, vb: VarBuilder) -> Result<Self> {
         let config = ConvTranspose1dConfig {
             padding: 0,
             output_padding: 0,
@@ -54,7 +48,10 @@ impl CausalTransConv1d {
         // This maintains causality while preserving length
         let right_trim = kernel_size.saturating_sub(stride);
 
-        Ok(Self { conv, right_trim })
+        Ok(Self {
+            conv,
+            right_trim,
+        })
     }
 
     /// Create from raw weight and bias tensors.
@@ -78,7 +75,10 @@ impl CausalTransConv1d {
         // This maintains causality while preserving length
         let right_trim = kernel_size.saturating_sub(stride);
 
-        Ok(Self { conv, right_trim })
+        Ok(Self {
+            conv,
+            right_trim,
+        })
     }
 
     /// Forward pass with causal output trimming.
@@ -186,13 +186,7 @@ mod tests {
             let input = Tensor::randn(0.0f32, 1.0, (1, 16, 4), &device).unwrap();
             let output = conv.forward(&input).unwrap();
 
-            assert_eq!(
-                output.dims(),
-                &[1, 8, expected_len],
-                "Failed for kernel={}, stride={}",
-                kernel_size,
-                stride
-            );
+            assert_eq!(output.dims(), &[1, 8, expected_len], "Failed for kernel={}, stride={}", kernel_size, stride);
         }
     }
 }

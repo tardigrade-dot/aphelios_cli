@@ -9,13 +9,7 @@ pub trait OcrEngine: Send + Sync {
     /// * `model_path` - 模型路径
     /// * `input_path` - 输入文件路径（图片或 PDF）
     /// * `output_dir` - 输出目录
-    fn dolphin_ocr(
-        &mut self,
-        model_path: &str,
-        input_path: &str,
-        output_dir: &str,
-        progress: Option<AppProgressBar>,
-    ) -> Result<Vec<String>>;
+    fn dolphin_ocr(&mut self, model_path: &str, input_path: &str, output_dir: &str, progress: Option<AppProgressBar>) -> Result<Vec<String>>;
 }
 
 /// TTS 引擎接口
@@ -29,15 +23,7 @@ pub trait TtsEngine: Send + Sync {
     /// * `input_text` - 待合成文本
     /// * `output_path` - 输出音频路径
     /// * `progress` - 进度回调
-    fn generate(
-        &self,
-        model_path: &str,
-        ref_audio_path: &str,
-        ref_text: &str,
-        input_text: &str,
-        output_path: &str,
-        progress: Option<AppProgressBar>,
-    ) -> Result<()>;
+    fn generate(&self, model_path: &str, ref_audio_path: &str, ref_text: &str, input_text: &str, output_path: &str, progress: Option<AppProgressBar>) -> Result<()>;
 
     /// 执行批量 TTS 语音合成（从 TXT 文件读取）
     ///
@@ -49,16 +35,8 @@ pub trait TtsEngine: Send + Sync {
     /// * `output_dir` - 输出目录（以 TXT 文件名命名）
     /// * `batch_size` - 每批处理的文本数量
     /// * `progress` - 进度回调
-    fn generate_batch(
-        &self,
-        model_path: &str,
-        ref_audio_path: &str,
-        ref_text: &str,
-        txt_file_path: &str,
-        output_dir: &str,
-        batch_size: usize,
-        progress: Option<AppProgressBar>,
-    ) -> Result<Vec<String>>;
+    fn generate_batch(&self, model_path: &str, ref_audio_path: &str, ref_text: &str, txt_file_path: &str, output_dir: &str, batch_size: usize, progress: Option<AppProgressBar>)
+        -> Result<Vec<String>>;
 }
 
 /// 搜索结果中单本书的信息
@@ -133,10 +111,5 @@ pub trait SearchEngine: Send + Sync {
     /// * `query` - 搜索词
     /// * `limit` - 结果数量限制
     /// * `mode` - 搜索模式
-    fn search_books_with_mode(
-        &self,
-        query: &str,
-        limit: usize,
-        mode: SearchMode,
-    ) -> Result<SearchResult>;
+    fn search_books_with_mode(&self, query: &str, limit: usize, mode: SearchMode) -> Result<SearchResult>;
 }

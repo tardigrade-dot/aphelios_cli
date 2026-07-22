@@ -8,112 +8,135 @@ use candle_nn::{
     VarBuilder,
 };
 use candle_transformers::models::whisper::{self as m, audio, Config};
-use rand::distributions::{WeightedIndex, Distribution};
+use rand::distr::weighted::WeightedIndex;
+use rand::distr::Distribution;
 use rand::SeedableRng;
 use std::path::Path;
 use tokenizers::Tokenizer;
 use tracing::{debug, error, info};
 
-use crate::{
-    whisper::melfilters::get_mel_filters, AsrSegment, AudioBatch, DecodingResult, SubSegment,
-    VadSegment,
-};
+use crate::{whisper::melfilters::get_mel_filters, AsrSegment, AudioBatch, DecodingResult, SubSegment, VadSegment};
 
 const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/distil-large-v3.5";
 // const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/whisper-large-v3-turbo";
 
 pub fn pcm_decode<P: AsRef<std::path::Path>>(path: P) -> Result<(Vec<f32>, u32)> {
+    use symphonia::core::audio::Audio;
     use symphonia::core::{
-        audio::{AudioBufferRef, Signal},
-        codecs::{DecoderOptions, CODEC_TYPE_NULL},
-        conv::FromSample,
+        audio::GenericAudioBufferRef,
+        codecs::audio::{AudioDecoderOptions, CODEC_ID_NULL_AUDIO},
+        codecs::CodecParameters,
     };
 
-    fn conv<T>(
-        samples: &mut Vec<f32>,
-        data: std::borrow::Cow<symphonia::core::audio::AudioBuffer<T>>,
-    ) where
-        T: symphonia::core::sample::Sample,
-        f32: symphonia::core::conv::FromSample<T>,
-    {
-        let num_channels = data.spec().channels.count();
-        let num_frames = data.chan(0).len();
-        for i in 0..num_frames {
-            let mixed: f32 = (0..num_channels)
-                .map(|ch| f32::from_sample(data.chan(ch)[i]))
-                .sum::<f32>()
-                / num_channels as f32;
-            samples.push(mixed);
-        }
-    }
-
     // Open the media source.
-    let src = std::fs::File::open(path).map_err(candle_core::Error::wrap)?;
+    let path_ref = path.as_ref();
+    let src = std::fs::File::open(path_ref).map_err(candle_core::Error::wrap)?;
 
     // Create the media source stream.
     let mss = symphonia::core::io::MediaSourceStream::new(Box::new(src), Default::default());
 
     // Create a probe hint using the file's extension. [Optional]
-    let hint = symphonia::core::probe::Hint::new();
+    let mut hint = symphonia::core::formats::probe::Hint::new();
+    if let Some(ext) = path_ref
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        hint.with_extension(ext);
+    }
 
     // Use the default options for metadata and format readers.
     let meta_opts: symphonia::core::meta::MetadataOptions = Default::default();
     let fmt_opts: symphonia::core::formats::FormatOptions = Default::default();
 
     // Probe the media source.
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)
+    let mut format = symphonia::default::get_probe()
+        .probe(&hint, mss, fmt_opts, meta_opts)
         .map_err(candle_core::Error::wrap)?;
-    // Get the instantiated format reader.
-    let mut format = probed.format;
 
     // Find the first audio track with a known (decodable) codec.
     let track = format
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .find(|t| {
+            t.codec_params
+                .as_ref()
+                .and_then(|p| p.audio())
+                .map(|a| a.codec != CODEC_ID_NULL_AUDIO)
+                .unwrap_or(false)
+        })
         .ok_or_else(|| candle_core::Error::Msg("no supported audio tracks".to_string()))?;
 
-    // Use the default options for the decoder.
-    let dec_opts: DecoderOptions = Default::default();
+    let audio_params = track
+        .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or_else(|| candle_core::Error::Msg("no audio codec params".to_string()))?;
+
+    let dec_opts: AudioDecoderOptions = Default::default();
 
     // Create a decoder for the track.
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &dec_opts)
+        .make_audio_decoder(audio_params, &dec_opts)
         .map_err(|_| candle_core::Error::Msg("unsupported codec".to_string()))?;
     let track_id = track.id;
-    let sample_rate = track.codec_params.sample_rate.unwrap_or(0);
+    let sample_rate = audio_params.sample_rate.unwrap_or(0);
     let mut pcm_data = Vec::new();
     // The decode loop.
-    while let Ok(packet) = format.next_packet() {
+    loop {
+        let packet = match format.next_packet() {
+            Ok(Some(p)) => p,
+            Ok(None) => break,
+            Err(e) => {
+                return Err(anyhow::anyhow!("decode error: {e}").into());
+            }
+        };
+
         // Consume any new metadata that has been read since the last packet.
         while !format.metadata().is_latest() {
             format.metadata().pop();
         }
 
         // If the packet does not belong to the selected track, skip over it.
-        if packet.track_id() != track_id {
+        if packet.track_id != track_id {
             continue;
         }
-        match decoder.decode(&packet).map_err(candle_core::Error::wrap)? {
-            AudioBufferRef::F32(buf) => {
-                let num_channels = buf.spec().channels.count();
-                let num_frames = buf.chan(0).len();
-                for i in 0..num_frames {
-                    let mixed: f32 = (0..num_channels).map(|ch| buf.chan(ch)[i]).sum::<f32>()
-                        / num_channels as f32;
+        let decoded = match decoder.decode(&packet) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        let chans = decoded.spec().channels().count();
+        let n_frames = decoded.frames();
+        // Downmix to mono inline and append
+        match &decoded {
+            GenericAudioBufferRef::F32(buf) => {
+                for frame in 0..n_frames {
+                    let mixed: f32 = (0..chans)
+                        .map(|ch| {
+                            buf.plane(ch)
+                                .map(|p| p[frame])
+                                .unwrap_or(0.0)
+                        })
+                        .sum::<f32>()
+                        / chans as f32;
                     pcm_data.push(mixed);
                 }
             }
-            AudioBufferRef::U8(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::U16(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::U24(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::U32(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::S8(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::S16(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::S24(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::S32(data) => conv(&mut pcm_data, data),
-            AudioBufferRef::F64(data) => conv(&mut pcm_data, data),
+            _ => {
+                let mut temp: Vec<Vec<f32>> = Vec::new();
+                decoded.copy_to_vecs_planar(&mut temp);
+                for frame in 0..n_frames {
+                    let mixed: f32 = (0..chans)
+                        .map(|ch| {
+                            temp.get(ch)
+                                .map(|p| p[frame])
+                                .unwrap_or(0.0)
+                        })
+                        .sum::<f32>()
+                        / chans as f32;
+                    pcm_data.push(mixed);
+                }
+            }
         }
     }
     Ok((pcm_data, sample_rate))
@@ -147,12 +170,7 @@ impl Model {
         }
     }
 
-    pub fn decoder_forward(
-        &mut self,
-        x: &Tensor,
-        xa: &Tensor,
-        flush: bool,
-    ) -> candle_core::Result<Tensor> {
+    pub fn decoder_forward(&mut self, x: &Tensor, xa: &Tensor, flush: bool) -> candle_core::Result<Tensor> {
         match self {
             Self::Normal(m) => m.decoder.forward(x, xa, flush),
             Self::Quantized(m) => m.decoder.forward(x, xa, flush),
@@ -185,22 +203,16 @@ pub struct Decoder {
 }
 
 impl Decoder {
-    pub fn new(
-        model: Model,
-        tokenizer: Tokenizer,
-        seed: u64,
-        device: &Device,
-        language_token: Option<u32>,
-        timestamps: bool,
-        max_initial_timestamp_index: Option<u32>,
-        verbose: bool,
-    ) -> Result<Self> {
+    pub fn new(model: Model, tokenizer: Tokenizer, seed: u64, device: &Device, language_token: Option<u32>, timestamps: bool, max_initial_timestamp_index: Option<u32>, verbose: bool) -> Result<Self> {
         let no_timestamps_token = token_id(&tokenizer, m::NO_TIMESTAMPS_TOKEN)?;
         // Suppress the notimestamps token when in timestamps mode.
         // https://github.com/openai/whisper/blob/e8622f9afc4eba139bf796c210f5c01081000472/whisper/decoding.py#L452
         let suppress_tokens: Vec<f32> = (0..model.config().vocab_size as u32)
             .map(|i| {
-                if model.config().suppress_tokens.contains(&i)
+                if model
+                    .config()
+                    .suppress_tokens
+                    .contains(&i)
                     || timestamps && i == no_timestamps_token
                 {
                     f32::NEG_INFINITY
@@ -266,7 +278,11 @@ impl Decoder {
             // Extract the no speech probability on the first iteration by looking at the first
             // token logits and the probability for the according token.
             if i == 0 {
-                let logits = self.model.decoder_final_linear(&ys.i(..1)?)?.i(0)?.i(0)?;
+                let logits = self
+                    .model
+                    .decoder_final_linear(&ys.i(..1)?)?
+                    .i(0)?
+                    .i(0)?;
                 no_speech_prob = softmax(&logits, 0)?
                     .i(self.no_speech_token as usize)?
                     .to_scalar::<f32>()? as f64;
@@ -305,14 +321,15 @@ impl Decoder {
             let prob = softmax(&logits, candle_core::D::Minus1)?
                 .i(next_token as usize)?
                 .to_scalar::<f32>()? as f64;
-            if next_token == self.eot_token
-                || tokens.len() > self.model.config().max_target_positions
-            {
+            if next_token == self.eot_token || tokens.len() > self.model.config().max_target_positions {
                 break;
             }
             sum_logprob += prob.ln();
         }
-        let text = self.tokenizer.decode(&tokens, true).map_err(E::msg)?;
+        let text = self
+            .tokenizer
+            .decode(&tokens, true)
+            .map_err(E::msg)?;
         let avg_logprob = sum_logprob / tokens.len() as f64;
 
         Ok(DecodingResult {
@@ -334,8 +351,7 @@ impl Decoder {
             // On errors, we try again with a different temperature.
             match dr {
                 Ok(dr) => {
-                    let needs_fallback = dr.compression_ratio > m::COMPRESSION_RATIO_THRESHOLD
-                        || dr.avg_logprob < m::LOGPROB_THRESHOLD;
+                    let needs_fallback = dr.compression_ratio > m::COMPRESSION_RATIO_THRESHOLD || dr.avg_logprob < m::LOGPROB_THRESHOLD;
                     if !needs_fallback || dr.no_speech_prob > m::NO_SPEECH_THRESHOLD {
                         return Ok(dr);
                     }
@@ -354,7 +370,11 @@ impl Decoder {
         let vocab_size = self.model.config().vocab_size as u32;
 
         // ========== SETUP: Extract sampled tokens for analysis ==========
-        let sample_begin = if self.language_token.is_some() { 3 } else { 2 };
+        let sample_begin = if self.language_token.is_some() {
+            3
+        } else {
+            2
+        };
         let sampled_tokens = if tokens.len() > sample_begin {
             &tokens[sample_begin..]
         } else {
@@ -453,11 +473,7 @@ impl Decoder {
         let log_probs = log_softmax(&logits, 0)?;
 
         // Extract timestamp and text log probabilities
-        let timestamp_log_probs = log_probs.narrow(
-            0,
-            timestamp_begin as usize,
-            vocab_size as usize - timestamp_begin as usize,
-        )?;
+        let timestamp_log_probs = log_probs.narrow(0, timestamp_begin as usize, vocab_size as usize - timestamp_begin as usize)?;
 
         let text_log_probs = log_probs.narrow(0, 0, timestamp_begin as usize)?;
 
@@ -468,11 +484,15 @@ impl Decoder {
             let exp_shifted = shifted.exp()?;
             let sum_exp = exp_shifted.sum(0)?;
             let log_sum = sum_exp.log()?;
-            max_val.broadcast_add(&log_sum)?.to_scalar::<f32>()?
+            max_val
+                .broadcast_add(&log_sum)?
+                .to_scalar::<f32>()?
         };
 
         // Get max text token log probability
-        let max_text_token_logprob: f32 = text_log_probs.max(0)?.to_scalar::<f32>()?;
+        let max_text_token_logprob: f32 = text_log_probs
+            .max(0)?
+            .to_scalar::<f32>()?;
 
         // Compare in log space
         if timestamp_logprob > max_text_token_logprob {
@@ -581,12 +601,7 @@ impl Decoder {
     }
 }
 
-pub fn run_whisper_with_segments(
-    model_dir: &str,
-    input: &str,
-    segments: Vec<AudioBatch>,
-    lang: Option<&str>,
-) -> Result<Vec<AsrSegment>> {
+pub fn run_whisper_with_segments(model_dir: &str, input: &str, segments: Vec<AudioBatch>, lang: Option<&str>) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -599,19 +614,11 @@ pub fn run_whisper_with_segments(
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
     let (pcm_data, sample_rate) = pcm_decode(input)?;
-    info!(
-        "loaded pcm: {} samples at {}Hz",
-        pcm_data.len(),
-        sample_rate
-    );
+    info!("loaded pcm: {} samples at {}Hz", pcm_data.len(), sample_rate);
 
     // 重采样到 Whisper 需要的 16kHz
     let pcm_data = if sample_rate != m::SAMPLE_RATE as u32 {
-        info!(
-            "Resampling audio from {}Hz to {}Hz",
-            sample_rate,
-            m::SAMPLE_RATE
-        );
+        info!("Resampling audio from {}Hz to {}Hz", sample_rate, m::SAMPLE_RATE);
         use aphelios_core::audio::types::MonoBuffer;
         let resampler = aphelios_core::Resampler::new();
         let input_buffer = MonoBuffer::new(pcm_data, sample_rate);
@@ -625,24 +632,13 @@ pub fn run_whisper_with_segments(
     let num_mel_bins = config.num_mel_bins;
 
     let device = common::get_device();
-    let vb =
-        unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
 
     // Whisper v3/v3-turbo requires explicit language token
     // Detect language or default to English. <|en|>
-    let language_token =
-        lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
-    let mut model_decoder = Decoder::new(
-        model,
-        tokenizer,
-        299792458,
-        &device,
-        language_token,
-        true,
-        None,
-        false,
-    )?;
+    let language_token = lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
+    let mut model_decoder = Decoder::new(model, tokenizer, 299792458, &device, language_token, true, None, false)?;
 
     let mut all_segments = Vec::new();
     let padding_duration = 0.2; // 前后各扩大 200ms 冗余
@@ -679,12 +675,7 @@ pub fn run_whisper_with_segments(
             for sub in &mut seg.sub_segments {
                 sub.start += padded_start;
                 sub.end += padded_start;
-                info!(
-                    "sub.start: {}, sub.end: {}, sub.text: {}",
-                    sub.start + seg.start,
-                    sub.end + seg.start,
-                    sub.text
-                );
+                info!("sub.start: {}, sub.end: {}, sub.text: {}", sub.start + seg.start, sub.end + seg.start, sub.text);
             }
         }
 
@@ -694,12 +685,7 @@ pub fn run_whisper_with_segments(
     Ok(all_segments)
 }
 
-pub fn run_whisper(
-    model_dir: &str,
-    input: &str,
-    device: &Device,
-    lang: Option<&str>,
-) -> Result<Vec<AsrSegment>> {
+pub fn run_whisper(model_dir: &str, input: &str, device: &Device, lang: Option<&str>) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -712,19 +698,11 @@ pub fn run_whisper(
     <byteorder::LittleEndian as byteorder::ByteOrder>::read_f32_into(mel_bytes, &mut mel_filters);
 
     let (pcm_data, sample_rate) = pcm_decode(input)?;
-    info!(
-        "loaded pcm: {} samples at {}Hz",
-        pcm_data.len(),
-        sample_rate
-    );
+    info!("loaded pcm: {} samples at {}Hz", pcm_data.len(), sample_rate);
 
     // 重采样到 Whisper 需要的 16kHz
     let pcm_data = if sample_rate != m::SAMPLE_RATE as u32 {
-        info!(
-            "Resampling audio from {}Hz to {}Hz",
-            sample_rate,
-            m::SAMPLE_RATE
-        );
+        info!("Resampling audio from {}Hz to {}Hz", sample_rate, m::SAMPLE_RATE);
         use aphelios_core::audio::types::MonoBuffer;
         let resampler = aphelios_core::Resampler::new();
         let input_buffer = MonoBuffer::new(pcm_data, sample_rate);
@@ -737,32 +715,17 @@ pub fn run_whisper(
     println!("pcm data loaded {}", pcm_data.len());
     let mel = audio::pcm_to_mel(&config, &pcm_data, &mel_filters);
     let mel_len = mel.len();
-    let mel = Tensor::from_vec(
-        mel,
-        (1, config.num_mel_bins, mel_len / config.num_mel_bins),
-        &device,
-    )?;
+    let mel = Tensor::from_vec(mel, (1, config.num_mel_bins, mel_len / config.num_mel_bins), &device)?;
     println!("loaded mel: {:?}", mel.dims());
 
-    let vb =
-        unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
 
     // Whisper v3/v3-turbo requires explicit language token
     // Detect language or default to English. <|en|>
     // let language_token = lang.map(|lang| token_id(&tokenizer, lang).unwrap_or(50259));
-    let language_token =
-        lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
-    let mut whisper_decoder = Decoder::new(
-        model,
-        tokenizer,
-        299792458,
-        &device,
-        language_token,
-        true,
-        None,
-        false,
-    )?;
+    let language_token = lang.map(|lang| token_id(&tokenizer, format!("<|{}|>", lang).as_str()).unwrap_or(50259));
+    let mut whisper_decoder = Decoder::new(model, tokenizer, 299792458, &device, language_token, true, None, false)?;
     let res = whisper_decoder.run(&mel)?;
     Ok(res)
 }
@@ -777,12 +740,7 @@ pub fn run_whisper(
 ///
 /// # Returns
 /// * `Result<Vec<Segment>>` - Transcription segments with timestamps
-pub fn run_whisper_with_pcm(
-    model_dir: &str,
-    pcm_data: &[f32],
-    sample_rate: u32,
-    device: &Device,
-) -> Result<Vec<AsrSegment>> {
+pub fn run_whisper_with_pcm(model_dir: &str, pcm_data: &[f32], sample_rate: u32, device: &Device) -> Result<Vec<AsrSegment>> {
     let config_filename = format!("{}/{}", model_dir, "config.json");
     let tokenizer_filename = format!("{}/{}", model_dir, "tokenizer.json");
     let weights_filename = format!("{}/{}", model_dir, "model.safetensors");
@@ -801,29 +759,15 @@ pub fn run_whisper_with_pcm(
 
     let mel = audio::pcm_to_mel(&config, pcm_data, &mel_filters);
     let mel_len = mel.len();
-    let mel = Tensor::from_vec(
-        mel,
-        (1, config.num_mel_bins, mel_len / config.num_mel_bins),
-        &device,
-    )?;
+    let mel = Tensor::from_vec(mel, (1, config.num_mel_bins, mel_len / config.num_mel_bins), &device)?;
     println!("loaded mel: {:?}", mel.dims());
 
-    let vb =
-        unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], m::DTYPE, &device)? };
     let model = Model::Normal(m::model::Whisper::load(&vb, config)?);
 
     // Whisper v3/v3-turbo requires explicit language token
     let language_token = Some(token_id(&tokenizer, "<|en|>").unwrap_or(50259));
-    let mut dc = Decoder::new(
-        model,
-        tokenizer,
-        299792458,
-        &device,
-        language_token,
-        true,
-        None,
-        false,
-    )?;
+    let mut dc = Decoder::new(model, tokenizer, 299792458, &device, language_token, true, None, false)?;
     let res = dc.run(&mel)?;
     Ok(res)
 }
@@ -849,7 +793,9 @@ pub async fn generate_vad(segments: &Vec<VadSegment>, save_file: &str) -> anyhow
         text_to_str.push(format!("{} --> {}", start_time, end_time));
         text_to_str.push(format!("{}", "\n"));
     }
-    write_to_file(&text_to_str, save_file).await.unwrap();
+    write_to_file(&text_to_str, save_file)
+        .await
+        .unwrap();
     println!("SRT file saved to: {}", save_file);
     Ok(())
 }
@@ -893,7 +839,9 @@ pub async fn generate_srt(segments: &Vec<AsrSegment>, save_file: &str) -> Result
         }
     }
 
-    write_to_file(&text_to_str, save_file).await.unwrap();
+    write_to_file(&text_to_str, save_file)
+        .await
+        .unwrap();
     println!("SRT file saved to: {}", save_file);
     Ok(())
 }
@@ -904,7 +852,13 @@ pub async fn run_whisper_asr(input: &str, lang: Option<&str>) -> Result<()> {
     let device = get_device();
 
     let output_path = Path::new(input)
-        .with_file_name(Path::new(input).file_stem().unwrap().to_str().unwrap())
+        .with_file_name(
+            Path::new(input)
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        )
         .with_extension("srt")
         .to_str()
         .unwrap()
@@ -916,26 +870,17 @@ pub async fn run_whisper_asr(input: &str, lang: Option<&str>) -> Result<()> {
     match result {
         Ok(segments) => {
             for segment in &segments {
-                info!(
-                    "\n[Segment: {:.2}s - {:.2}s]",
-                    segment.start,
-                    segment.start + segment.duration
-                );
+                info!("\n[Segment: {:.2}s - {:.2}s]", segment.start, segment.start + segment.duration);
 
                 if !segment.sub_segments.is_empty() {
                     for sub in &segment.sub_segments {
-                        info!(
-                            "  => [{:>6.2}s -> {:>6.2}s]  {}",
-                            sub.start,
-                            sub.end,
-                            sub.text.trim()
-                        );
+                        info!("  => [{:>6.2}s -> {:>6.2}s]  {}", sub.start, sub.end, sub.text.trim());
                     }
                 } else {
-                    let clean_text = segment.dr.text.replace(
-                        |c: char| c == '<' || c == '|' || c == '>' || c.is_numeric() || c == '.',
-                        "",
-                    );
+                    let clean_text = segment
+                        .dr
+                        .text
+                        .replace(|c: char| c == '<' || c == '|' || c == '>' || c.is_numeric() || c == '.', "");
                     if !clean_text.trim().is_empty() {
                         info!("  (Raw): {}", clean_text.trim());
                     }

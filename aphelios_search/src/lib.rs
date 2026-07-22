@@ -71,11 +71,13 @@ pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
     // Try "书名 (作者)"  with ASCII parens
     if let Some(paren_pos) = filename.find('(') {
         let title = filename[..paren_pos].trim().to_string();
-        let author = filename[paren_pos + 1..].find(')').map(|end| {
-            filename[paren_pos + 1..paren_pos + 1 + end]
-                .trim()
-                .to_string()
-        });
+        let author = filename[paren_pos + 1..]
+            .find(')')
+            .map(|end| {
+                filename[paren_pos + 1..paren_pos + 1 + end]
+                    .trim()
+                    .to_string()
+            });
         // Strip English subtitle after " = "
         let title = if let Some(eq_pos) = title.find(" = ") {
             title[..eq_pos].trim().to_string()
@@ -89,11 +91,13 @@ pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
     if let Some(paren_pos) = filename.find('（') {
         let content_start = paren_pos + '（'.len_utf8();
         let title = filename[..paren_pos].trim().to_string();
-        let author = filename[content_start..].find('）').map(|end| {
-            filename[content_start..content_start + end]
-                .trim()
-                .to_string()
-        });
+        let author = filename[content_start..]
+            .find('）')
+            .map(|end| {
+                filename[content_start..content_start + end]
+                    .trim()
+                    .to_string()
+            });
         let title = if let Some(eq_pos) = title.find(" = ") {
             title[..eq_pos].trim().to_string()
         } else {
@@ -105,13 +109,21 @@ pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
     // Try "书名 - 作者"
     if let Some(dash_pos) = filename.find(" - ") {
         let title = filename[..dash_pos].trim().to_string();
-        let author = Some(filename[dash_pos + 3..].trim().to_string());
+        let author = Some(
+            filename[dash_pos + 3..]
+                .trim()
+                .to_string(),
+        );
         return (title, author);
     }
 
     // Try "[作者] 书名"
     if let (Some(start), Some(end)) = (filename.find('['), filename.find(']')) {
-        let author = Some(filename[start + 1..end].trim().to_string());
+        let author = Some(
+            filename[start + 1..end]
+                .trim()
+                .to_string(),
+        );
         let title = filename[end + 1..].trim().to_string();
         if !title.is_empty() {
             return (title, author);
@@ -155,7 +167,9 @@ fn scan_dir_recursive(dir: &Path, books: &mut Vec<BookInfo>, next_id: &mut i64) 
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let file_size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(0);
             let (title, author) = extract_metadata(&path);
 
             // Normalize author empty string to None
@@ -185,7 +199,11 @@ pub fn search_books(books: &[BookInfo], query: &str, limit: usize) -> SearchResu
     let query = query.trim();
     if query.is_empty() {
         let total = books.len();
-        let results: Vec<BookInfo> = books.iter().take(limit).cloned().collect();
+        let results: Vec<BookInfo> = books
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect();
         return SearchResult {
             total,
             books: results,
@@ -217,10 +235,7 @@ pub fn search_books(books: &[BookInfo], query: &str, limit: usize) -> SearchResu
             if let Some(ref author) = b.author {
                 let author_lower = author.to_lowercase();
                 let author_s = to_simplified(&author_lower);
-                if author_lower.contains(&query_lower)
-                    || author_s.contains(&query_s)
-                    || (query_t != query_s && author_s.contains(&query_t))
-                {
+                if author_lower.contains(&query_lower) || author_s.contains(&query_s) || (query_t != query_s && author_s.contains(&query_t)) {
                     return true;
                 }
             }

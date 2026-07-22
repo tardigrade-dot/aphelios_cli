@@ -90,8 +90,7 @@ impl UpsampleStage {
         convnext_gamma: Tensor,
         stride: usize,
     ) -> Result<Self> {
-        let trans_conv =
-            CausalTransConv1d::from_weights(trans_conv_weight, Some(trans_conv_bias), stride)?;
+        let trans_conv = CausalTransConv1d::from_weights(trans_conv_weight, Some(trans_conv_bias), stride)?;
         let convnext = ConvNeXtBlock::from_weights(
             convnext_dwconv_weight,
             Some(convnext_dwconv_bias),
@@ -182,60 +181,32 @@ fn get_weight(weights: &HashMap<String, Tensor>, key: &str) -> Result<Tensor> {
 
 impl Decoder12Hz {
     /// Load decoder from safetensors weights
-    pub fn from_weights(
-        weights: &HashMap<String, Tensor>,
-        config: Decoder12HzConfig,
-    ) -> Result<Self> {
+    pub fn from_weights(weights: &HashMap<String, Tensor>, config: Decoder12HzConfig) -> Result<Self> {
         // Load codebooks - normalize by cluster_usage as per official implementation
         // embedding = embedding_sum / cluster_usage
-        let first_embedding_sum = get_weight(
-            weights,
-            "decoder.quantizer.rvq_first.vq.layers.0._codebook.embedding_sum",
-        )?;
-        let first_cluster_usage = get_weight(
-            weights,
-            "decoder.quantizer.rvq_first.vq.layers.0._codebook.cluster_usage",
-        )?;
+        let first_embedding_sum = get_weight(weights, "decoder.quantizer.rvq_first.vq.layers.0._codebook.embedding_sum")?;
+        let first_cluster_usage = get_weight(weights, "decoder.quantizer.rvq_first.vq.layers.0._codebook.cluster_usage")?;
         // Normalize: embedding = embedding_sum / cluster_usage.clamp(min=epsilon).unsqueeze(-1)
         // Per official implementation, clamp cluster_usage to avoid divide-by-zero
         let epsilon = 1e-7f32;
         let first_cluster_usage_clamped = first_cluster_usage.clamp(epsilon, f32::MAX)?;
-        let first_codebook =
-            first_embedding_sum.broadcast_div(&first_cluster_usage_clamped.unsqueeze(1)?)?;
+        let first_codebook = first_embedding_sum.broadcast_div(&first_cluster_usage_clamped.unsqueeze(1)?)?;
 
         let mut rest_codebooks = Vec::with_capacity(15);
         for i in 0..15 {
-            let embedding_sum = get_weight(
-                weights,
-                &format!(
-                    "decoder.quantizer.rvq_rest.vq.layers.{}._codebook.embedding_sum",
-                    i
-                ),
-            )?;
-            let cluster_usage = get_weight(
-                weights,
-                &format!(
-                    "decoder.quantizer.rvq_rest.vq.layers.{}._codebook.cluster_usage",
-                    i
-                ),
-            )?;
+            let embedding_sum = get_weight(weights, &format!("decoder.quantizer.rvq_rest.vq.layers.{}._codebook.embedding_sum", i))?;
+            let cluster_usage = get_weight(weights, &format!("decoder.quantizer.rvq_rest.vq.layers.{}._codebook.cluster_usage", i))?;
             let cluster_usage_clamped = cluster_usage.clamp(epsilon, f32::MAX)?;
             let cb = embedding_sum.broadcast_div(&cluster_usage_clamped.unsqueeze(1)?)?;
             rest_codebooks.push(cb);
         }
 
         // Load output projections
-        let first_output_proj =
-            get_weight(weights, "decoder.quantizer.rvq_first.output_proj.weight")?;
-        let rest_output_proj =
-            get_weight(weights, "decoder.quantizer.rvq_rest.output_proj.weight")?;
+        let first_output_proj = get_weight(weights, "decoder.quantizer.rvq_first.output_proj.weight")?;
+        let rest_output_proj = get_weight(weights, "decoder.quantizer.rvq_rest.output_proj.weight")?;
 
         // Load pre_conv
-        let pre_conv = CausalConv1d::from_weights(
-            get_weight(weights, "decoder.pre_conv.conv.weight")?,
-            Some(get_weight(weights, "decoder.pre_conv.conv.bias")?),
-            1,
-        )?;
+        let pre_conv = CausalConv1d::from_weights(get_weight(weights, "decoder.pre_conv.conv.weight")?, Some(get_weight(weights, "decoder.pre_conv.conv.bias")?), 1)?;
 
         // Load transformer projections
         let input_proj_weight = get_weight(weights, "decoder.pre_transformer.input_proj.weight")?;
@@ -254,10 +225,7 @@ impl Decoder12Hz {
                 v_proj_weight: get_weight(weights, &format!("{p}.self_attn.v_proj.weight"))?,
                 o_proj_weight: get_weight(weights, &format!("{p}.self_attn.o_proj.weight"))?,
                 attn_layer_scale: get_weight(weights, &format!("{p}.self_attn_layer_scale.scale"))?,
-                post_ln_weight: get_weight(
-                    weights,
-                    &format!("{p}.post_attention_layernorm.weight"),
-                )?,
+                post_ln_weight: get_weight(weights, &format!("{p}.post_attention_layernorm.weight"))?,
                 gate_proj_weight: get_weight(weights, &format!("{p}.mlp.gate_proj.weight"))?,
                 up_proj_weight: get_weight(weights, &format!("{p}.mlp.up_proj.weight"))?,
                 down_proj_weight: get_weight(weights, &format!("{p}.mlp.down_proj.weight"))?,
@@ -265,14 +233,20 @@ impl Decoder12Hz {
             };
             layers.push(layer);
         }
-        let transformer_weights = TransformerWeights { layers };
+        let transformer_weights = TransformerWeights {
+            layers,
+        };
 
         // Load final norm weight
         let final_norm_weight = get_weight(weights, "decoder.pre_transformer.norm.weight")?;
 
         // Load upsample stages
         let mut upsample_stages = Vec::with_capacity(config.upsampling_ratios.len());
-        for (i, &ratio) in config.upsampling_ratios.iter().enumerate() {
+        for (i, &ratio) in config
+            .upsampling_ratios
+            .iter()
+            .enumerate()
+        {
             let p = format!("decoder.upsample.{}", i);
             let stage = UpsampleStage::from_weights(
                 get_weight(weights, &format!("{p}.0.conv.weight"))?,
@@ -292,11 +266,7 @@ impl Decoder12Hz {
         }
 
         // Load decoder.0 (initial conv)
-        let decoder_init_conv = CausalConv1d::from_weights(
-            get_weight(weights, "decoder.decoder.0.conv.weight")?,
-            Some(get_weight(weights, "decoder.decoder.0.conv.bias")?),
-            1,
-        )?;
+        let decoder_init_conv = CausalConv1d::from_weights(get_weight(weights, "decoder.decoder.0.conv.weight")?, Some(get_weight(weights, "decoder.decoder.0.conv.bias")?), 1)?;
 
         // Load decoder blocks (1-4)
         let mut decoder_blocks = Vec::with_capacity(config.upsample_rates.len());
@@ -306,16 +276,7 @@ impl Decoder12Hz {
 
             // Helper to load residual unit weights
             #[allow(clippy::type_complexity)]
-            let load_res = |unit_idx: usize| -> Result<(
-                Tensor,
-                Tensor,
-                Tensor,
-                Tensor,
-                Tensor,
-                Tensor,
-                Tensor,
-                Tensor,
-            )> {
+            let load_res = |unit_idx: usize| -> Result<(Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)> {
                 let u = format!("{bp}.{unit_idx}");
                 Ok((
                     get_weight(weights, &format!("{u}.act1.alpha"))?,
@@ -368,17 +329,10 @@ impl Decoder12Hz {
         }
 
         // Load final SnakeBeta (decoder.5)
-        let final_snake = SnakeBeta::from_weights(
-            get_weight(weights, "decoder.decoder.5.alpha")?,
-            get_weight(weights, "decoder.decoder.5.beta")?,
-        )?;
+        let final_snake = SnakeBeta::from_weights(get_weight(weights, "decoder.decoder.5.alpha")?, get_weight(weights, "decoder.decoder.5.beta")?)?;
 
         // Load final conv (decoder.6)
-        let final_conv = CausalConv1d::from_weights(
-            get_weight(weights, "decoder.decoder.6.conv.weight")?,
-            Some(get_weight(weights, "decoder.decoder.6.conv.bias")?),
-            1,
-        )?;
+        let final_conv = CausalConv1d::from_weights(get_weight(weights, "decoder.decoder.6.conv.weight")?, Some(get_weight(weights, "decoder.decoder.6.conv.bias")?), 1)?;
 
         Ok(Self {
             config,
@@ -423,11 +377,14 @@ impl Decoder12Hz {
         let codebook_size = self.config.codebook_size as i64;
         // Apply modulo to map 3072 vocab → 2048 codebook
         let first_codes_vec: Vec<i64> = first_codes_flat.to_vec1()?;
-        let first_codes_mod: Vec<i64> =
-            first_codes_vec.iter().map(|&c| c % codebook_size).collect();
-        let first_codes_tensor =
-            Tensor::from_vec(first_codes_mod, first_codes_flat.dims(), device)?;
-        let first_embed = self.first_codebook.index_select(&first_codes_tensor, 0)?;
+        let first_codes_mod: Vec<i64> = first_codes_vec
+            .iter()
+            .map(|&c| c % codebook_size)
+            .collect();
+        let first_codes_tensor = Tensor::from_vec(first_codes_mod, first_codes_flat.dims(), device)?;
+        let first_embed = self
+            .first_codebook
+            .index_select(&first_codes_tensor, 0)?;
         let first_embed = first_embed.reshape((batch_size, seq_len, 256))?;
 
         // Apply first output projection
@@ -457,11 +414,7 @@ impl Decoder12Hz {
 
         // 3. Pre-transformer
         let hidden = hidden.transpose(1, 2)?; // [batch, seq, 1024]
-        let hidden = self.linear_3d(
-            &hidden,
-            &self.input_proj_weight,
-            Some(&self.input_proj_bias),
-        )?;
+        let hidden = self.linear_3d(&hidden, &self.input_proj_weight, Some(&self.input_proj_bias))?;
 
         // Run transformer layers
         let hidden = self.run_transformer(hidden, seq_len)?;
@@ -470,11 +423,7 @@ impl Decoder12Hz {
         let hidden = self.rms_norm(&hidden, &self.final_norm_weight)?;
 
         // Output projection
-        let hidden = self.linear_3d(
-            &hidden,
-            &self.output_proj_weight,
-            Some(&self.output_proj_bias),
-        )?;
+        let hidden = self.linear_3d(&hidden, &self.output_proj_weight, Some(&self.output_proj_bias))?;
 
         // 4. Transpose for conv: [batch, seq, 1024] -> [batch, 1024, seq]
         let mut hidden = hidden.transpose(1, 2)?;
@@ -485,7 +434,9 @@ impl Decoder12Hz {
         }
 
         // 6. Decoder.0 (initial conv)
-        hidden = self.decoder_init_conv.forward(&hidden)?;
+        hidden = self
+            .decoder_init_conv
+            .forward(&hidden)?;
 
         // 7. Decoder blocks
         for block in self.decoder_blocks.iter() {
@@ -541,14 +492,14 @@ impl Decoder12Hz {
         let positions = Tensor::arange(0u32, seq_len as u32, device)?;
         let inv_freq_vals: Vec<f32> = (0..self.config.head_dim)
             .step_by(2)
-            .map(|i| {
-                1.0 / (self.config.rope_theta as f32).powf(i as f32 / self.config.head_dim as f32)
-            })
+            .map(|i| 1.0 / (self.config.rope_theta as f32).powf(i as f32 / self.config.head_dim as f32))
             .collect();
         let inv_freq = Tensor::from_vec(inv_freq_vals, (self.config.head_dim / 2,), device)?;
 
         let positions_f = positions.to_dtype(DType::F32)?;
-        let freqs = positions_f.unsqueeze(1)?.matmul(&inv_freq.unsqueeze(0)?)?;
+        let freqs = positions_f
+            .unsqueeze(1)?
+            .matmul(&inv_freq.unsqueeze(0)?)?;
         let cos = freqs.cos()?.repeat((1, 2))?; // [seq, head_dim]
         let sin = freqs.sin()?.repeat((1, 2))?;
         let cos = cos.unsqueeze(0)?.unsqueeze(0)?; // [1, 1, seq, head_dim]
@@ -565,17 +516,13 @@ impl Decoder12Hz {
             .unsqueeze(0)?
             .unsqueeze(0)?;
 
-        for (layer_idx, layer) in self.transformer_weights.layers.iter().enumerate() {
-            hidden = self.run_layer(
-                &hidden,
-                layer,
-                &cos,
-                &sin,
-                &causal_mask,
-                batch_size,
-                seq_len,
-                layer_idx,
-            )?;
+        for (layer_idx, layer) in self
+            .transformer_weights
+            .layers
+            .iter()
+            .enumerate()
+        {
+            hidden = self.run_layer(&hidden, layer, &cos, &sin, &causal_mask, batch_size, seq_len, layer_idx)?;
         }
 
         Ok(hidden)
@@ -583,17 +530,7 @@ impl Decoder12Hz {
 
     /// Run a single transformer layer
     #[allow(clippy::too_many_arguments, unused_variables)]
-    fn run_layer(
-        &self,
-        hidden: &Tensor,
-        layer: &TransformerLayerWeights,
-        cos: &Tensor,
-        sin: &Tensor,
-        causal_mask: &Tensor,
-        batch_size: usize,
-        seq_len: usize,
-        layer_idx: usize,
-    ) -> Result<Tensor> {
+    fn run_layer(&self, hidden: &Tensor, layer: &TransformerLayerWeights, cos: &Tensor, sin: &Tensor, causal_mask: &Tensor, batch_size: usize, seq_len: usize, layer_idx: usize) -> Result<Tensor> {
         // RMS Norm
         let normed = self.rms_norm(hidden, &layer.input_ln_weight)?;
 
@@ -604,28 +541,13 @@ impl Decoder12Hz {
 
         // Reshape for multi-head attention
         let q = q
-            .reshape((
-                batch_size,
-                seq_len,
-                self.config.num_heads,
-                self.config.head_dim,
-            ))?
+            .reshape((batch_size, seq_len, self.config.num_heads, self.config.head_dim))?
             .transpose(1, 2)?; // [batch, heads, seq, head_dim]
         let k = k
-            .reshape((
-                batch_size,
-                seq_len,
-                self.config.num_heads,
-                self.config.head_dim,
-            ))?
+            .reshape((batch_size, seq_len, self.config.num_heads, self.config.head_dim))?
             .transpose(1, 2)?;
         let v = v
-            .reshape((
-                batch_size,
-                seq_len,
-                self.config.num_heads,
-                self.config.head_dim,
-            ))?
+            .reshape((batch_size, seq_len, self.config.num_heads, self.config.head_dim))?
             .transpose(1, 2)?;
 
         // Apply RoPE
@@ -637,18 +559,19 @@ impl Decoder12Hz {
         let q = q.contiguous()?;
         let k = k.contiguous()?;
         let v = v.contiguous()?;
-        let attn = q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)?;
+        let attn = q.matmul(
+            &k.transpose(D::Minus2, D::Minus1)?
+                .contiguous()?,
+        )?;
         let attn = (attn * scale)?;
         let attn = attn.broadcast_add(causal_mask)?;
         let attn = candle_nn::ops::softmax_last_dim(&attn)?;
         let attn_out = attn.matmul(&v)?;
 
         // Reshape back
-        let attn_out = attn_out.transpose(1, 2)?.reshape((
-            batch_size,
-            seq_len,
-            self.config.num_heads * self.config.head_dim,
-        ))?;
+        let attn_out = attn_out
+            .transpose(1, 2)?
+            .reshape((batch_size, seq_len, self.config.num_heads * self.config.head_dim))?;
 
         // Output projection
         let attn_out = self.linear_3d(&attn_out, &layer.o_proj_weight, None)?;
@@ -681,19 +604,23 @@ impl Decoder12Hz {
     /// Apply rotary position embedding
     fn apply_rope(&self, x: &Tensor, cos: &Tensor, sin: &Tensor) -> Result<Tensor> {
         let x1 = x.narrow(D::Minus1, 0, self.config.head_dim / 2)?;
-        let x2 = x.narrow(
-            D::Minus1,
-            self.config.head_dim / 2,
-            self.config.head_dim / 2,
-        )?;
+        let x2 = x.narrow(D::Minus1, self.config.head_dim / 2, self.config.head_dim / 2)?;
         let rotated = Tensor::cat(&[&x2.neg()?, &x1], D::Minus1)?;
         Ok((x.broadcast_mul(cos)? + rotated.broadcast_mul(sin)?)?)
     }
 
     /// Get total upsampling factor
     pub fn total_upsample(&self) -> usize {
-        let pre_upsample: usize = self.config.upsampling_ratios.iter().product();
-        let decoder_upsample: usize = self.config.upsample_rates.iter().product();
+        let pre_upsample: usize = self
+            .config
+            .upsampling_ratios
+            .iter()
+            .product();
+        let decoder_upsample: usize = self
+            .config
+            .upsample_rates
+            .iter()
+            .product();
         pre_upsample * decoder_upsample
     }
 }
@@ -716,7 +643,10 @@ mod tests {
         // pre: 2 * 2 = 4
         // decoder: 8 * 5 * 4 * 3 = 480
         // total: 4 * 480 = 1920
-        let pre: usize = config.upsampling_ratios.iter().product();
+        let pre: usize = config
+            .upsampling_ratios
+            .iter()
+            .product();
         let dec: usize = config.upsample_rates.iter().product();
         assert_eq!(pre * dec, 1920);
     }

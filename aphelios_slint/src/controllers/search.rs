@@ -9,7 +9,9 @@ pub struct SearchLogic {
 
 impl SearchLogic {
     pub fn new(ctx: Arc<AppContext>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+        }
     }
 
     pub fn get_book_count(&self) -> Result<usize> {
@@ -17,7 +19,9 @@ impl SearchLogic {
     }
 
     pub fn get_index_status(&self) -> Result<IndexStatus> {
-        self.ctx.search_engine.get_index_status()
+        self.ctx
+            .search_engine
+            .get_index_status()
     }
 
     /// Scan books directory in background thread.
@@ -30,13 +34,7 @@ impl SearchLogic {
         });
     }
 
-    pub fn search_books_with_mode(
-        &self,
-        query: String,
-        limit: usize,
-        mode: SearchMode,
-        on_complete: impl Fn(Result<SearchResult>) + Send + 'static,
-    ) {
+    pub fn search_books_with_mode(&self, query: String, limit: usize, mode: SearchMode, on_complete: impl Fn(Result<SearchResult>) + Send + 'static) {
         let engine = self.ctx.search_engine.clone();
 
         std::thread::spawn(move || {

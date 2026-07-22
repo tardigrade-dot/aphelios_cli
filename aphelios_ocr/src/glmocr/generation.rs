@@ -16,13 +16,7 @@ use image::DynamicImage;
 /// 4. Embed + merge vision tokens
 /// 5. Prefill the decoder
 /// 6. Autoregressively generate tokens until EOS or max_tokens
-pub fn generate(
-    model: &GlmOcrModel,
-    tokenizer: &GlmOcrTokenizer,
-    image: &DynamicImage,
-    prompt: &str,
-    max_tokens: usize,
-) -> Result<String> {
+pub fn generate(model: &GlmOcrModel, tokenizer: &GlmOcrTokenizer, image: &DynamicImage, prompt: &str, max_tokens: usize) -> Result<String> {
     let device = &model.device;
 
     // 1. Preprocess image and cast to model dtype
@@ -30,17 +24,14 @@ pub fn generate(
     let pixel_values = pixel_values.to_dtype(model.dtype)?;
 
     // 2. Run vision encoder (single forward pass)
-    let image_embeds = model.vision_encoder.forward(&pixel_values, grid_thw)?;
+    let image_embeds = model
+        .vision_encoder
+        .forward(&pixel_values, grid_thw)?;
     let num_image_tokens = image_embeds.dim(0)?;
 
     // 3. Build input token sequence
     let input_ids = tokenizer.build_input_ids(prompt, num_image_tokens)?;
-    tracing::debug!(
-        "grid_thw: {:?}, num_image_tokens: {}, input_ids len: {}",
-        grid_thw,
-        num_image_tokens,
-        input_ids.len()
-    );
+    tracing::debug!("grid_thw: {:?}, num_image_tokens: {}, input_ids len: {}", grid_thw, num_image_tokens, input_ids.len());
 
     // 4. Embed tokens + merge vision embeddings
     let inputs_embeds = model.embed_and_merge(&input_ids, &image_embeds)?;
@@ -55,33 +46,21 @@ pub fn generate(
 
     // 7. Prefill: forward pass on entire sequence
     let kv_caches: Vec<Option<KvCache>> = Vec::new();
-    let (logits, mut kv_caches) = model.text_decoder.forward_with_cache(
-        &inputs_embeds,
-        &position_ids,
-        Some(&attention_mask),
-        kv_caches,
-    )?;
+    let (logits, mut kv_caches) = model
+        .text_decoder
+        .forward_with_cache(&inputs_embeds, &position_ids, Some(&attention_mask), kv_caches)?;
 
     // 8. Get first generated token (greedy argmax, no penalty for first token)
     let mut generated_tokens: Vec<u32> = Vec::new();
     let next_token = argmax_with_debug(&logits, "prefill")?;
     let mut next_token = next_token;
-    tracing::debug!(
-        "First token: {} (eos={})",
-        next_token,
-        tokenizer.is_eos(next_token)
-    );
+    tracing::debug!("First token: {} (eos={})", next_token, tokenizer.is_eos(next_token));
     let mut output_tokens = Vec::new();
 
     // 9. Autoregressive decode loop
     // Position for decode uses the position counter from get_rope_index, NOT seq_len
     let mut current_pos = next_decode_pos;
-    tracing::debug!(
-        "Decode start pos: {}, seq_len: {}, num_image_tokens: {}",
-        current_pos,
-        seq_len,
-        num_image_tokens
-    );
+    tracing::debug!("Decode start pos: {}, seq_len: {}, num_image_tokens: {}", current_pos, seq_len, num_image_tokens);
     for step in 0..max_tokens {
         if tokenizer.is_eos(next_token) {
             tracing::debug!("EOS at step {}, token {}", step, next_token);
@@ -95,17 +74,18 @@ pub fn generate(
 
         // Embed single token
         let token_tensor = Tensor::from_vec(vec![next_token as i64], (1, 1), device)?;
-        let token_embeds = model.text_decoder.embed(&token_tensor)?; // [1, 1, hidden]
+        let token_embeds = model
+            .text_decoder
+            .embed(&token_tensor)?; // [1, 1, hidden]
 
         // Position IDs for this step: all 3 dims get same sequential value
         let pos_val = current_pos as i64;
         let pos = Tensor::from_vec(vec![pos_val; 3], (3, 1, 1), device)?;
 
         // No attention mask needed for single-token decode with KV-cache
-        let (logits, new_caches) =
-            model
-                .text_decoder
-                .forward_with_cache(&token_embeds, &pos, None, kv_caches)?;
+        let (logits, new_caches) = model
+            .text_decoder
+            .forward_with_cache(&token_embeds, &pos, None, kv_caches)?;
         kv_caches = new_caches;
 
         next_token = argmax_with_penalty(&logits, &generated_tokens, 1.0)?;
@@ -132,10 +112,16 @@ fn create_causal_mask(seq_len: usize, device: &Device) -> candle_core::Result<Te
 /// Get argmax with debug logging of top-5 tokens.
 fn argmax_with_debug(logits: &Tensor, label: &str) -> candle_core::Result<u32> {
     let logits_flat = logits.squeeze(0)?.squeeze(0)?;
-    let logits_vec = logits_flat.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+    let logits_vec = logits_flat
+        .to_dtype(DType::F32)?
+        .to_vec1::<f32>()?;
 
     // Get top 5
-    let mut indexed: Vec<(usize, f32)> = logits_vec.iter().copied().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits_vec
+        .iter()
+        .copied()
+        .enumerate()
+        .collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
     let top5: Vec<_> = indexed.iter().take(5).collect();
@@ -145,14 +131,12 @@ fn argmax_with_debug(logits: &Tensor, label: &str) -> candle_core::Result<u32> {
 }
 
 /// Get the argmax of the last token's logits with repetition penalty.
-fn argmax_with_penalty(
-    logits: &Tensor,
-    generated: &[u32],
-    penalty: f32,
-) -> candle_core::Result<u32> {
+fn argmax_with_penalty(logits: &Tensor, generated: &[u32], penalty: f32) -> candle_core::Result<u32> {
     // logits: [batch=1, 1, vocab_size]
     let logits = logits.squeeze(0)?.squeeze(0)?; // [vocab_size]
-    let mut logits_vec = logits.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+    let mut logits_vec = logits
+        .to_dtype(DType::F32)?
+        .to_vec1::<f32>()?;
 
     // Apply repetition penalty to previously generated tokens
     for &token_id in generated {

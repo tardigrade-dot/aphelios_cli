@@ -52,26 +52,25 @@ impl TextDecoderLayer {
         })
     }
 
-    pub fn forward(
-        &self,
-        hidden_states: &Tensor,
-        cos: &Tensor,
-        sin: &Tensor,
-        attention_mask: Option<&Tensor>,
-        cache: Option<KvCache>,
-    ) -> Result<(Tensor, KvCache)> {
+    pub fn forward(&self, hidden_states: &Tensor, cos: &Tensor, sin: &Tensor, attention_mask: Option<&Tensor>, cache: Option<KvCache>) -> Result<(Tensor, KvCache)> {
         // Self-attention block
         let residual = hidden_states;
-        let h = self.input_layernorm.forward(hidden_states)?;
+        let h = self
+            .input_layernorm
+            .forward(hidden_states)?;
         let (h, new_cache) = self
             .self_attn
             .forward(&h, cos, sin, attention_mask, cache)?;
-        let h = self.post_self_attn_layernorm.forward(&h)?;
+        let h = self
+            .post_self_attn_layernorm
+            .forward(&h)?;
         let hidden_states = (residual + h)?;
 
         // MLP block
         let residual = &hidden_states;
-        let h = self.post_attention_layernorm.forward(&hidden_states)?;
+        let h = self
+            .post_attention_layernorm
+            .forward(&hidden_states)?;
         let h = candle_nn::Module::forward(&self.mlp, &h)?;
         let h = self.post_mlp_layernorm.forward(&h)?;
         let hidden_states = (residual + h)?;

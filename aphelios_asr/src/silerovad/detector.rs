@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use aphelios_core::{
-    AudioLoader, Resampler, audio::{MonoBuffer, ResampleQuality}, hub::load_file_local_or_download,
+    audio::{MonoBuffer, ResampleQuality},
+    hub::load_file_local_or_download,
+    AudioLoader, Resampler,
 };
 use tracing::info;
 
@@ -48,7 +50,9 @@ impl VadDetector {
         let audio = AudioLoader::new().load(audio_path)?;
         let mono = audio.into_mono();
 
-        let samples_segments = self.engine.collect_segments(mono.samples.as_slice())?;
+        let samples_segments = self
+            .engine
+            .collect_segments(mono.samples.as_slice())?;
         // Convert sample indices to milliseconds
         Ok(samples_segments
             .into_iter()
@@ -100,8 +104,8 @@ impl VadProcessor {
     pub fn new_default(model_dir: Option<impl Into<String>>) -> Result<Self> {
         let config = VadConfig::for_pipeline();
         let model_id = model_dir
-                    .map(|m| m.into())
-                    .unwrap_or_else(|| SILERO_VAD_ONNX.to_string());
+            .map(|m| m.into())
+            .unwrap_or_else(|| SILERO_VAD_ONNX.to_string());
         Self::new(&load_file_local_or_download(&model_id, "model.onnx"), config)
     }
 
@@ -123,7 +127,9 @@ impl VadProcessor {
         let audio = AudioLoader::new().load(audio_path)?;
         let mono = audio.into_mono();
 
-        let segments = self.engine.collect_segments(&mono.samples)?;
+        let segments = self
+            .engine
+            .collect_segments(&mono.samples)?;
         // Convert sample indices to milliseconds
         let ms_segments: Vec<VadSegment> = segments
             .into_iter()
@@ -153,12 +159,7 @@ impl VadProcessor {
 
     /// Aggregate VAD segments into batches of approximately `target_duration` seconds.
     /// Segments are expected to be in milliseconds.
-    pub fn aggregate_segments(
-        &self,
-        segments: &[VadSegment],
-        target_duration: f64,
-        max_silence_merge: f64,
-    ) -> Vec<AudioBatch> {
+    pub fn aggregate_segments(&self, segments: &[VadSegment], target_duration: f64, max_silence_merge: f64) -> Vec<AudioBatch> {
         if segments.is_empty() {
             return Vec::new();
         }
@@ -234,26 +235,14 @@ pub fn run_vad_with_path(audio_path: &str, label: &str) -> Result<()> {
     };
 
     info!("Audio duration: {:.2}s", duration);
-    info!(
-        "Speech duration: {:.2}s ({:.1}%)",
-        total_speech,
-        speech_ratio * 100.0
-    );
+    info!("Speech duration: {:.2}s ({:.1}%)", total_speech, speech_ratio * 100.0);
     info!("Segments detected: {}", segments.len());
 
     for (i, segment) in segments.iter().enumerate() {
-        info!(
-            "  Segment {}: {:.2}s - {:.2}s",
-            i + 1,
-            segment.start,
-            segment.end
-        );
+        info!("  Segment {}: {:.2}s - {:.2}s", i + 1, segment.start, segment.end);
     }
 
-    assert!(
-        !segments.is_empty(),
-        "Should detect at least one speech segment"
-    );
+    assert!(!segments.is_empty(), "Should detect at least one speech segment");
     Ok(())
 }
 

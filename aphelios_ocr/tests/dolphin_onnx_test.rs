@@ -23,30 +23,17 @@ fn onnx_test() -> Result<()> {
 
 fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
     // 1. 按照 target 尺寸进行等比例缩放
-    let resized = img.resize(
-        IMAGE_WIDTH as u32,
-        IMAGE_HEIGHT as u32,
-        image::imageops::FilterType::Triangle,
-    );
+    let resized = img.resize(IMAGE_WIDTH as u32, IMAGE_HEIGHT as u32, image::imageops::FilterType::Triangle);
 
     // 2. 创建黑色画布
-    let mut canvas = RgbImage::from_pixel(
-        IMAGE_WIDTH as u32,
-        IMAGE_HEIGHT as u32,
-        image::Rgb([0, 0, 0]),
-    );
+    let mut canvas = RgbImage::from_pixel(IMAGE_WIDTH as u32, IMAGE_HEIGHT as u32, image::Rgb([0, 0, 0]));
 
     // 3. 计算居中偏移量 (关键：与 get_tensor_from_image 一致)
     let x_offset = (IMAGE_WIDTH as u32 - resized.width()) / 2;
     let y_offset = (IMAGE_HEIGHT as u32 - resized.height()) / 2;
 
     // 4. 将缩放后的图像居中放置在画布上
-    image::imageops::overlay(
-        &mut canvas,
-        &resized.to_rgb8(),
-        x_offset as i64,
-        y_offset as i64,
-    );
+    image::imageops::overlay(&mut canvas, &resized.to_rgb8(), x_offset as i64, y_offset as i64);
 
     let (width, height) = (canvas.width() as usize, canvas.height() as usize);
 
@@ -56,7 +43,11 @@ fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
 
     let mut normalized = vec![0f32; 3 * height * width];
 
-    for (c, (&mean, &std)) in image_mean.iter().zip(image_std.iter()).enumerate() {
+    for (c, (&mean, &std)) in image_mean
+        .iter()
+        .zip(image_std.iter())
+        .enumerate()
+    {
         for y in 0..height {
             for x in 0..width {
                 let pixel = canvas.get_pixel(x as u32, y as u32);
@@ -68,23 +59,18 @@ fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
     }
 
     // 6. 转换为 ndarray 格式输出
-    let array = Array4::from_shape_vec((1, 3, IMAGE_HEIGHT, IMAGE_WIDTH), normalized)
-        .context("Failed to create input tensor")?;
+    let array = Array4::from_shape_vec((1, 3, IMAGE_HEIGHT, IMAGE_WIDTH), normalized).context("Failed to create input tensor")?;
 
     // 可选：调试保存，检查图片是否居中
     let i = Instant::now().elapsed().as_micros();
-    canvas.save(format!(
-        "/Users/larry/coderesp/aphelios_cli/output/debug_centered_input-{}.png",
-        i
-    ))?;
+    canvas.save(format!("/Users/larry/coderesp/aphelios_cli/output/debug_centered_input-{}.png", i))?;
 
     Ok(array)
 }
 /// Load and preprocess image for Dolphin model
 /// 修改后的预处理函数：采用居中对齐 (Center Padding)
 fn preprocess_image(image_path: &Path) -> Result<Array4<f32>> {
-    let img = image::open(image_path)
-        .with_context(|| format!("Failed to open image: {:?}", image_path))?;
+    let img = image::open(image_path).with_context(|| format!("Failed to open image: {:?}", image_path))?;
     preprocess_img(&img)
 }
 
@@ -102,21 +88,17 @@ fn load_model(model_path: &Path) -> Result<Session> {
 }
 
 /// Run encoder-decoder model for layout recognition
-fn model_infer(
-    encoder_session: &mut Session,
-    decoder_session: &mut Session,
-    pixel_values: &Array4<f32>,
-    tokenizer: &Tokenizer,
-    task_prompt: &str,
-    max_tokens: usize,
-) -> Result<String> {
-    let eos_token_id = tokenizer.token_to_id("</s>").unwrap_or(2) as i64;
+fn model_infer(encoder_session: &mut Session, decoder_session: &mut Session, pixel_values: &Array4<f32>, tokenizer: &Tokenizer, task_prompt: &str, max_tokens: usize) -> Result<String> {
+    let eos_token_id = tokenizer
+        .token_to_id("</s>")
+        .unwrap_or(2) as i64;
 
     // Run encoder
     let encoder_input = Value::from_array(pixel_values.clone())?;
-    let encoder_input_name = encoder_session.inputs()[0].name().to_string();
-    let encoder_outputs: ort::session::SessionOutputs<'_> =
-        encoder_session.run(vec![(encoder_input_name, encoder_input)])?;
+    let encoder_input_name = encoder_session.inputs()[0]
+        .name()
+        .to_string();
+    let encoder_outputs: ort::session::SessionOutputs<'_> = encoder_session.run(vec![(encoder_input_name, encoder_input)])?;
 
     // Get encoder hidden states
     let encoder_hidden_states = encoder_outputs
@@ -128,12 +110,13 @@ fn model_infer(
                 .ok()
                 .map(|(shape_info, data)| {
                     let data_vec: Vec<f32> = data.iter().copied().collect();
-                    let shape: Vec<usize> = shape_info.iter().map(|&x| x as usize).collect();
-                    Value::from_array(
-                        ndarray::ArrayD::<f32>::from_shape_vec(shape, data_vec).unwrap(),
-                    )
-                    .unwrap()
-                    .into_dyn()
+                    let shape: Vec<usize> = shape_info
+                        .iter()
+                        .map(|&x| x as usize)
+                        .collect();
+                    Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(shape, data_vec).unwrap())
+                        .unwrap()
+                        .into_dyn()
                 })
         })
         .context("No last_hidden_state output from encoder")?;
@@ -142,7 +125,11 @@ fn model_infer(
     let tokens = tokenizer
         .encode(task_prompt, false)
         .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
-    let mut token_ids: Vec<i64> = tokens.get_ids().iter().map(|&x| x as i64).collect();
+    let mut token_ids: Vec<i64> = tokens
+        .get_ids()
+        .iter()
+        .map(|&x| x as i64)
+        .collect();
 
     let decoder_input_names: Vec<String> = decoder_session
         .inputs()
@@ -153,8 +140,7 @@ fn model_infer(
     // Greedy decoding loop
     for _step in 0..max_tokens {
         // Pass full sequence (decoder doesn't use KV cache)
-        let input_ids_array =
-            ndarray::Array2::from_shape_vec((1, token_ids.len()), token_ids.clone())?;
+        let input_ids_array = ndarray::Array2::from_shape_vec((1, token_ids.len()), token_ids.clone())?;
         let input_ids_tensor = Value::from_array(input_ids_array)?.into_dyn();
 
         // Build decoder inputs
@@ -166,32 +152,39 @@ fn model_infer(
             let encoder_hs_array = encoder_hidden_states.try_extract_tensor::<f32>()?;
             let (shape_info, data) = encoder_hs_array;
             let data_vec: Vec<f32> = data.iter().copied().collect();
-            let shape: Vec<usize> = shape_info.iter().map(|&x| x as usize).collect();
-            let encoder_hs_tensor = Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(
-                shape.clone(),
-                data_vec,
-            )?)?
-            .into_dyn();
+            let shape: Vec<usize> = shape_info
+                .iter()
+                .map(|&x| x as usize)
+                .collect();
+            let encoder_hs_tensor = Value::from_array(ndarray::ArrayD::<f32>::from_shape_vec(shape.clone(), data_vec)?)?.into_dyn();
             inputs_vec.push((decoder_input_names[1].clone(), encoder_hs_tensor));
         }
 
         let outputs = decoder_session.run(inputs_vec)?;
 
         // Extract logits
-        let logits_result =
-            outputs
-                .iter()
-                .find(|(name, _)| *name == "logits")
-                .and_then(|(_, value)| {
-                    value.try_extract_tensor::<f32>().ok().map(|(shape, data)| {
+        let logits_result = outputs
+            .iter()
+            .find(|(name, _)| *name == "logits")
+            .and_then(|(_, value)| {
+                value
+                    .try_extract_tensor::<f32>()
+                    .ok()
+                    .map(|(shape, data)| {
                         let data_vec: Vec<f32> = data.iter().copied().collect();
-                        let shape_vec: Vec<usize> = shape.iter().map(|&x| x as usize).collect();
+                        let shape_vec: Vec<usize> = shape
+                            .iter()
+                            .map(|&x| x as usize)
+                            .collect();
                         (data_vec, shape_vec)
                     })
-                });
+            });
 
         if let Some((logits_data, shape_vec)) = logits_result {
-            let vocab_size = shape_vec.last().copied().unwrap_or(73921);
+            let vocab_size = shape_vec
+                .last()
+                .copied()
+                .unwrap_or(73921);
             let seq_len = shape_vec.get(1).copied().unwrap_or(1);
             let position = seq_len - 1;
             let token_start = position * vocab_size;
@@ -204,8 +197,10 @@ fn model_infer(
 
             // Apply temperature
             let temperature = 0.8f32;
-            let scaled_logits: Vec<f32> =
-                next_token_logits.iter().map(|&x| x / temperature).collect();
+            let scaled_logits: Vec<f32> = next_token_logits
+                .iter()
+                .map(|&x| x / temperature)
+                .collect();
 
             let next_token = scaled_logits
                 .iter()
@@ -223,7 +218,10 @@ fn model_infer(
             // Stop on repetition
             if token_ids.len() > 5 {
                 let last_five: Vec<&i64> = token_ids.iter().rev().take(5).collect();
-                if last_five.iter().all(|&x| x == &next_token) {
+                if last_five
+                    .iter()
+                    .all(|&x| x == &next_token)
+                {
                     break;
                 }
             }
@@ -234,7 +232,10 @@ fn model_infer(
 
     let decoded = tokenizer
         .decode(
-            &token_ids.iter().map(|&x| x as u32).collect::<Vec<_>>(),
+            &token_ids
+                .iter()
+                .map(|&x| x as u32)
+                .collect::<Vec<_>>(),
             false,
         )
         .map_err(|e| anyhow::anyhow!("Decode failed: {}", e))?;
@@ -271,11 +272,7 @@ fn parse_layout_bboxes(layout_str: &str) -> Result<Vec<([i32; 4], String)>> {
 }
 
 /// Draw bounding boxes on image and save
-fn draw_bboxes_and_save(
-    img: &DynamicImage,
-    bboxes: &[([u32; 4], String)],
-    save_path: &Path,
-) -> Result<()> {
+fn draw_bboxes_and_save(img: &DynamicImage, bboxes: &[([u32; 4], String)], save_path: &Path) -> Result<()> {
     let (orig_w, orig_h) = img.dimensions();
 
     // 1. 模拟与 preprocess_image 完全一致的缩放逻辑
@@ -352,18 +349,13 @@ fn start_ocr() -> Result<()> {
     println!("Decoder: {:?}", decoder_file);
     println!("Test image: {:?}", test_image);
 
-    if !encoder_file.exists()
-        || !decoder_file.exists()
-        || !test_image.exists()
-        || !tokenizer_file.exists()
-    {
+    if !encoder_file.exists() || !decoder_file.exists() || !test_image.exists() || !tokenizer_file.exists() {
         println!("\nNote: Model files not found. Please update paths.");
         return Ok(());
     }
 
     println!("\nLoading tokenizer...");
-    let tokenizer = Tokenizer::from_file(tokenizer_file)
-        .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
+    let tokenizer = Tokenizer::from_file(tokenizer_file).map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
 
     println!("Loading encoder model...");
     let mut encoder_session = load_model(encoder_file)?;
@@ -402,14 +394,7 @@ fn start_ocr() -> Result<()> {
     println!("\nRunning layout recognition...");
 
     let start = std::time::Instant::now();
-    let layout_str = model_infer(
-        &mut encoder_session,
-        &mut decoder_session,
-        &pixel_values,
-        &tokenizer,
-        task_prompt,
-        512,
-    )?;
+    let layout_str = model_infer(&mut encoder_session, &mut decoder_session, &pixel_values, &tokenizer, task_prompt, 512)?;
     println!("Completed in {:?}", start.elapsed());
 
     println!("\n=== Layout Recognition Result ===");
@@ -423,23 +408,13 @@ fn start_ocr() -> Result<()> {
     let (img_w, img_h) = img.dimensions();
     let mut draw_bbox: Vec<([u32; 4], String)> = Vec::new();
     for (bbox, label) in &bboxes {
-        println!(
-            "  [{}] {},{},{},{}",
-            label, bbox[0], bbox[1], bbox[2], bbox[3]
-        );
+        println!("  [{}] {},{},{},{}", label, bbox[0], bbox[1], bbox[2], bbox[3]);
 
         let n_bbox = dolphin_utils::transform_to_pixel_dynamic(bbox, img_w, img_h, 896, 895);
         draw_bbox.push((n_bbox, label.to_string()));
 
         let clip = dolphin_utils::crop_image(&img, n_bbox, 5);
-        let r = model_infer(
-            &mut encoder_session,
-            &mut decoder_session,
-            &preprocess_img(&clip)?,
-            &tokenizer,
-            "<s>Read text in the image. <Answer/>",
-            512,
-        );
+        let r = model_infer(&mut encoder_session, &mut decoder_session, &preprocess_img(&clip)?, &tokenizer, "<s>Read text in the image. <Answer/>", 512);
         print!("label [{}] text [{}]", label, r?)
     }
 

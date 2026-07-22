@@ -1,6 +1,6 @@
-use std::{env, fs, thread::sleep, time::Duration};
 use anyhow::{Context, Result};
-use async_openai::{Client, config::OpenAIConfig};
+use async_openai::{config::OpenAIConfig, Client};
+use std::{env, fs, thread::sleep, time::Duration};
 use tracing::{error, info};
 
 use crate::openai::infer::simple_infer;
@@ -15,7 +15,9 @@ struct SrtBlock {
 
 /// 解析 SRT 文件内容
 fn parse_srt(content: &str) -> Result<Vec<SrtBlock>> {
-    let normalized = content.replace("\r\n", "\n").replace("\r", "\n");
+    let normalized = content
+        .replace("\r\n", "\n")
+        .replace("\r", "\n");
     let mut blocks = Vec::new();
     let mut current_lines = Vec::new();
 
@@ -96,7 +98,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
     let input_text = input_lines.join("\n");
 
     let prompt;
-    if let Some(c) = ctx{
+    if let Some(c) = ctx {
         prompt = format!(
             "将以下字幕逐行翻译为中文。\n\
             这是提示信息: {}\n\
@@ -110,8 +112,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
             batch.len(),
             input_text
         );
-    }else{
-
+    } else {
         prompt = format!(
             "将以下字幕逐行翻译为中文。\n\
             规则：\n\
@@ -151,11 +152,7 @@ async fn translate_batch(client: &Client<OpenAIConfig>, model_id: &str, batch: &
 
     // 校验数量：如果解析出的译文数量与输入不匹配，尝试降级处理
     if translations.len() != batch.len() {
-        info!(
-            "⚠️ 翻译数量不匹配: 期望 {}, 解析得到 {}. 尝试按顺序截取/填充...",
-            batch.len(),
-            translations.len()
-        );
+        info!("⚠️ 翻译数量不匹配: 期望 {}, 解析得到 {}. 尝试按顺序截取/填充...", batch.len(), translations.len());
         // 如果多了，截取前 N 个；如果少了，用空字符串填充
         translations.resize_with(batch.len(), || "[翻译缺失]".to_string());
         std::process::exit(1);
@@ -178,9 +175,8 @@ fn generate_bilingual_srt(blocks: &[SrtBlock]) -> String {
     output
 }
 
-pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) -> Result<String>{
-    let input_content = fs::read_to_string(srt_path)
-        .with_context(|| format!("无法读取文件: {}", srt_path))?;
+pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) -> Result<String> {
+    let input_content = fs::read_to_string(srt_path).with_context(|| format!("无法读取文件: {}", srt_path))?;
     let mut blocks = parse_srt(&input_content)?;
 
     // 配置：最大批次大小，建议 10~20
@@ -199,15 +195,20 @@ pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) ->
 
     // deepseek
     let api_base = "https://api.deepseek.com/v1";
-    let model_id = "deepseek-v4-flash";//"deepseek-v4-flash"; //"deepseek-v4-pro";
+    let model_id = "deepseek-v4-flash"; //"deepseek-v4-flash"; //"deepseek-v4-pro";
     let api_key = env::var("DEEPSEEK_API_KEY")?;
 
-    let config = OpenAIConfig::new().with_api_base(api_base).with_header("Authorization", format!("Bearer {}", api_key))?;
+    let config = OpenAIConfig::new()
+        .with_api_base(api_base)
+        .with_header("Authorization", format!("Bearer {}", api_key))?;
 
     let client = Client::with_config(config);
 
     for (batch_idx, indices) in batches.iter().enumerate() {
-        let batch_refs: Vec<&SrtBlock> = indices.iter().map(|&i| &blocks[i]).collect();
+        let batch_refs: Vec<&SrtBlock> = indices
+            .iter()
+            .map(|&i| &blocks[i])
+            .collect();
         info!("⏳ 批次 {}/{} ({} 条)... ", batch_idx + 1, batches.len(), indices.len());
 
         match translate_batch(&client, model_id, &batch_refs, Some(ctx)).await {
@@ -230,8 +231,7 @@ pub async fn process_translator(ctx: &str, srt_path: &str, output_path: &str) ->
     }
 
     let output_content = generate_bilingual_srt(&blocks);
-    fs::write(output_path, output_content)
-        .with_context(|| format!("无法写入文件: {}", output_path))?;
+    fs::write(output_path, output_content).with_context(|| format!("无法写入文件: {}", output_path))?;
 
     info!("\n🎉 翻译完成！双语字幕已保存至: {}", output_path);
 

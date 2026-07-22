@@ -1,7 +1,7 @@
 use anyhow::Result;
 use candle_core::{DType, Device, IndexOp, Tensor};
-use candle_nn::{Conv2d, Conv2dConfig, LayerNorm, Module};
 use candle_nn::ops::softmax_last_dim;
+use candle_nn::{Conv2d, Conv2dConfig, LayerNorm, Module};
 use std::collections::HashMap;
 
 use crate::qwen3asr::config::AudioEncoderConfig;
@@ -19,28 +19,27 @@ fn get_w(weights: &HashMap<String, Tensor>, name: &str) -> anyhow::Result<Tensor
 fn load_linear(weights: &HashMap<String, Tensor>, prefix: &str) -> Result<LinearW> {
     Ok(LinearW::new(
         get_w(weights, &format!("{}.weight", prefix))?,
-        weights.get(&format!("{}.bias", prefix)).cloned(),
+        weights
+            .get(&format!("{}.bias", prefix))
+            .cloned(),
     ))
 }
 
 fn load_layer_norm(weights: &HashMap<String, Tensor>, prefix: &str, eps: f64) -> Result<LayerNorm> {
-    Ok(LayerNorm::new(
-        get_w(weights, &format!("{}.weight", prefix))?,
-        get_w(weights, &format!("{}.bias", prefix))?,
-        eps,
-    ))
+    Ok(LayerNorm::new(get_w(weights, &format!("{}.weight", prefix))?, get_w(weights, &format!("{}.bias", prefix))?, eps))
 }
 
-fn load_conv2d(
-    weights: &HashMap<String, Tensor>,
-    prefix: &str,
-    stride: usize,
-    padding: usize,
-) -> Result<Conv2d> {
+fn load_conv2d(weights: &HashMap<String, Tensor>, prefix: &str, stride: usize, padding: usize) -> Result<Conv2d> {
     Ok(Conv2d::new(
         get_w(weights, &format!("{}.weight", prefix))?,
-        weights.get(&format!("{}.bias", prefix)).cloned(),
-        Conv2dConfig { stride, padding, ..Default::default() },
+        weights
+            .get(&format!("{}.bias", prefix))
+            .cloned(),
+        Conv2dConfig {
+            stride,
+            padding,
+            ..Default::default()
+        },
     ))
 }
 
@@ -56,17 +55,12 @@ struct AudioAttention {
 }
 
 impl AudioAttention {
-    fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        num_heads: usize,
-        d_model: usize,
-    ) -> Result<Self> {
+    fn load(weights: &HashMap<String, Tensor>, prefix: &str, num_heads: usize, d_model: usize) -> Result<Self> {
         let head_dim = d_model / num_heads;
         Ok(Self {
-            q_proj:   load_linear(weights, &format!("{}.q_proj", prefix))?,
-            k_proj:   load_linear(weights, &format!("{}.k_proj", prefix))?,
-            v_proj:   load_linear(weights, &format!("{}.v_proj", prefix))?,
+            q_proj: load_linear(weights, &format!("{}.q_proj", prefix))?,
+            k_proj: load_linear(weights, &format!("{}.k_proj", prefix))?,
+            v_proj: load_linear(weights, &format!("{}.v_proj", prefix))?,
             out_proj: load_linear(weights, &format!("{}.out_proj", prefix))?,
             num_heads,
             head_dim,
@@ -78,15 +72,21 @@ impl AudioAttention {
         let nh = self.num_heads;
         let hd = self.head_dim;
 
-        let q = self.q_proj.forward(x)?
+        let q = self
+            .q_proj
+            .forward(x)?
             .reshape((bsz, seq_len, nh, hd))?
             .transpose(1, 2)?
             .contiguous()?;
-        let k = self.k_proj.forward(x)?
+        let k = self
+            .k_proj
+            .forward(x)?
             .reshape((bsz, seq_len, nh, hd))?
             .transpose(1, 2)?
             .contiguous()?;
-        let v = self.v_proj.forward(x)?
+        let v = self
+            .v_proj
+            .forward(x)?
             .reshape((bsz, seq_len, nh, hd))?
             .transpose(1, 2)?
             .contiguous()?;
@@ -100,8 +100,13 @@ impl AudioAttention {
 
         let attn = softmax_last_dim(&attn)?;
         let out = attn.matmul(&v)?;
-        let out = out.transpose(1, 2)?.contiguous()?.reshape((bsz, seq_len, nh * hd))?;
-        self.out_proj.forward(&out).map_err(Into::into)
+        let out = out
+            .transpose(1, 2)?
+            .contiguous()?
+            .reshape((bsz, seq_len, nh * hd))?;
+        self.out_proj
+            .forward(&out)
+            .map_err(Into::into)
     }
 }
 
@@ -121,7 +126,9 @@ impl AudioFfn {
     }
 
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        self.fc2.forward(&self.fc1.forward(x)?.gelu_erf()?).map_err(Into::into)
+        self.fc2
+            .forward(&self.fc1.forward(x)?.gelu_erf()?)
+            .map_err(Into::into)
     }
 }
 
@@ -135,29 +142,11 @@ struct AudioEncoderLayer {
 }
 
 impl AudioEncoderLayer {
-    fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        num_heads: usize,
-        d_model: usize,
-    ) -> Result<Self> {
+    fn load(weights: &HashMap<String, Tensor>, prefix: &str, num_heads: usize, d_model: usize) -> Result<Self> {
         Ok(Self {
-            self_attn_layer_norm: load_layer_norm(
-                weights,
-                &format!("{}.self_attn_layer_norm", prefix),
-                1e-5,
-            )?,
-            self_attn: AudioAttention::load(
-                weights,
-                &format!("{}.self_attn", prefix),
-                num_heads,
-                d_model,
-            )?,
-            final_layer_norm: load_layer_norm(
-                weights,
-                &format!("{}.final_layer_norm", prefix),
-                1e-5,
-            )?,
+            self_attn_layer_norm: load_layer_norm(weights, &format!("{}.self_attn_layer_norm", prefix), 1e-5)?,
+            self_attn: AudioAttention::load(weights, &format!("{}.self_attn", prefix), num_heads, d_model)?,
+            final_layer_norm: load_layer_norm(weights, &format!("{}.final_layer_norm", prefix), 1e-5)?,
             ffn: AudioFfn::load(weights, prefix)?,
         })
     }
@@ -248,7 +237,10 @@ impl EncoderCache {
 
     /// Total number of cached tokens across all completed windows.
     pub fn cached_tokens(&self) -> usize {
-        self.completed_windows.iter().map(|t| t.dims()[0]).sum()
+        self.completed_windows
+            .iter()
+            .map(|t| t.dims()[0])
+            .sum()
     }
 }
 
@@ -274,12 +266,7 @@ pub(crate) struct AudioEncoder {
 }
 
 impl AudioEncoder {
-    pub(crate) fn load(
-        weights: &HashMap<String, Tensor>,
-        prefix: &str,
-        config: &AudioEncoderConfig,
-        device: &Device,
-    ) -> Result<Self> {
+    pub(crate) fn load(weights: &HashMap<String, Tensor>, prefix: &str, config: &AudioEncoderConfig, device: &Device) -> Result<Self> {
         let conv2d1 = load_conv2d(weights, &format!("{}.conv2d1", prefix), 2, 1)?;
         let conv2d2 = load_conv2d(weights, &format!("{}.conv2d2", prefix), 2, 1)?;
         let conv2d3 = load_conv2d(weights, &format!("{}.conv2d3", prefix), 2, 1)?;
@@ -287,12 +274,7 @@ impl AudioEncoder {
 
         let mut layers = Vec::new();
         for i in 0..config.encoder_layers {
-            let layer = AudioEncoderLayer::load(
-                weights,
-                &format!("{}.layers.{}", prefix, i),
-                config.encoder_attention_heads,
-                config.d_model,
-            )?;
+            let layer = AudioEncoderLayer::load(weights, &format!("{}.layers.{}", prefix, i), config.encoder_attention_heads, config.d_model)?;
             layers.push(layer);
         }
 
@@ -300,8 +282,7 @@ impl AudioEncoder {
         let proj1 = load_linear(weights, &format!("{}.proj1", prefix))?;
         let proj2 = load_linear(weights, &format!("{}.proj2", prefix))?;
 
-        let positional_embedding =
-            create_sinusoidal_embedding(config.max_source_positions, config.d_model, device)?;
+        let positional_embedding = create_sinusoidal_embedding(config.max_source_positions, config.d_model, device)?;
 
         Ok(Self {
             conv2d1,
@@ -325,7 +306,12 @@ impl AudioEncoder {
 
         let num_full = num_frames / chunk_size;
         let tail = num_frames % chunk_size;
-        let num_chunks = num_full + if tail > 0 { 1 } else { 0 };
+        let num_chunks = num_full
+            + if tail > 0 {
+                1
+            } else {
+                0
+            };
 
         // Collect chunks as F32 (conv2d runs in F32).
         let mut chunk_mels: Vec<Tensor> = Vec::with_capacity(num_chunks);
@@ -333,7 +319,9 @@ impl AudioEncoder {
 
         for i in 0..num_full {
             let start = i * chunk_size;
-            let chunk = mel.narrow(1, start, chunk_size)?.unsqueeze(0)?;
+            let chunk = mel
+                .narrow(1, start, chunk_size)?
+                .unsqueeze(0)?;
             chunk_mels.push(chunk);
             chunk_valid_tokens.push(Self::feat_extract_output_length(chunk_size));
         }
@@ -353,22 +341,31 @@ impl AudioEncoder {
         // batched: [num_chunks, 1, mel_bins, chunk_size]
         let refs: Vec<&Tensor> = chunk_mels.iter().collect();
         let compute_dtype = self.conv2d1.weight().dtype();
-        let batched = Tensor::cat(&refs, 0)?.unsqueeze(1)?.to_dtype(compute_dtype)?;
+        let batched = Tensor::cat(&refs, 0)?
+            .unsqueeze(1)?
+            .to_dtype(compute_dtype)?;
 
         // Conv stem with GELU activations.
-        let x = self.conv2d1.forward(&batched)?.gelu_erf()?;
+        let x = self
+            .conv2d1
+            .forward(&batched)?
+            .gelu_erf()?;
         let x = self.conv2d2.forward(&x)?.gelu_erf()?;
         let x = self.conv2d3.forward(&x)?.gelu_erf()?;
 
         // Reshape: [b, c, f, t] -> [b, t, c*f]
         let (b, c, f, t) = x.dims4()?;
-        let reshaped = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
+        let reshaped = x
+            .permute((0, 3, 1, 2))?
+            .contiguous()?
+            .reshape((b, t, c * f))?;
 
         // Linear projection.
         let conv_out = self.conv_out.forward(&reshaped)?;
 
         // Add positional embedding, cast to match conv_out's dtype.
-        let pos_emb = self.positional_embedding
+        let pos_emb = self
+            .positional_embedding
             .narrow(0, 0, t)?
             .unsqueeze(0)?
             .to_dtype(conv_out.dtype())?;
@@ -404,7 +401,12 @@ impl AudioEncoder {
 
         // Output projection: LN → Linear → GELU → Linear
         let hidden = self.ln_post.forward(&hidden)?;
-        let hidden = self.proj2.forward(&self.proj1.forward(&hidden)?.gelu_erf()?)?;
+        let hidden = self.proj2.forward(
+            &self
+                .proj1
+                .forward(&hidden)?
+                .gelu_erf()?,
+        )?;
 
         // Remove batch dim: [num_tokens, output_dim]
         hidden.squeeze(0).map_err(Into::into)
@@ -417,11 +419,7 @@ impl AudioEncoder {
     /// Returns `[total_tokens, output_dim]` — the full encoder output
     /// (cached windows concatenated with the freshly computed current window),
     /// with the output projection (LN → proj1 → GELU → proj2) already applied.
-    pub(crate) fn forward_incremental(
-        &self,
-        mel: &Tensor,
-        cache: &mut EncoderCache,
-    ) -> Result<Tensor> {
+    pub(crate) fn forward_incremental(&self, mel: &Tensor, cache: &mut EncoderCache) -> Result<Tensor> {
         let num_frames = mel.dims()[1];
         let chunk_size = self.config.n_window * 2;
         let tokens_per_chunk = Self::feat_extract_output_length(chunk_size);
@@ -431,7 +429,12 @@ impl AudioEncoder {
         // Count total chunks from the mel
         let num_full = num_frames / chunk_size;
         let tail = num_frames % chunk_size;
-        let num_chunks = num_full + if tail > 0 { 1 } else { 0 };
+        let num_chunks = num_full
+            + if tail > 0 {
+                1
+            } else {
+                0
+            };
 
         // How many complete windows are in the current mel?
         let total_full_chunks = num_full; // only full-sized chunks count toward complete windows
@@ -441,10 +444,10 @@ impl AudioEncoder {
         // Process any newly completed windows
         for win_idx in committed_windows..num_complete_windows {
             let start_chunk = win_idx * chunks_per_window;
-            let window_output = self.encode_window(
-                mel, chunk_size, start_chunk, chunks_per_window, window_size,
-            )?;
-            cache.completed_windows.push(window_output);
+            let window_output = self.encode_window(mel, chunk_size, start_chunk, chunks_per_window, window_size)?;
+            cache
+                .completed_windows
+                .push(window_output);
         }
         cache.committed_chunks = num_complete_windows * chunks_per_window;
 
@@ -468,7 +471,9 @@ impl AudioEncoder {
                 let chunk_idx = partial_start_chunk + i;
                 if chunk_idx < num_full {
                     let start = chunk_idx * chunk_size;
-                    let chunk = mel.narrow(1, start, chunk_size)?.unsqueeze(0)?;
+                    let chunk = mel
+                        .narrow(1, start, chunk_size)?
+                        .unsqueeze(0)?;
                     chunk_mels.push(chunk);
                     chunk_valid.push(tokens_per_chunk);
                 } else if tail > 0 {
@@ -489,17 +494,26 @@ impl AudioEncoder {
             } else {
                 let refs: Vec<&Tensor> = chunk_mels.iter().collect();
                 let compute_dtype = self.conv2d1.weight().dtype();
-                let batched = Tensor::cat(&refs, 0)?.unsqueeze(1)?.to_dtype(compute_dtype)?;
+                let batched = Tensor::cat(&refs, 0)?
+                    .unsqueeze(1)?
+                    .to_dtype(compute_dtype)?;
 
-                let x = self.conv2d1.forward(&batched)?.gelu_erf()?;
+                let x = self
+                    .conv2d1
+                    .forward(&batched)?
+                    .gelu_erf()?;
                 let x = self.conv2d2.forward(&x)?.gelu_erf()?;
                 let x = self.conv2d3.forward(&x)?.gelu_erf()?;
 
                 let (b, c, f, t) = x.dims4()?;
-                let reshaped = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
+                let reshaped = x
+                    .permute((0, 3, 1, 2))?
+                    .contiguous()?
+                    .reshape((b, t, c * f))?;
                 let conv_out = self.conv_out.forward(&reshaped)?;
 
-                let pos_emb = self.positional_embedding
+                let pos_emb = self
+                    .positional_embedding
                     .narrow(0, 0, t)?
                     .unsqueeze(0)?
                     .to_dtype(conv_out.dtype())?;
@@ -524,7 +538,12 @@ impl AudioEncoder {
 
                 // Output projection
                 let hidden = self.ln_post.forward(&hidden)?;
-                let hidden = self.proj2.forward(&self.proj1.forward(&hidden)?.gelu_erf()?)?;
+                let hidden = self.proj2.forward(
+                    &self
+                        .proj1
+                        .forward(&hidden)?
+                        .gelu_erf()?,
+                )?;
                 Some(hidden.squeeze(0)?)
             }
         } else {
@@ -547,37 +566,41 @@ impl AudioEncoder {
     /// Encode a single complete attention window: run conv stem, pos embed,
     /// transformer layers with windowed mask, and output projection.
     /// Returns [window_tokens, output_dim].
-    fn encode_window(
-        &self,
-        mel: &Tensor,
-        chunk_size: usize,
-        start_chunk: usize,
-        num_chunks: usize,
-        window_size: usize,
-    ) -> Result<Tensor> {
+    fn encode_window(&self, mel: &Tensor, chunk_size: usize, start_chunk: usize, num_chunks: usize, window_size: usize) -> Result<Tensor> {
         let tokens_per_chunk = Self::feat_extract_output_length(chunk_size);
 
         let mut chunk_mels: Vec<Tensor> = Vec::with_capacity(num_chunks);
         for i in 0..num_chunks {
             let chunk_idx = start_chunk + i;
             let start = chunk_idx * chunk_size;
-            let chunk = mel.narrow(1, start, chunk_size)?.unsqueeze(0)?;
+            let chunk = mel
+                .narrow(1, start, chunk_size)?
+                .unsqueeze(0)?;
             chunk_mels.push(chunk);
         }
 
         let refs: Vec<&Tensor> = chunk_mels.iter().collect();
         let compute_dtype = self.conv2d1.weight().dtype();
-        let batched = Tensor::cat(&refs, 0)?.unsqueeze(1)?.to_dtype(compute_dtype)?;
+        let batched = Tensor::cat(&refs, 0)?
+            .unsqueeze(1)?
+            .to_dtype(compute_dtype)?;
 
-        let x = self.conv2d1.forward(&batched)?.gelu_erf()?;
+        let x = self
+            .conv2d1
+            .forward(&batched)?
+            .gelu_erf()?;
         let x = self.conv2d2.forward(&x)?.gelu_erf()?;
         let x = self.conv2d3.forward(&x)?.gelu_erf()?;
 
         let (b, c, f, t) = x.dims4()?;
-        let reshaped = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
+        let reshaped = x
+            .permute((0, 3, 1, 2))?
+            .contiguous()?
+            .reshape((b, t, c * f))?;
         let conv_out = self.conv_out.forward(&reshaped)?;
 
-        let pos_emb = self.positional_embedding
+        let pos_emb = self
+            .positional_embedding
             .narrow(0, 0, t)?
             .unsqueeze(0)?
             .to_dtype(conv_out.dtype())?;
@@ -586,7 +609,9 @@ impl AudioEncoder {
         // Collect valid tokens (all chunks are full-size, so all have tokens_per_chunk)
         let mut all_valid: Vec<Tensor> = Vec::with_capacity(num_chunks);
         for idx in 0..num_chunks {
-            let chunk_tokens = conv_out.i(idx)?.narrow(0, 0, tokens_per_chunk)?;
+            let chunk_tokens = conv_out
+                .i(idx)?
+                .narrow(0, 0, tokens_per_chunk)?;
             all_valid.push(chunk_tokens);
         }
         let refs: Vec<&Tensor> = all_valid.iter().collect();
@@ -602,7 +627,12 @@ impl AudioEncoder {
 
         // Output projection
         let hidden = self.ln_post.forward(&hidden)?;
-        let hidden = self.proj2.forward(&self.proj1.forward(&hidden)?.gelu_erf()?)?;
+        let hidden = self.proj2.forward(
+            &self
+                .proj1
+                .forward(&hidden)?
+                .gelu_erf()?,
+        )?;
         hidden.squeeze(0).map_err(Into::into)
     }
 
@@ -622,7 +652,11 @@ mod tests {
         // All tokens fit in one window → all zeros (no masking)
         let mask = build_windowed_mask(10, 104, &Device::Cpu).unwrap();
         assert_eq!(mask.dims(), &[1, 1, 10, 10]);
-        let data: Vec<f32> = mask.flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!(data.iter().all(|&v| v == 0.0));
     }
 
@@ -631,8 +665,15 @@ mod tests {
         // 6 tokens, window_size=3 → 2 windows: [0,1,2] and [3,4,5]
         let mask = build_windowed_mask(6, 3, &Device::Cpu).unwrap();
         assert_eq!(mask.dims(), &[1, 1, 6, 6]);
-        let data: Vec<f32> = mask.squeeze(0).unwrap().squeeze(0).unwrap()
-            .flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .squeeze(0)
+            .unwrap()
+            .squeeze(0)
+            .unwrap()
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
 
         // Within window 0 (rows 0-2, cols 0-2): all 0.0
         for i in 0..3 {
@@ -658,7 +699,11 @@ mod tests {
     fn test_build_windowed_mask_zero_window() {
         // window_size=0 → no masking
         let mask = build_windowed_mask(5, 0, &Device::Cpu).unwrap();
-        let data: Vec<f32> = mask.flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!(data.iter().all(|&v| v == 0.0));
     }
 
@@ -667,7 +712,11 @@ mod tests {
         // Realistic: 0.6B model with 8 chunks → 104 tokens, window_size=104
         // All fit in one window
         let mask = build_windowed_mask(104, 104, &Device::Cpu).unwrap();
-        let data: Vec<f32> = mask.flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         assert!(data.iter().all(|&v| v == 0.0));
     }
 
@@ -676,8 +725,15 @@ mod tests {
         // 16 chunks → 208 tokens, window_size=104 → 2 windows
         let mask = build_windowed_mask(208, 104, &Device::Cpu).unwrap();
         assert_eq!(mask.dims(), &[1, 1, 208, 208]);
-        let data: Vec<f32> = mask.squeeze(0).unwrap().squeeze(0).unwrap()
-            .flatten_all().unwrap().to_vec1().unwrap();
+        let data: Vec<f32> = mask
+            .squeeze(0)
+            .unwrap()
+            .squeeze(0)
+            .unwrap()
+            .flatten_all()
+            .unwrap()
+            .to_vec1()
+            .unwrap();
         // Token 0 (window 0) → token 103 (window 0): 0.0
         assert_eq!(data[0 * 208 + 103], 0.0);
         // Token 0 (window 0) → token 104 (window 1): -inf

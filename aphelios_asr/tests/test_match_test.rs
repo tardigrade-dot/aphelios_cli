@@ -22,10 +22,7 @@ fn sensevoice_batch_process_wav_txt_dir_test() -> Result<()> {
     let dir_path = "/Volumes/sw/tts_result/wenhuaquanliyuguojia";
     let results = text_match::batch_process_wav_txt_dir(model_path, dir_path, None, None)?;
 
-    info!(
-        "Batch processing completed. Generated {} SRT files",
-        results.len()
-    );
+    info!("Batch processing completed. Generated {} SRT files", results.len());
 
     Ok(())
 }

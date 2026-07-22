@@ -56,11 +56,7 @@ impl FusedRmsNorm {
         self.forward_residual_sequential(x, residual)
     }
 
-    fn forward_residual_sequential(
-        &self,
-        x: &Tensor,
-        residual: &Tensor,
-    ) -> Result<(Tensor, Tensor)> {
+    fn forward_residual_sequential(&self, x: &Tensor, residual: &Tensor) -> Result<(Tensor, Tensor)> {
         let sum = (x + residual)?;
         let normed = self.inner.forward(&sum)?;
         Ok((normed, sum))
@@ -89,8 +85,12 @@ impl FusedRmsNorm {
         let combined = x.apply_op2_no_bwd(&residual, &op)?;
 
         // Split back into two tensors with the original shape.
-        let normed = combined.narrow(0, 0, n_rows)?.reshape(dims)?;
-        let sum = combined.narrow(0, n_rows, n_rows)?.reshape(dims)?;
+        let normed = combined
+            .narrow(0, 0, n_rows)?
+            .reshape(dims)?;
+        let sum = combined
+            .narrow(0, n_rows, n_rows)?
+            .reshape(dims)?;
         Ok((normed, sum))
     }
 }
@@ -108,11 +108,7 @@ struct FusedResidualRmsNormOp {
 
 #[cfg(feature = "cuda")]
 impl FusedResidualRmsNormOp {
-    fn launch_kernel<
-        T: candle_core::cuda_backend::CudaDType
-            + candle_core::WithDType
-            + candle_core::cuda_backend::cudarc::driver::DeviceRepr,
-    >(
+    fn launch_kernel<T: candle_core::cuda_backend::CudaDType + candle_core::WithDType + candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
         &self,
         s1: &candle_core::CudaStorage,
         l1: &candle_core::Layout,
@@ -145,11 +141,7 @@ impl FusedResidualRmsNormOp {
             dt => candle_core::bail!("fused-residual-rmsnorm unsupported dtype {dt:?}"),
         };
 
-        let func = dev.get_or_load_custom_func(
-            kernel_name,
-            "fused_residual_rmsnorm",
-            FUSED_RESIDUAL_RMSNORM_PTX,
-        )?;
+        let func = dev.get_or_load_custom_func(kernel_name, "fused_residual_rmsnorm", FUSED_RESIDUAL_RMSNORM_PTX)?;
 
         let weight_guard = self.weight.storage_and_layout();
         let weight_cuda = match &*weight_guard.0 {
@@ -158,7 +150,11 @@ impl FusedResidualRmsNormOp {
         };
         let w = weight_cuda.as_cuda_slice::<T>()?;
 
-        let block_size: u32 = if self.n_cols < 1024 { 32 } else { 1024 };
+        let block_size: u32 = if self.n_cols < 1024 {
+            32
+        } else {
+            1024
+        };
         let cfg = LaunchConfig {
             grid_dim: (self.n_rows as u32, 1, 1),
             block_dim: (block_size, 1, 1),
@@ -277,7 +273,9 @@ mod tests {
         let x = Tensor::randn(0.0f32, 1.0, (2, 10, hidden), &device).unwrap();
         let residual = Tensor::randn(0.0f32, 1.0, (2, 10, hidden), &device).unwrap();
 
-        let (normed, sum) = norm.forward_residual(&x, &residual).unwrap();
+        let (normed, sum) = norm
+            .forward_residual(&x, &residual)
+            .unwrap();
 
         // Verify sum = x + residual
         let expected_sum = (&x + &residual).unwrap();
@@ -296,7 +294,10 @@ mod tests {
         assert!(sum_diff < 1e-6, "sum mismatch: {sum_diff}");
 
         // Verify normed = rms_norm(sum)
-        let expected_normed = norm.inner.forward(&expected_sum).unwrap();
+        let expected_normed = norm
+            .inner
+            .forward(&expected_sum)
+            .unwrap();
         let norm_diff = (&normed - &expected_normed)
             .unwrap()
             .abs()
@@ -321,7 +322,9 @@ mod tests {
         let x = Tensor::randn(0.0f32, 1.0, (1, 5, hidden), &device).unwrap();
         let residual = Tensor::randn(0.0f32, 1.0, (1, 5, hidden), &device).unwrap();
 
-        let (normed, sum) = norm.forward_residual(&x, &residual).unwrap();
+        let (normed, sum) = norm
+            .forward_residual(&x, &residual)
+            .unwrap();
         assert_eq!(normed.dims(), &[1, 5, hidden]);
         assert_eq!(sum.dims(), &[1, 5, hidden]);
     }

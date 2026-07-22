@@ -10,8 +10,7 @@ pub struct TokenDecoder {
 
 impl TokenDecoder {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path.as_ref())
-            .with_context(|| format!("open tokens file {}", path.as_ref().display()))?;
+        let file = File::open(path.as_ref()).with_context(|| format!("open tokens file {}", path.as_ref().display()))?;
         let mut pieces: Vec<String> = Vec::new();
         for (line_idx, line) in BufReader::new(file).lines().enumerate() {
             let line = line.with_context(|| format!("read line {}", line_idx + 1))?;
@@ -38,7 +37,9 @@ impl TokenDecoder {
                 anyhow::bail!("missing token for id {}", idx);
             }
         }
-        Ok(Self { pieces })
+        Ok(Self {
+            pieces,
+        })
     }
 
     pub fn decode_ids(&self, ids: &[i32]) -> String {
@@ -70,11 +71,7 @@ impl TokenDecoder {
         text.trim().to_string()
     }
 
-    pub fn decode_with_timestamps(
-        &self,
-        ids: &[(i32, usize, usize)],
-        ts_max: usize,
-    ) -> (String, Vec<TokenTimestamp>) {
+    pub fn decode_with_timestamps(&self, ids: &[(i32, usize, usize)], ts_max: usize) -> (String, Vec<TokenTimestamp>) {
         let mut text = String::new();
         let mut timestamps = Vec::new();
 
@@ -100,8 +97,7 @@ impl TokenDecoder {
             text.push_str(stripped);
 
             let start_ms = ((start_frame as f32 * 60.0) - 30.0).max(0.0);
-            let end_ms = ((end_frame as f32 * 60.0) - 30.0)
-                .clamp(0.0, ((ts_max as f32) * 60.0 - 30.0).max(0.0));
+            let end_ms = ((end_frame as f32 * 60.0) - 30.0).clamp(0.0, ((ts_max as f32) * 60.0 - 30.0).max(0.0));
 
             timestamps.push(TokenTimestamp {
                 token: stripped.to_string(),

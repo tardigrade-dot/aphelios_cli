@@ -2,10 +2,7 @@ use std::fmt;
 use std::path::Path;
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{
-    conv2d, layer_norm, linear, linear_no_bias, ops::softmax_last_dim, Conv2d, Conv2dConfig,
-    LayerNorm, Linear, Module, VarBuilder,
-};
+use candle_nn::{conv2d, layer_norm, linear, linear_no_bias, ops::softmax_last_dim, Conv2d, Conv2dConfig, LayerNorm, Linear, Module, VarBuilder};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EncoderConfig {
@@ -90,13 +87,7 @@ fn window_mask(total: usize, window_size: usize, dev: &Device) -> candle_core::R
 // --- EncLayer forward ---
 
 impl EncLayer {
-    fn forward(
-        &self,
-        x: &Tensor,
-        mask: &Tensor,
-        n_heads: usize,
-        head_dim: usize,
-    ) -> candle_core::Result<Tensor> {
+    fn forward(&self, x: &Tensor, mask: &Tensor, n_heads: usize, head_dim: usize) -> candle_core::Result<Tensor> {
         let seq = x.dims()[0];
 
         // Self-attention (pre-norm)
@@ -106,8 +97,12 @@ impl EncLayer {
         let v = self.v_proj.forward(&xn)?;
 
         // [seq, d_model] → [n_heads, seq, head_dim]
-        let q = q.reshape((seq, n_heads, head_dim))?.transpose(0, 1)?;
-        let k = k.reshape((seq, n_heads, head_dim))?.transpose(0, 1)?;
+        let q = q
+            .reshape((seq, n_heads, head_dim))?
+            .transpose(0, 1)?;
+        let k = k
+            .reshape((seq, n_heads, head_dim))?
+            .transpose(0, 1)?;
         let v = v
             .reshape((seq, n_heads, head_dim))?
             .transpose(0, 1)?
@@ -145,12 +140,11 @@ impl Encoder {
     // Weights loaded as F32. File stores BF16 (~356 MB for 0.6b encoder); F32 doubles
     // that to ~712 MB. CPU candle has no BF16 matmul kernel, so F32 is required for now.
     // SAFETY: the safetensors files must not be modified while the Encoder is live.
-    pub fn load(
-        paths: &[impl AsRef<Path>],
-        cfg: EncoderConfig,
-        dev: &Device,
-    ) -> candle_core::Result<Self> {
-        let paths: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
+    pub fn load(paths: &[impl AsRef<Path>], cfg: EncoderConfig, dev: &Device) -> candle_core::Result<Self> {
+        let paths: Vec<&Path> = paths
+            .iter()
+            .map(|p| p.as_ref())
+            .collect();
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&paths, DType::F32, dev)? };
         let vb = vb.pp("thinker.audio_tower");
 
@@ -219,7 +213,10 @@ impl Encoder {
             let chunk_w = chunk_size.min(mel_frames - start);
 
             // [128, chunk_w] → [1, 1, 128, chunk_w]  (batch=1, in_ch=1)
-            let x = mel.narrow(1, start, chunk_w)?.unsqueeze(0)?.unsqueeze(0)?;
+            let x = mel
+                .narrow(1, start, chunk_w)?
+                .unsqueeze(0)?
+                .unsqueeze(0)?;
 
             // Three stride-2 Conv2d + GELU  →  [1, 480, 16, w3]
             let x = self.conv1.forward(&x)?.gelu()?;
@@ -281,84 +278,24 @@ impl std::fmt::Display for Encoder {
         }
 
         writeln!(f, "Encoder {{")?;
-        writeln!(
-            f,
-            "  conv1    weight [{}]{}",
-            s(self.conv1.weight()),
-            bias(self.conv1.bias())
-        )?;
-        writeln!(
-            f,
-            "  conv2    weight [{}]{}",
-            s(self.conv2.weight()),
-            bias(self.conv2.bias())
-        )?;
-        writeln!(
-            f,
-            "  conv3    weight [{}]{}",
-            s(self.conv3.weight()),
-            bias(self.conv3.bias())
-        )?;
-        writeln!(
-            f,
-            "  conv_out weight [{}]{}",
-            s(self.conv_out.weight()),
-            bias(self.conv_out.bias())
-        )?;
+        writeln!(f, "  conv1    weight [{}]{}", s(self.conv1.weight()), bias(self.conv1.bias()))?;
+        writeln!(f, "  conv2    weight [{}]{}", s(self.conv2.weight()), bias(self.conv2.bias()))?;
+        writeln!(f, "  conv3    weight [{}]{}", s(self.conv3.weight()), bias(self.conv3.bias()))?;
+        writeln!(f, "  conv_out weight [{}]{}", s(self.conv_out.weight()), bias(self.conv_out.bias()))?;
         writeln!(f, "  layers   {} ×", self.layers.len())?;
         if let Some(l) = self.layers.first() {
-            writeln!(
-                f,
-                "    q_proj    weight [{}]{}",
-                s(l.q_proj.weight()),
-                bias(l.q_proj.bias())
-            )?;
-            writeln!(
-                f,
-                "    k_proj    weight [{}]{}",
-                s(l.k_proj.weight()),
-                bias(l.k_proj.bias())
-            )?;
-            writeln!(
-                f,
-                "    v_proj    weight [{}]{}",
-                s(l.v_proj.weight()),
-                bias(l.v_proj.bias())
-            )?;
-            writeln!(
-                f,
-                "    o_proj    weight [{}]{}",
-                s(l.o_proj.weight()),
-                bias(l.o_proj.bias())
-            )?;
+            writeln!(f, "    q_proj    weight [{}]{}", s(l.q_proj.weight()), bias(l.q_proj.bias()))?;
+            writeln!(f, "    k_proj    weight [{}]{}", s(l.k_proj.weight()), bias(l.k_proj.bias()))?;
+            writeln!(f, "    v_proj    weight [{}]{}", s(l.v_proj.weight()), bias(l.v_proj.bias()))?;
+            writeln!(f, "    o_proj    weight [{}]{}", s(l.o_proj.weight()), bias(l.o_proj.bias()))?;
             writeln!(f, "    attn_norm {}", ln(&l.attn_norm))?;
-            writeln!(
-                f,
-                "    fc1       weight [{}]{}",
-                s(l.mlp.fc1.weight()),
-                bias(l.mlp.fc1.bias())
-            )?;
-            writeln!(
-                f,
-                "    fc2       weight [{}]{}",
-                s(l.mlp.fc2.weight()),
-                bias(l.mlp.fc2.bias())
-            )?;
+            writeln!(f, "    fc1       weight [{}]{}", s(l.mlp.fc1.weight()), bias(l.mlp.fc1.bias()))?;
+            writeln!(f, "    fc2       weight [{}]{}", s(l.mlp.fc2.weight()), bias(l.mlp.fc2.bias()))?;
             writeln!(f, "    ffn_norm  {}", ln(&l.ffn_norm))?;
         }
         writeln!(f, "  ln_post  {}", ln(&self.ln_post))?;
-        writeln!(
-            f,
-            "  proj1    weight [{}]{}",
-            s(self.proj1.weight()),
-            bias(self.proj1.bias())
-        )?;
-        writeln!(
-            f,
-            "  proj2    weight [{}]{}",
-            s(self.proj2.weight()),
-            bias(self.proj2.bias())
-        )?;
+        writeln!(f, "  proj1    weight [{}]{}", s(self.proj1.weight()), bias(self.proj1.bias()))?;
+        writeln!(f, "  proj2    weight [{}]{}", s(self.proj2.weight()), bias(self.proj2.bias()))?;
         write!(f, "}}")
     }
 }
@@ -394,9 +331,10 @@ or QWEN_ASR_ROOT=/abs/path/to/repo-root"
     #[ignore]
     fn load_0_6b_encoder_smoke() {
         let shard = smoke_shard_path();
-        let cfg = ModelPreset::Qwen3Asr0_6b.config().encoder;
-        let enc =
-            Encoder::load(&[&shard], cfg.clone(), &Device::Cpu).expect("Encoder::load failed");
+        let cfg = ModelPreset::Qwen3Asr0_6b
+            .config()
+            .encoder;
+        let enc = Encoder::load(&[&shard], cfg.clone(), &Device::Cpu).expect("Encoder::load failed");
         assert_eq!(enc.cfg, cfg);
         println!("{}", enc);
     }
@@ -416,8 +354,7 @@ or QWEN_ASR_ROOT=/abs/path/to/repo-root"
         ];
 
         // Load mel dumped by C binary (4-byte int mel_frames, then [128, mel_frames] f32)
-        let mel_bin = std::fs::read("/tmp/jfk_mel.bin")
-            .expect("run: QWEN_DUMP_MEL=/tmp/jfk_mel.bin ./qwen_asr -d qwen3-asr-0.6b -i samples/jfk.wav --silent");
+        let mel_bin = std::fs::read("/tmp/jfk_mel.bin").expect("run: QWEN_DUMP_MEL=/tmp/jfk_mel.bin ./qwen_asr -d qwen3-asr-0.6b -i samples/jfk.wav --silent");
         let mel_frames = i32::from_le_bytes(mel_bin[..4].try_into().unwrap()) as usize;
         let floats: Vec<f32> = mel_bin[4..]
             .chunks_exact(4)
@@ -426,10 +363,14 @@ or QWEN_ASR_ROOT=/abs/path/to/repo-root"
         let mel = Tensor::from_vec(floats, (128, mel_frames), &Device::Cpu).unwrap();
 
         let shard = smoke_shard_path();
-        let cfg = ModelPreset::Qwen3Asr0_6b.config().encoder;
+        let cfg = ModelPreset::Qwen3Asr0_6b
+            .config()
+            .encoder;
         let enc = Encoder::load(&[&shard], cfg, &Device::Cpu).expect("Encoder::load failed");
 
-        let out = enc.forward(&mel).expect("forward failed");
+        let out = enc
+            .forward(&mel)
+            .expect("forward failed");
         let out_vec = out.to_vec2::<f32>().unwrap();
 
         assert_eq!(out_vec.len(), 143, "expected 143 total tokens");
@@ -437,10 +378,7 @@ or QWEN_ASR_ROOT=/abs/path/to/repo-root"
         for &(t, d, expected) in reference {
             let got = out_vec[t][d];
             let diff = (got - expected).abs();
-            assert!(
-                diff < 1e-4,
-                "out[{t}][{d}]: got {got:.8} expected {expected:.8} diff {diff:.2e}"
-            );
+            assert!(diff < 1e-4, "out[{t}][{d}]: got {got:.8} expected {expected:.8} diff {diff:.2e}");
         }
     }
 
@@ -448,13 +386,16 @@ or QWEN_ASR_ROOT=/abs/path/to/repo-root"
     #[ignore]
     fn forward_0_6b_shape() {
         let shard = smoke_shard_path();
-        let cfg = ModelPreset::Qwen3Asr0_6b.config().encoder;
-        let enc =
-            Encoder::load(&[&shard], cfg.clone(), &Device::Cpu).expect("Encoder::load failed");
+        let cfg = ModelPreset::Qwen3Asr0_6b
+            .config()
+            .encoder;
+        let enc = Encoder::load(&[&shard], cfg.clone(), &Device::Cpu).expect("Encoder::load failed");
 
         // One full chunk of silence
         let mel = Tensor::zeros((128, cfg.chunk_size), DType::F32, &Device::Cpu).unwrap();
-        let out = enc.forward(&mel).expect("forward failed");
+        let out = enc
+            .forward(&mel)
+            .expect("forward failed");
 
         println!("output shape: {:?}", out.dims());
         // For chunk_size=100: w3 = 13 tokens, output_dim = 1024

@@ -2,7 +2,7 @@
 //!
 //! 提供流畅的音频播放功能，合成和播放完全并行
 
-use rodio::{buffer::SamplesBuffer, OutputStream, Sink, Source};
+use rodio::{buffer::SamplesBuffer, source::Source, DeviceSinkBuilder, Player};
 use std::sync::mpsc;
 use std::thread;
 
@@ -21,13 +21,8 @@ impl AudioPlayer {
     }
 
     /// 创建新的音频播放器，并可选录制输出到 WAV 文件
-    pub fn with_recording(
-        sample_rate: u32,
-        record_path: Option<&str>,
-    ) -> Result<Self, anyhow::Error> {
+    pub fn with_recording(sample_rate: u32, record_path: Option<&str>) -> Result<Self, anyhow::Error> {
         // 使用有缓冲的 channel，允许最多 5 个待播放的音频块在队列中
-        // 这样可以防止播放线程暂时阻塞时导致主线程的 queue() 调用失败
-        // 较小的缓冲区可以减少延迟，但太大会导致内存压力
         let (sender, receiver) = mpsc::sync_channel(5);
         let record_path_owned = record_path.map(|s| s.to_string());
         let record_path_for_struct = record_path_owned.clone();
@@ -47,34 +42,26 @@ impl AudioPlayer {
 
     /// 播放音频数据 - 非阻塞，立即返回
     pub fn queue(&self, samples: Vec<f32>) -> Result<(), anyhow::Error> {
-        // 尝试发送，如果通道已满则阻塞等待
-        // 这可以防止无限缓冲导致内存爆炸
         self.sender.send(Some(samples))?;
         Ok(())
     }
 
     /// 等待所有音频播放完成
     pub fn finish(self) -> Result<(), anyhow::Error> {
-        // 发送结束信号
         let _ = self.sender.send(None);
-        // 等待播放线程完成
         drop(self);
         Ok(())
     }
 
     /// 播放循环 - 连续追加，不等待
-    fn playback_loop(
-        receiver: mpsc::Receiver<Option<Vec<f32>>>,
-        sample_rate: u32,
-        record_path: Option<String>,
-    ) -> Result<(), anyhow::Error> {
-        // 获取输出流
-        let (_stream, stream_handle) = OutputStream::try_default()?;
+    fn playback_loop(receiver: mpsc::Receiver<Option<Vec<f32>>>, sample_rate: u32, record_path: Option<String>) -> Result<(), anyhow::Error> {
+        // 获取默认音频输出设备
+        let handle = DeviceSinkBuilder::open_default_sink()?;
         tracing::info!("音频设备已初始化，采样率：{}Hz", sample_rate);
 
-        // 创建 Sink
-        let sink = Sink::try_new(&stream_handle)?;
-        sink.set_volume(1.0);
+        // 创建 Player 控制播放
+        let player = Player::connect_new(handle.mixer());
+        player.set_volume(1.0);
 
         // 可选的 WAV 录制器
         let mut wav_writer: Option<hound::WavWriter<std::io::BufWriter<std::fs::File>>> = None;
@@ -116,26 +103,17 @@ impl AudioPlayer {
                         }
                     }
 
-                    // 追加到播放队列
-                    let source = SamplesBuffer::new(1, sample_rate, samples);
-                    sink.append(source);
+                    // 追加到播放队列 —— 直接通过 mixer 添加
+                    let source = SamplesBuffer::new(std::num::NonZero::new(1u16).unwrap(), std::num::NonZero::new(sample_rate).unwrap(), samples);
+                    handle.mixer().add(source);
 
                     if first {
-                        tracing::info!(
-                            "▶️ 开始播放：{} 样本 ({:.2}秒)",
-                            total_samples,
-                            total_samples as f64 / sample_rate as f64
-                        );
+                        tracing::info!("▶️ 开始播放：{} 样本 ({:.2}秒)", total_samples, total_samples as f64 / sample_rate as f64);
                         first = false;
                     }
                 }
                 None => {
-                    // 没有更多数据了
-                    tracing::info!(
-                        "⏹ 收到结束信号，累计：{} 样本 ({:.2}s)",
-                        total_samples,
-                        total_samples as f64 / sample_rate as f64
-                    );
+                    tracing::info!("⏹ 收到结束信号，累计：{} 样本 ({:.2}s)", total_samples, total_samples as f64 / sample_rate as f64);
                     break;
                 }
             }
@@ -143,15 +121,9 @@ impl AudioPlayer {
 
         // 等待所有音频播放完成
         if total_samples > 0 {
-            tracing::info!(
-                "⏳ 等待播放完成：{} 样本，{:.2}秒，队列中：{} 个源",
-                total_samples,
-                total_samples as f64 / sample_rate as f64,
-                sink.len()
-            );
+            tracing::info!("⏳ 等待播放完成：{} 样本，{:.2}秒，队列中：{} 个源", total_samples, total_samples as f64 / sample_rate as f64, player.len());
 
-            // 等待播放完成
-            sink.sleep_until_end();
+            player.sleep_until_end();
             tracing::info!("✅ 播放完成！");
         }
 

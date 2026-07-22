@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use aphelios_core::hub::load_or_download;
+use std::collections::HashMap;
 use thiserror::Error;
 use tokenizers::decoders::byte_level::ByteLevel as BLDecoder;
 use tokenizers::models::bpe::BPE;
@@ -28,7 +28,6 @@ pub const TOKEN_AUDIO_PAD: u32 = 151676; // <|AUDIO|> padding token
 pub const TOKEN_ASR_TEXT: u32 = 151704; // <asr_text> — gates text accumulation
 pub const TOKEN_TIMESTAMP: u32 = 151705; // <timestamp> — forced-aligner slot token
 
-
 // ── Prompt template sequences (from qwen_asr.c) ──────────────────────────────
 //
 // Full prompt layout:
@@ -40,22 +39,8 @@ pub const TOKEN_TIMESTAMP: u32 = 151705; // <timestamp> — forced-aligner slot 
 //   [optional language tokens + TOKEN_ASR_TEXT]
 
 pub const PROMPT_PREFIX_HEAD: &[u32] = &[TOKEN_IM_START, 8948, 198];
-pub const PROMPT_PREFIX_TAIL: &[u32] = &[
-    TOKEN_IM_END,
-    198,
-    TOKEN_IM_START,
-    872,
-    198,
-    TOKEN_AUDIO_START,
-];
-pub const PROMPT_SUFFIX_BASE: &[u32] = &[
-    TOKEN_AUDIO_END,
-    TOKEN_IM_END,
-    198,
-    TOKEN_IM_START,
-    77091,
-    198,
-];
+pub const PROMPT_PREFIX_TAIL: &[u32] = &[TOKEN_IM_END, 198, TOKEN_IM_START, 872, 198, TOKEN_AUDIO_START];
+pub const PROMPT_SUFFIX_BASE: &[u32] = &[TOKEN_AUDIO_END, TOKEN_IM_END, 198, TOKEN_IM_START, 77091, 198];
 
 // ── Tokenizer ─────────────────────────────────────────────────────────────────
 
@@ -71,16 +56,10 @@ impl Tokenizer {
         let merges = load_or_download(QWEN_ALIGNER_MODEL_ID, model_dir, "merges.txt");
 
         if !vocab.exists() {
-            return Err(TokenizerError::Load(format!(
-                "vocab.json not found in {:?}",
-                model_dir
-            )));
+            return Err(TokenizerError::Load(format!("vocab.json not found in {:?}", model_dir)));
         }
         if !merges.exists() {
-            return Err(TokenizerError::Load(format!(
-                "merges.txt not found in {:?}",
-                model_dir
-            )));
+            return Err(TokenizerError::Load(format!("merges.txt not found in {:?}", model_dir)));
         }
 
         let bpe = BPE::from_file(vocab.to_str().unwrap(), merges.to_str().unwrap())

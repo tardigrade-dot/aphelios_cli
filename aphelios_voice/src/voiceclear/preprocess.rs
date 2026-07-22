@@ -28,7 +28,10 @@ pub fn compute_mel_features(audio_16k: &[f32], mel_filters: &Vec<f64>, window: &
     }
 
     // Kaldi compliance: scale to 16-bit integer range
-    let scaled: Vec<f64> = audio_16k.iter().map(|&x| x as f64 * 32768.0).collect();
+    let scaled: Vec<f64> = audio_16k
+        .iter()
+        .map(|&x| x as f64 * 32768.0)
+        .collect();
 
     // Frame count: matches HF `1 + floor((len - frame_length) / hop_length)`
     let n_frames = 1 + (n.saturating_sub(WIN_LEN)) / HOP_LEN;
@@ -93,7 +96,10 @@ pub fn compute_mel_features(audio_16k: &[f32], mel_filters: &Vec<f64>, window: &
     }
 
     // Convert to f32 for ZMUV (matching Python's float32 output from spectrogram)
-    let mel_power_f32: Vec<f32> = mel_power.iter().map(|&v| v as f32).collect();
+    let mel_power_f32: Vec<f32> = mel_power
+        .iter()
+        .map(|&v| v as f32)
+        .collect();
 
     // ZMUV normalization per mel bin
     let eps = ZMUV_EPS;
@@ -187,7 +193,9 @@ fn biquad_inplace(x: &mut [f32], b: &[f32; 3], a: &[f32; 3]) {
 
 /// Peak-normalize audio to target_peak (e.g. 0.9).
 pub fn peak_normalize(samples: &mut [f32], target_peak: f32) {
-    let max_abs = samples.iter().fold(0.0f32, |acc, &v| acc.max(v.abs()));
+    let max_abs = samples
+        .iter()
+        .fold(0.0f32, |acc, &v| acc.max(v.abs()));
     if max_abs < 1e-10 {
         return;
     }
@@ -209,7 +217,12 @@ pub struct ChunkIterator<'a> {
 impl<'a> ChunkIterator<'a> {
     pub fn new(audio: &'a [f32], chunk_duration_s: f32, pad_samples: usize) -> Self {
         let chunk_samples = (chunk_duration_s * 16_000.0) as usize;
-        Self { audio, chunk_samples, pad: pad_samples, pos: 0 }
+        Self {
+            audio,
+            chunk_samples,
+            pad: pad_samples,
+            pos: 0,
+        }
     }
 }
 

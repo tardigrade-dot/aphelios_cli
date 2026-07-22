@@ -40,11 +40,7 @@ pub fn create_causal_mask(seq_len: usize, offset: usize, device: &Device) -> Res
 ///
 /// `padding_mask` should be `[batch, total_len]` where `1.0` is valid and `0.0` is padding.
 /// Returns a `[batch, 1, seq_len, total_len]` mask.
-pub fn create_combined_mask(
-    padding_mask: &Tensor,
-    offset: usize,
-    device: &Device,
-) -> Result<Tensor> {
+pub fn create_combined_mask(padding_mask: &Tensor, offset: usize, device: &Device) -> Result<Tensor> {
     let (_batch, total_len) = padding_mask.dims2()?;
     let seq_len = total_len - offset;
 
@@ -53,7 +49,11 @@ pub fn create_combined_mask(
 
     // 2. Padding mask: [batch, 1, 1, total_len] -> [batch, 1, seq_len, total_len]
     // Values: 1.0 -> 0.0, 0.0 -> NEG_INFINITY
-    let pad = (padding_mask.unsqueeze(1)?.unsqueeze(1)? - 1.0)? * 1e9;
+    let pad = (padding_mask
+        .unsqueeze(1)?
+        .unsqueeze(1)?
+        - 1.0)?
+        * 1e9;
 
     // 3. Combined
     Ok(causal.broadcast_add(&pad?.to_dtype(causal.dtype())?)?)
@@ -109,22 +109,31 @@ impl RotaryEmbedding {
             .collect();
 
         let inv_freq = Tensor::new(inv_freq.as_slice(), device)?;
-        let positions: Vec<f32> = (0..max_seq_len).map(|i| i as f32).collect();
+        let positions: Vec<f32> = (0..max_seq_len)
+            .map(|i| i as f32)
+            .collect();
         let positions = Tensor::new(positions.as_slice(), device)?.unsqueeze(1)?;
 
         let freqs = positions.matmul(&inv_freq.unsqueeze(0)?)?;
         let cos_flat = freqs.cos()?;
         let sin_flat = freqs.sin()?;
 
-        Ok(Self { cos_flat, sin_flat })
+        Ok(Self {
+            cos_flat,
+            sin_flat,
+        })
     }
 
     pub fn apply(&self, q: &Tensor, k: &Tensor, offset: usize) -> Result<(Tensor, Tensor)> {
         let seq_len = q.dim(2)?;
 
         // Slice pre-computed cos/sin [seq_len, half_dim]
-        let cos = self.cos_flat.i(offset..offset + seq_len)?;
-        let sin = self.sin_flat.i(offset..offset + seq_len)?;
+        let cos = self
+            .cos_flat
+            .i(offset..offset + seq_len)?;
+        let sin = self
+            .sin_flat
+            .i(offset..offset + seq_len)?;
 
         let q_rot = apply_rope_rotation(q, &cos, &sin)?;
         let k_rot = apply_rope_rotation(k, &cos, &sin)?;
@@ -154,12 +163,7 @@ impl MRoPE {
     /// - 20 frequency pairs for width (W)
     ///
     /// Total = 64 = head_dim / 2
-    pub fn new(
-        dim: usize,
-        theta: f64,
-        _mrope_section: [usize; 3],
-        device: &Device,
-    ) -> Result<Self> {
+    pub fn new(dim: usize, theta: f64, _mrope_section: [usize; 3], device: &Device) -> Result<Self> {
         // Compute inverse frequencies
         let inv_freq: Vec<f32> = (0..dim)
             .step_by(2)
@@ -192,16 +196,14 @@ impl MRoPE {
     /// - q, k: [batch, heads, seq_len, head_dim]
     /// - offset: position offset for KV cache
     /// - seq_len: sequence length
-    pub fn apply(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        offset: usize,
-        seq_len: usize,
-    ) -> Result<(Tensor, Tensor)> {
+    pub fn apply(&self, q: &Tensor, k: &Tensor, offset: usize, seq_len: usize) -> Result<(Tensor, Tensor)> {
         // Slice pre-computed cos/sin from cache [seq_len, head_dim/2]
-        let cos = self.cos_cache.i(offset..offset + seq_len)?;
-        let sin = self.sin_cache.i(offset..offset + seq_len)?;
+        let cos = self
+            .cos_cache
+            .i(offset..offset + seq_len)?;
+        let sin = self
+            .sin_cache
+            .i(offset..offset + seq_len)?;
 
         let q_rot = apply_rope_rotation(q, &cos, &sin)?;
         let k_rot = apply_rope_rotation(k, &cos, &sin)?;
@@ -288,14 +290,7 @@ impl Attention {
         *self.use_sdpa.borrow_mut() = use_sdpa;
     }
 
-    pub fn forward(
-        &self,
-        hidden_states: &Tensor,
-        rope: &RoPEType,
-        attention_mask: Option<&Tensor>,
-        kv_cache: Option<&mut AnyKVCache>,
-        offset: usize,
-    ) -> Result<Tensor> {
+    pub fn forward(&self, hidden_states: &Tensor, rope: &RoPEType, attention_mask: Option<&Tensor>, kv_cache: Option<&mut AnyKVCache>, offset: usize) -> Result<Tensor> {
         let (batch, seq_len, _) = hidden_states.dims3()?;
 
         // Project Q, K, V
@@ -359,11 +354,9 @@ impl Attention {
                 let softmax_scale = self.scale as f32;
                 let attn_output = flash_attn(&q, &k, &v, softmax_scale, /* causal */ true)?;
                 // [B, S_q, H_q, D] → cast back → [B, S_q, hidden]
-                attn_output.to_dtype(input_dtype)?.reshape((
-                    batch,
-                    seq_len,
-                    self.num_heads * self.head_dim,
-                ))?
+                attn_output
+                    .to_dtype(input_dtype)?
+                    .reshape((batch, seq_len, self.num_heads * self.head_dim))?
             }
             #[cfg(not(feature = "flash-attn"))]
             unreachable!()
@@ -378,26 +371,18 @@ impl Attention {
                 let q = q.contiguous()?;
                 let k = k.contiguous()?;
                 let v = v.contiguous()?;
-                let attn_output = candle_nn::ops::sdpa(
-                    &q,
-                    &k,
-                    &v,
-                    /* mask */ None,
-                    /* causal */ true,
-                    self.scale as f32,
-                    /* softcapping */ 1.0,
-                )?;
-                attn_output.transpose(1, 2)?.reshape((
-                    batch,
-                    seq_len,
-                    self.num_heads * self.head_dim,
-                ))?
+                let attn_output = candle_nn::ops::sdpa(&q, &k, &v, /* mask */ None, /* causal */ true, self.scale as f32, /* softcapping */ 1.0)?;
+                attn_output
+                    .transpose(1, 2)?
+                    .reshape((batch, seq_len, self.num_heads * self.head_dim))?
             } else {
                 // CPU/CUDA-without-flash fallback: manual scaled dot-product attention
                 let q = q.contiguous()?;
                 let k = k.contiguous()?;
-                let attn_weights =
-                    (q.matmul(&k.transpose(D::Minus2, D::Minus1)?.contiguous()?)? * self.scale)?;
+                let attn_weights = (q.matmul(
+                    &k.transpose(D::Minus2, D::Minus1)?
+                        .contiguous()?,
+                )? * self.scale)?;
                 let attn_weights = if let Some(mask) = attention_mask {
                     let mask = mask.to_dtype(attn_weights.dtype())?;
                     let mask = mask.broadcast_as(attn_weights.shape())?;
@@ -407,11 +392,9 @@ impl Attention {
                 };
                 let attn_weights = candle_nn::ops::softmax_last_dim(&attn_weights)?;
                 let attn_output = attn_weights.matmul(&v)?;
-                attn_output.transpose(1, 2)?.reshape((
-                    batch,
-                    seq_len,
-                    self.num_heads * self.head_dim,
-                ))?
+                attn_output
+                    .transpose(1, 2)?
+                    .reshape((batch, seq_len, self.num_heads * self.head_dim))?
             }
         };
 
@@ -473,33 +456,20 @@ impl DecoderLayer {
         Ok(Self {
             self_attn: Attention::new(config, vb.pp("self_attn"))?,
             mlp: MLP::new(config, vb.pp("mlp"))?,
-            input_layernorm: rms_norm(
-                config.hidden_size,
-                config.rms_norm_eps,
-                vb.pp("input_layernorm"),
-            )?,
-            post_attention_layernorm: FusedRmsNorm::load(
-                config.hidden_size,
-                config.rms_norm_eps,
-                vb.pp("post_attention_layernorm"),
-            )?,
+            input_layernorm: rms_norm(config.hidden_size, config.rms_norm_eps, vb.pp("input_layernorm"))?,
+            post_attention_layernorm: FusedRmsNorm::load(config.hidden_size, config.rms_norm_eps, vb.pp("post_attention_layernorm"))?,
         })
     }
 
-    pub fn forward(
-        &self,
-        hidden_states: &Tensor,
-        rope: &RoPEType,
-        attention_mask: Option<&Tensor>,
-        kv_cache: Option<&mut AnyKVCache>,
-        offset: usize,
-    ) -> Result<Tensor> {
+    pub fn forward(&self, hidden_states: &Tensor, rope: &RoPEType, attention_mask: Option<&Tensor>, kv_cache: Option<&mut AnyKVCache>, offset: usize) -> Result<Tensor> {
         // Self-attention with residual
         let residual = hidden_states;
-        let hidden_states = self.input_layernorm.forward(hidden_states)?;
-        let hidden_states =
-            self.self_attn
-                .forward(&hidden_states, rope, attention_mask, kv_cache, offset)?;
+        let hidden_states = self
+            .input_layernorm
+            .forward(hidden_states)?;
+        let hidden_states = self
+            .self_attn
+            .forward(&hidden_states, rope, attention_mask, kv_cache, offset)?;
 
         // Fused: residual add + post_attention_layernorm in one kernel (CUDA)
         let (normed, hidden_states) = self
@@ -671,7 +641,9 @@ mod tests {
 
         // Input: [batch=1, seq=10, hidden=64]
         let input = Tensor::randn(0.0f32, 1.0, (1, 10, 64), &device).unwrap();
-        let output = attn.forward(&input, &rope, None, None, 0).unwrap();
+        let output = attn
+            .forward(&input, &rope, None, None, 0)
+            .unwrap();
 
         assert_eq!(output.dims(), &[1, 10, 64]);
     }
@@ -722,8 +694,9 @@ mod tests {
     #[test]
     fn test_qwen3_tts_kv_caches_creation() {
         // Test that KV caches can be created for a model
-        let kv_caches: Vec<AnyKVCache> =
-            (0..2).map(|_| AnyKVCache::Concat(KVCache::new())).collect();
+        let kv_caches: Vec<AnyKVCache> = (0..2)
+            .map(|_| AnyKVCache::Concat(KVCache::new()))
+            .collect();
         // Just verify KV caches can be created
         assert_eq!(kv_caches.len(), 2);
     }

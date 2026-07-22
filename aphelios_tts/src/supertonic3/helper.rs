@@ -16,10 +16,8 @@ use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 
 // Available languages for multilingual TTS
-pub const AVAILABLE_LANGS: &[&str] = &[
-    "en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu",
-    "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi",
-];
+pub const AVAILABLE_LANGS: &[&str] =
+    &["en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi"];
 
 pub fn is_valid_lang(lang: &str) -> bool {
     AVAILABLE_LANGS.contains(&lang)
@@ -87,23 +85,26 @@ impl UnicodeProcessor {
         let file = File::open(unicode_indexer_json_path)?;
         let reader = BufReader::new(file);
         let indexer: Vec<i64> = serde_json::from_reader(reader)?;
-        Ok(UnicodeProcessor { indexer })
+        Ok(UnicodeProcessor {
+            indexer,
+        })
     }
 
-    pub fn call(
-        &self,
-        text_list: &[String],
-        lang_list: &[String],
-    ) -> Result<(Vec<Vec<i64>>, Array3<f32>)> {
+    pub fn call(&self, text_list: &[String], lang_list: &[String]) -> Result<(Vec<Vec<i64>>, Array3<f32>)> {
         let mut processed_texts: Vec<String> = Vec::new();
         for (text, lang) in text_list.iter().zip(lang_list.iter()) {
             processed_texts.push(preprocess_text(text, lang)?);
         }
 
-        let text_ids_lengths: Vec<usize> =
-            processed_texts.iter().map(|t| t.chars().count()).collect();
+        let text_ids_lengths: Vec<usize> = processed_texts
+            .iter()
+            .map(|t| t.chars().count())
+            .collect();
 
-        let max_len = *text_ids_lengths.iter().max().unwrap_or(&0);
+        let max_len = *text_ids_lengths
+            .iter()
+            .max()
+            .unwrap_or(&0);
 
         let mut text_ids = Vec::new();
         for text in &processed_texts {
@@ -131,7 +132,9 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // Remove emojis (wide Unicode range)
     let emoji_pattern = Regex::new(r"[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+").unwrap();
-    text = emoji_pattern.replace_all(&text, "").to_string();
+    text = emoji_pattern
+        .replace_all(&text, "")
+        .to_string();
 
     // Replace various dashes and symbols
     let replacements = [
@@ -165,11 +168,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
     }
 
     // Replace known expressions
-    let expr_replacements = [
-        ("@", " at "),
-        ("e.g.,", "for example, "),
-        ("i.e.,", "that is, "),
-    ];
+    let expr_replacements = [("@", " at "), ("e.g.,", "for example, "), ("i.e.,", "that is, ")];
 
     for (from, to) in &expr_replacements {
         text = text.replace(from, to);
@@ -225,9 +224,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // If text doesn't end with punctuation, quotes, or closing brackets, add a period
     if !text.is_empty() {
-        let ends_with_punct =
-            Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\]}…。」』】〉》›»]$"#)
-                .unwrap();
+        let ends_with_punct = Regex::new(r#"[.!?;:,'"\u{201C}\u{201D}\u{2018}\u{2019})\]}…。」』】〉》›»]$"#).unwrap();
         if !ends_with_punct.is_match(&text) {
             text.push('.');
         }
@@ -235,11 +232,7 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 
     // Validate language
     if !is_valid_lang(lang) {
-        bail!(
-            "Invalid language: {}. Available: {:?}",
-            lang,
-            AVAILABLE_LANGS
-        );
+        bail!("Invalid language: {}. Available: {:?}", lang, AVAILABLE_LANGS);
     }
 
     // Wrap text with language tags
@@ -249,7 +242,9 @@ pub fn preprocess_text(text: &str, lang: &str) -> Result<String> {
 }
 
 pub fn text_to_unicode_values(text: &str) -> Vec<usize> {
-    text.chars().map(|c| c as usize).collect()
+    text.chars()
+        .map(|c| c as usize)
+        .collect()
 }
 
 pub fn length_to_mask(lengths: &[usize], max_len: Option<usize>) -> Array3<f32> {
@@ -266,20 +261,19 @@ pub fn length_to_mask(lengths: &[usize], max_len: Option<usize>) -> Array3<f32> 
 }
 
 pub fn get_text_mask(text_ids_lengths: &[usize]) -> Array3<f32> {
-    let max_len = *text_ids_lengths.iter().max().unwrap_or(&0);
+    let max_len = *text_ids_lengths
+        .iter()
+        .max()
+        .unwrap_or(&0);
     length_to_mask(text_ids_lengths, Some(max_len))
 }
 
 /// Sample noisy latent from normal distribution and apply mask
-pub fn sample_noisy_latent(
-    duration: &[f32],
-    sample_rate: i32,
-    base_chunk_size: i32,
-    chunk_compress: i32,
-    latent_dim: i32,
-) -> (Array3<f32>, Array3<f32>) {
+pub fn sample_noisy_latent(duration: &[f32], sample_rate: i32, base_chunk_size: i32, chunk_compress: i32, latent_dim: i32) -> (Array3<f32>, Array3<f32>) {
     let bsz = duration.len();
-    let max_dur = duration.iter().fold(0.0f32, |a, &b| a.max(b));
+    let max_dur = duration
+        .iter()
+        .fold(0.0f32, |a, &b| a.max(b));
 
     let wav_len_max = (max_dur * sample_rate as f32) as usize;
     let wav_lengths: Vec<usize> = duration
@@ -294,7 +288,7 @@ pub fn sample_noisy_latent(
     let mut noisy_latent = Array3::<f32>::zeros((bsz, latent_dim_val, latent_len));
 
     let normal = Normal::new(0.0, 1.0).unwrap();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     for b in 0..bsz {
         for d in 0..latent_dim_val {
@@ -327,11 +321,7 @@ pub fn sample_noisy_latent(
 // WAV File I/O
 // ============================================================================
 
-pub fn write_wav_file<P: AsRef<Path>>(
-    filename: P,
-    audio_data: &[f32],
-    sample_rate: i32,
-) -> Result<()> {
+pub fn write_wav_file<P: AsRef<Path>>(filename: P, audio_data: &[f32], sample_rate: i32) -> Result<()> {
     let spec = WavSpec {
         channels: 1,
         sample_rate: sample_rate as u32,
@@ -357,10 +347,7 @@ pub fn write_wav_file<P: AsRef<Path>>(
 
 const MAX_CHUNK_LENGTH: usize = 300;
 
-const ABBREVIATIONS: &[&str] = &[
-    "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "St.", "Ave.", "Rd.", "Blvd.", "Dept.",
-    "Inc.", "Ltd.", "Co.", "Corp.", "etc.", "vs.", "i.e.", "e.g.", "Ph.D.",
-];
+const ABBREVIATIONS: &[&str] = &["Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "St.", "Ave.", "Rd.", "Blvd.", "Dept.", "Inc.", "Ltd.", "Co.", "Corp.", "etc.", "vs.", "i.e.", "e.g.", "Ph.D."];
 
 pub fn chunk_text(text: &str, max_len: Option<usize>) -> Vec<String> {
     let max_len = max_len.unwrap_or(MAX_CHUNK_LENGTH);
@@ -584,14 +571,7 @@ pub struct TextToSpeech {
 }
 
 impl TextToSpeech {
-    pub fn new(
-        cfgs: Config,
-        text_processor: UnicodeProcessor,
-        dp_ort: Session,
-        text_enc_ort: Session,
-        vector_est_ort: Session,
-        vocoder_ort: Session,
-    ) -> Self {
+    pub fn new(cfgs: Config, text_processor: UnicodeProcessor, dp_ort: Session, text_enc_ort: Session, vector_est_ort: Session, vocoder_ort: Session) -> Self {
         let sample_rate = cfgs.ae.sample_rate;
         TextToSpeech {
             cfgs,
@@ -604,18 +584,13 @@ impl TextToSpeech {
         }
     }
 
-    fn _infer(
-        &mut self,
-        text_list: &[String],
-        lang_list: &[String],
-        style: &Style,
-        total_step: usize,
-        speed: f32,
-    ) -> Result<(Vec<f32>, Vec<f32>)> {
+    fn _infer(&mut self, text_list: &[String], lang_list: &[String], style: &Style, total_step: usize, speed: f32) -> Result<(Vec<f32>, Vec<f32>)> {
         let bsz = text_list.len();
 
         // Process text
-        let (text_ids, text_mask) = self.text_processor.call(text_list, lang_list)?;
+        let (text_ids, text_mask) = self
+            .text_processor
+            .call(text_list, lang_list)?;
 
         let text_ids_array = {
             let text_ids_shape = (bsz, text_ids[0].len());
@@ -653,25 +628,11 @@ impl TextToSpeech {
             "text_mask" => &text_mask_value
         })?;
 
-        let (text_emb_shape, text_emb_data) =
-            text_enc_outputs["text_emb"].try_extract_tensor::<f32>()?;
-        let text_emb = Array3::from_shape_vec(
-            (
-                text_emb_shape[0] as usize,
-                text_emb_shape[1] as usize,
-                text_emb_shape[2] as usize,
-            ),
-            text_emb_data.to_vec(),
-        )?;
+        let (text_emb_shape, text_emb_data) = text_enc_outputs["text_emb"].try_extract_tensor::<f32>()?;
+        let text_emb = Array3::from_shape_vec((text_emb_shape[0] as usize, text_emb_shape[1] as usize, text_emb_shape[2] as usize), text_emb_data.to_vec())?;
 
         // Sample noisy latent
-        let (mut xt, latent_mask) = sample_noisy_latent(
-            &duration,
-            self.sample_rate,
-            self.cfgs.ae.base_chunk_size,
-            self.cfgs.ttl.chunk_compress_factor,
-            self.cfgs.ttl.latent_dim,
-        );
+        let (mut xt, latent_mask) = sample_noisy_latent(&duration, self.sample_rate, self.cfgs.ae.base_chunk_size, self.cfgs.ttl.chunk_compress_factor, self.cfgs.ttl.latent_dim);
 
         // Prepare constant arrays
         let total_step_array = Array::from_elem(bsz, total_step as f32);
@@ -697,16 +658,8 @@ impl TextToSpeech {
                 "total_step" => &total_step_value
             })?;
 
-            let (denoised_shape, denoised_data) =
-                vector_est_outputs["denoised_latent"].try_extract_tensor::<f32>()?;
-            xt = Array3::from_shape_vec(
-                (
-                    denoised_shape[0] as usize,
-                    denoised_shape[1] as usize,
-                    denoised_shape[2] as usize,
-                ),
-                denoised_data.to_vec(),
-            )?;
+            let (denoised_shape, denoised_data) = vector_est_outputs["denoised_latent"].try_extract_tensor::<f32>()?;
+            xt = Array3::from_shape_vec((denoised_shape[0] as usize, denoised_shape[1] as usize, denoised_shape[2] as usize), denoised_data.to_vec())?;
         }
 
         // Generate waveform
@@ -721,15 +674,7 @@ impl TextToSpeech {
         Ok((wav, duration))
     }
 
-    pub fn call(
-        &mut self,
-        text: &str,
-        lang: &str,
-        style: &Style,
-        total_step: usize,
-        speed: f32,
-        silence_duration: f32,
-    ) -> Result<(Vec<f32>, f32)> {
+    pub fn call(&mut self, text: &str, lang: &str, style: &Style, total_step: usize, speed: f32, silence_duration: f32) -> Result<(Vec<f32>, f32)> {
         let max_len = if lang == "ko" || lang == "ja" {
             120
         } else {
@@ -741,13 +686,7 @@ impl TextToSpeech {
         let mut dur_cat: f32 = 0.0;
 
         for (i, chunk) in chunks.iter().enumerate() {
-            let (wav, duration) = self._infer(
-                &[chunk.clone()],
-                &[lang.to_string()],
-                style,
-                total_step,
-                speed,
-            )?;
+            let (wav, duration) = self._infer(&[chunk.clone()], &[lang.to_string()], style, total_step, speed)?;
 
             let dur = duration[0];
             let wav_len = (self.sample_rate as f32 * dur) as usize;
@@ -769,14 +708,7 @@ impl TextToSpeech {
         Ok((wav_cat, dur_cat))
     }
 
-    pub fn batch(
-        &mut self,
-        text_list: &[String],
-        lang_list: &[String],
-        style: &Style,
-        total_step: usize,
-        speed: f32,
-    ) -> Result<(Vec<f32>, Vec<f32>)> {
+    pub fn batch(&mut self, text_list: &[String], lang_list: &[String], style: &Style, total_step: usize, speed: f32) -> Result<(Vec<f32>, Vec<f32>)> {
         self._infer(text_list, lang_list, style, total_step, speed)
     }
 }
@@ -790,8 +722,7 @@ pub fn load_voice_style(voice_style_paths: &[String], verbose: bool) -> Result<S
     let bsz = voice_style_paths.len();
 
     // Read first file to get dimensions
-    let first_file =
-        File::open(&voice_style_paths[0]).context("Failed to open voice style file")?;
+    let first_file = File::open(&voice_style_paths[0]).context("Failed to open voice style file")?;
     let first_reader = BufReader::new(first_file);
     let first_data: VoiceStyleData = serde_json::from_reader(first_reader)?;
 
@@ -887,12 +818,5 @@ pub fn load_text_to_speech(onnx_dir: &str, use_gpu: bool) -> Result<TextToSpeech
     let unicode_indexer_path = format!("{}/unicode_indexer.json", onnx_dir);
     let text_processor = UnicodeProcessor::new(&unicode_indexer_path)?;
 
-    Ok(TextToSpeech::new(
-        cfgs,
-        text_processor,
-        dp_ort,
-        text_enc_ort,
-        vector_est_ort,
-        vocoder_ort,
-    ))
+    Ok(TextToSpeech::new(cfgs, text_processor, dp_ort, text_enc_ort, vector_est_ort, vocoder_ort))
 }

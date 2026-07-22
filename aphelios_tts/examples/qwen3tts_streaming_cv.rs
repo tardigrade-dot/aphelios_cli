@@ -15,9 +15,7 @@
 //! ```
 
 use aphelios_core::utils::{common, logger};
-use aphelios_tts::qwen_tts::qwen_tts_infer::{
-    AudioPlayer, Language, Qwen3TTS, Speaker, SynthesisOptions,
-};
+use aphelios_tts::qwen_tts::qwen_tts_infer::{AudioPlayer, Language, Qwen3TTS, Speaker, SynthesisOptions};
 use std::env;
 use std::time::Instant;
 
@@ -51,10 +49,7 @@ fn parse_speaker(speaker_str: &str) -> anyhow::Result<Speaker> {
         "vivian" => Ok(Speaker::Vivian),
         "unclefu" => Ok(Speaker::UncleFu),
         "sohee" => Ok(Speaker::Sohee),
-        _ => anyhow::bail!(
-            "未知的说话人：{}. 可用的说话人：ryan, aiden, serena, vivian, unclefu, sohee",
-            speaker_str
-        ),
+        _ => anyhow::bail!("未知的说话人：{}. 可用的说话人：ryan, aiden, serena, vivian, unclefu, sohee", speaker_str),
     }
 }
 
@@ -119,9 +114,7 @@ fn main() -> anyhow::Result<()> {
 
     // Verify model supports preset speakers
     if !model.supports_preset_speakers() {
-        anyhow::bail!(
-            "当前模型不支持预设说话人。请使用 CustomVoice 模型 (如 Qwen3-TTS-12Hz-1.7B-CustomVoice)"
-        );
+        anyhow::bail!("当前模型不支持预设说话人。请使用 CustomVoice 模型 (如 Qwen3-TTS-12Hz-1.7B-CustomVoice)");
     }
 
     tracing::info!("✅ 模型已加载，使用说话人：{:?}", speaker);
@@ -141,7 +134,14 @@ fn main() -> anyhow::Result<()> {
     };
 
     tracing::info!("🚀 开始流式语音合成...");
-    tracing::info!("📊 SDPA: {}", if use_sdpa { "启用" } else { "禁用" });
+    tracing::info!(
+        "📊 SDPA: {}",
+        if use_sdpa {
+            "启用"
+        } else {
+            "禁用"
+        }
+    );
     let total_start = Instant::now();
 
     // 创建音频播放器 - 预缓冲 1 秒后立即开始播放
@@ -151,8 +151,7 @@ fn main() -> anyhow::Result<()> {
 
     // 创建流式合成会话 - 使用预设说话人
     tracing::info!("📝 创建流式合成会话 (说话人：{:?})...", speaker);
-    let session =
-        model.synthesize_streaming(text_to_speech, speaker, Language::Chinese, options)?;
+    let session = model.synthesize_streaming(text_to_speech, speaker, Language::Chinese, options)?;
 
     let mut total_chunks = 0;
     let mut total_samples = 0;
@@ -180,33 +179,17 @@ fn main() -> anyhow::Result<()> {
         player.queue(audio.samples.clone())?;
         let queue_time = queue_start.duration_since(last_queue_time);
 
-        tracing::info!(
-            "📦 [块 {}] {} 样本 ({:.2}ms), 累计：{:.2}s, 合成间隔：{:.2}s",
-            total_chunks,
-            chunk_samples,
-            chunk_duration * 1000.0,
-            total_samples as f64 / 24000.0,
-            queue_time.as_secs_f64()
-        );
+        tracing::info!("📦 [块 {}] {} 样本 ({:.2}ms), 累计：{:.2}s, 合成间隔：{:.2}s", total_chunks, chunk_samples, chunk_duration * 1000.0, total_samples as f64 / 24000.0, queue_time.as_secs_f64());
 
         last_queue_time = queue_start;
     }
 
     let synthesis_time = total_start.elapsed();
-    tracing::info!(
-        "\n✅ 合成完成！总计：{} 块，{} 样本，{:.2}s 音频，耗时：{:.2}s",
-        total_chunks,
-        total_samples,
-        total_samples as f64 / 24000.0,
-        synthesis_time.as_secs_f64()
-    );
+    tracing::info!("\n✅ 合成完成！总计：{} 块，{} 样本，{:.2}s 音频，耗时：{:.2}s", total_chunks, total_samples, total_samples as f64 / 24000.0, synthesis_time.as_secs_f64());
 
     if let Some(first_time) = first_chunk_time {
         let first_chunk_delay = first_time.duration_since(total_start);
-        tracing::info!(
-            "⏱ 首块延迟：{:.2}s (模型加载 + 预填充 + 第一块合成)",
-            first_chunk_delay.as_secs_f64()
-        );
+        tracing::info!("⏱ 首块延迟：{:.2}s (模型加载 + 预填充 + 第一块合成)", first_chunk_delay.as_secs_f64());
     }
 
     // 等待播放完成
@@ -250,14 +233,8 @@ fn main() -> anyhow::Result<()> {
     // 分析合成和播放的重叠情况
     let overlap_ratio = audio_duration / synthesis_time.as_secs_f64();
     tracing::info!("\n📊 并行度分析:");
-    tracing::info!(
-        "   重叠率：{:.1}% (合成时播放的进度)",
-        overlap_ratio * 100.0
-    );
-    tracing::info!(
-        "   说明：合成进行到 {:.1}% 时，播放已经开始",
-        (1.0 - overlap_ratio) * 100.0
-    );
+    tracing::info!("   重叠率：{:.1}% (合成时播放的进度)", overlap_ratio * 100.0);
+    tracing::info!("   说明：合成进行到 {:.1}% 时，播放已经开始", (1.0 - overlap_ratio) * 100.0);
 
     Ok(())
 }
