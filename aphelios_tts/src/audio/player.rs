@@ -2,7 +2,8 @@
 //!
 //! 提供流畅的音频播放功能，合成和播放完全并行
 
-use rodio::{buffer::SamplesBuffer, source::Source, DeviceSinkBuilder, Player};
+use rodio::{buffer::SamplesBuffer, Player};
+use rodio::DeviceSinkBuilder;
 use std::sync::mpsc;
 use std::thread;
 
