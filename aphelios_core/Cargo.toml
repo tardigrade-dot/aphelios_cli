@@ -46,8 +46,6 @@ reqwest = { workspace = true }
 once_cell = { workspace = true }
 epub = { workspace = true }
 
-usearch = { workspace = true }
-
 rusqlite = { workspace = true }
 glob = { workspace = true }
 hayro = { workspace = true }
