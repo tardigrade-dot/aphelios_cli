@@ -16,7 +16,7 @@ fn sensevoice_test() -> Result<()> {
         },
     );
 
-    let result = sv_result.unwrap();
+    let result = sv_result?;
     info!("{}", result.text);
     for ts in result.timestamp {
         info!("[{}] {},{}", ts.word, ts.start_sec, ts.end_sec);

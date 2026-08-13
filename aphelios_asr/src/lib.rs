@@ -1,6 +1,4 @@
-pub mod granite;
 pub mod qwen3asr;
-pub mod qwen3llm;
 pub mod qwenasr;
 pub mod sensevoice;
 pub mod silerovad;
