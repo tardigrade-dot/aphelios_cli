@@ -1,5 +1,3 @@
-use serde::Serialize;
-
 pub mod audio;
 pub mod frontend;
 pub mod sensevoice;
@@ -44,7 +42,7 @@ impl SenseVoiceConfig {
     pub fn default() -> Self {
         Self {
             num_threads: 1,
-            language: "en".to_string(),
+            language: "auto".to_string(),
             use_itn: false,
             vad_int8: false,
             vad_threshold: 0.5,
@@ -57,7 +55,7 @@ impl SenseVoiceConfig {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
 pub struct WordTimestamp {
     pub word: String,
     pub start_sec: f32,

@@ -3,7 +3,7 @@ use aphelios_core::{
     init_logging,
 };
 
-const AUDIO_16K: &str = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
+const AUDIO_16K: &str = "/Users/larry/codehub/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
 const AUDIO_PATH: &str = "/Volumes/sw/video/mQlxALUw3h4.wav";
 
 const MODEL_DIR: &str = "/Volumes/sw/aphelios_cli_models/onnx_models/demucs";

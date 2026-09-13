@@ -18,9 +18,9 @@ async fn vad_and_qwen3asr() -> Result<()> {
     const ASR_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/Qwen3-ASR-0.6B";
     const ALIGNER_MODEL_DIR: &str = "/Volumes/sw/pretrained_models/Qwen3-ForcedAligner-0.6B";
     let audio_li = vec![
-        // AudioInfo{path_str:"/Users/larry/coderesp/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
+        // AudioInfo{path_str:"/Users/larry/codehub/aphelios_cli/test_data/b457.wav".to_string(), language_str:"Chinese".to_string()},
         AudioInfo {
-            path_str: "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.enhanced.wav".to_string(),
+            path_str: "/Users/larry/codehub/aphelios_cli/test_data/mQlxALUw3h4.enhanced.wav".to_string(),
             language_str: "English".to_string(),
         }, // 150s
            // AudioInfo{path_str:"/Volumes/sw/download_video/Every Constitutional Crisis (in American History).mp4".to_string(), language_str:"English".to_string()}

@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use aphelios_core::{
     measure_time,
-    utils::common::{get_device, truncate_by_chars},
+    utils::common::truncate_by_chars,
 };
 use candle_core::{Context, Tensor};
 use tracing::error;
@@ -106,8 +106,6 @@ pub async fn qwen3asr_with_vad(qwen3asr_model: Option<&str>, aligner_model: Opti
     let batches = vad.aggregate_segments(&segments, 30.0, 0.3);
 
     info!("[Phase 1] Aggregated {} batches", batches.len());
-
-    let device = get_device();
 
     let mut pipeline = measure_time!("load ASR model", Pipeline::load_with_prompt(qwen3asr_model, ctx)?);
 

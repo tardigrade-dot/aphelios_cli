@@ -64,7 +64,7 @@ fn qwen_tts_single_test() -> Result<()> {
     #[cfg(feature = "profiling")]
     println!("generate audio time: {:.2}s", start2.elapsed().as_secs_f64());
 
-    audios.save("/Users/larry/coderesp/aphelios_cli/output/qwen_tts_single_test-0.6B.wav")?;
+    audios.save("/Users/larry/codehub/aphelios_cli/output/qwen_tts_single_test-0.6B.wav")?;
     Ok(())
 }
 
@@ -109,7 +109,7 @@ fn qwen_tts_batch_test() -> Result<()> {
         assert_eq!(audio.sample_rate, 24_000, "batch item {index} should keep the model sample rate");
     }
 
-    let output_dir = PathBuf::from("/Users/larry/coderesp/aphelios_cli/output");
+    let output_dir = PathBuf::from("/Users/larry/codehub/aphelios_cli/output");
     fs::create_dir_all(&output_dir).with_context(|| format!("failed to create output dir {}", output_dir.display()))?;
     let output_path = output_dir.join("batch_test-0.6B.wav");
     let written_paths = output_paths(&output_path, texts.len());

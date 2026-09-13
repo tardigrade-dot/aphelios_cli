@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tracing::info;
 
-// cargo run -p aphelios_voice --features metal,profiling --example sidon_example -- -i /Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4.wav -m /Volumes/sw/pretrained_models/voice-clear
-// cargo run -p aphelios_voice --example sidon_example -- -i /Users/larry/coderesp/aphelios_cli/aphelios_voice/test_data/mQlxALUw3h4-12s-16k.wav -m /Volumes/sw/pretrained_models/voice-clear
+// cargo run -p aphelios_voice --features metal,profiling --example sidon_example -- -i /Users/larry/codehub/aphelios_cli/test_data/mQlxALUw3h4.wav -m /Volumes/sw/pretrained_models/voice-clear
+// cargo run -p aphelios_voice --example sidon_example -- -i /Users/larry/codehub/aphelios_cli/aphelios_voice/test_data/mQlxALUw3h4-12s-16k.wav -m /Volumes/sw/pretrained_models/voice-clear
 #[derive(Parser, Debug, Serialize)]
 #[command(name = "voice-clear", about = "Speech enhancement via ONNX Runtime")]
 struct Cli {

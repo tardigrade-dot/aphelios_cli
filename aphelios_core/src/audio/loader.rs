@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_get_format() {
-        let test_file = "/Users/larry/coderesp/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
+        let test_file = "/Users/larry/codehub/aphelios_cli/test_data/mQlxALUw3h4_16k.wav";
         if std::path::Path::new(test_file).exists() {
             let format = AudioLoader::get_format(test_file).unwrap();
             assert_eq!(format.sample_rate, 16000);

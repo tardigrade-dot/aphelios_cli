@@ -1,377 +1,369 @@
-//! In-memory book search with Chinese Simplified/Traditional support.
+//! 书籍搜索库
 //!
-//! Scans a books directory, extracts metadata from filenames, and
-//! provides substring search with zhconv-based S/T conversion
-//! so searching in simplified Chinese also matches traditional titles.
+//! 核心能力:
+//! - 递归扫描目录, 按文件扩展名过滤出书籍文件
+//! - 默认支持「简体 ↔ 繁体」互相检索: 查询词与文件名都会先归一化
+//!   (转小写 → 转为简体 → 去掉空白与常见分隔/标点) 再做子串匹配
+//! - 多关键字以空白分隔, 采用 AND 语义
+//! - 支持按文件类型过滤 (`SearchOptions::extensions`)
+//!
+//! 使用示例:
+//! ```no_run
+//! use aphelios_search::{BookSearcher, SearchOptions};
+//!
+//! let searcher = BookSearcher::new();
+//! let options = SearchOptions {
+//!     dir: std::path::PathBuf::from("/path/to/books"),
+//!     query: "深度学习".to_string(), // 可以匹配「深度學習」开头的书名
+//!     ..Default::default()
+//! };
+//! if let Ok(hits) = searcher.search(&options) {
+//!     for hit in hits {
+//!         println!("{}", hit.file_name);
+//!     }
+//! }
+//! ```
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::Result;
-use std::path::Path;
-use tracing::info;
 
-/// Search mode — currently only keyword search is supported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SearchMode {
-    #[default]
-    Keyword,
-}
+/// 默认支持的书籍文件扩展名(小写、不含点号)
+pub const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub", "txt", "mobi", "azw3", "docx", "djvu", "chm", "md", "rtf", "fb2"];
 
-/// A single book entry.
+/// 递归扫描的最大深度, 防止符号链接/循环目录导致无限递归
+const MAX_DEPTH: usize = 24;
+
+/// 默认的搜索结果上限
+pub const DEFAULT_LIMIT: usize = 1000;
+
+/// 搜索参数
 #[derive(Debug, Clone)]
-pub struct BookInfo {
-    pub id: i64,
-    pub title: String,
-    pub author: Option<String>,
-    pub file_path: String,
-    pub file_type: String,
-    pub file_size: u64,
+pub struct SearchOptions {
+    /// 要扫描的根目录
+    pub dir: PathBuf,
+    /// 关键字(简体/繁体均可), 多个关键字用空白分隔, AND 匹配
+    pub query: String,
+    /// 文件类型过滤: `Some([...])` 时只匹配这些扩展名(不区分大小写、可带点);
+    /// `None` 或空列表时使用 [`BOOK_EXTENSIONS`]
+    pub extensions: Option<Vec<String>>,
+    /// 是否递归子目录
+    pub recursive: bool,
+    /// 返回结果上限
+    pub limit: usize,
 }
 
-/// A set of search results.
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub books: Vec<BookInfo>,
-    pub total: usize,
-}
-
-/// Convert simplified Chinese text to traditional Chinese.
-pub fn to_traditional(text: &str) -> String {
-    zhconv::zhconv(text, zhconv::Variant::ZhHant)
-}
-
-/// Convert traditional Chinese text to simplified Chinese.
-pub fn to_simplified(text: &str) -> String {
-    zhconv::zhconv(text, zhconv::Variant::ZhHans)
-}
-
-/// Supported book file extensions.
-const BOOK_EXTENSIONS: &[&str] = &["pdf", "epub", "txt", "mobi", "azw3"];
-
-/// Check whether a file path has a book extension.
-fn is_book_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| BOOK_EXTENSIONS.contains(&e.to_lowercase().as_str()))
-        .unwrap_or(false)
-}
-
-/// Parse a filename into (title, optional author).
-///
-/// Supports these formats:
-/// - `书名 (作者)` / `书名（作者）`
-/// - `书名 - 作者`
-/// - `[作者] 书名`
-/// - Everything else → treated as the title alone.
-pub fn extract_metadata(file_path: &Path) -> (String, Option<String>) {
-    let filename = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("未知书名")
-        .to_string();
-
-    // Try "书名 (作者)"  with ASCII parens
-    if let Some(paren_pos) = filename.find('(') {
-        let title = filename[..paren_pos].trim().to_string();
-        let author = filename[paren_pos + 1..]
-            .find(')')
-            .map(|end| {
-                filename[paren_pos + 1..paren_pos + 1 + end]
-                    .trim()
-                    .to_string()
-            });
-        // Strip English subtitle after " = "
-        let title = if let Some(eq_pos) = title.find(" = ") {
-            title[..eq_pos].trim().to_string()
-        } else {
-            title
-        };
-        return (title, author);
-    }
-
-    // Try "书名（作者）" with fullwidth parens
-    if let Some(paren_pos) = filename.find('（') {
-        let content_start = paren_pos + '（'.len_utf8();
-        let title = filename[..paren_pos].trim().to_string();
-        let author = filename[content_start..]
-            .find('）')
-            .map(|end| {
-                filename[content_start..content_start + end]
-                    .trim()
-                    .to_string()
-            });
-        let title = if let Some(eq_pos) = title.find(" = ") {
-            title[..eq_pos].trim().to_string()
-        } else {
-            title
-        };
-        return (title, author);
-    }
-
-    // Try "书名 - 作者"
-    if let Some(dash_pos) = filename.find(" - ") {
-        let title = filename[..dash_pos].trim().to_string();
-        let author = Some(
-            filename[dash_pos + 3..]
-                .trim()
-                .to_string(),
-        );
-        return (title, author);
-    }
-
-    // Try "[作者] 书名"
-    if let (Some(start), Some(end)) = (filename.find('['), filename.find(']')) {
-        let author = Some(
-            filename[start + 1..end]
-                .trim()
-                .to_string(),
-        );
-        let title = filename[end + 1..].trim().to_string();
-        if !title.is_empty() {
-            return (title, author);
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            dir: PathBuf::from("."),
+            query: String::new(),
+            extensions: None,
+            recursive: true,
+            limit: DEFAULT_LIMIT,
         }
     }
-
-    // Fallback: whole filename is the title
-    (filename, None)
 }
 
-/// Recursively scan a directory and return all books found.
-pub fn scan_books(book_dir: &str) -> Result<Vec<BookInfo>> {
-    let dir = Path::new(book_dir);
-    if !dir.exists() {
-        info!("Books directory does not exist: {}", book_dir);
-        return Ok(Vec::new());
-    }
-
-    let mut books = Vec::new();
-    scan_dir_recursive(dir, &mut books, &mut 0i64)?;
-
-    info!("Scanned {} books from {}", books.len(), book_dir);
-    Ok(books)
+/// 一条书籍搜索结果
+#[derive(Debug, Clone)]
+pub struct BookHit {
+    /// 完整路径
+    pub path: PathBuf,
+    /// 相对根目录的路径
+    pub relative_path: String,
+    /// 文件名(含扩展名)
+    pub file_name: String,
+    /// 文件名(不含扩展名)
+    pub stem: String,
+    /// 扩展名(小写, 不含点)
+    pub extension: String,
+    /// 文件大小(字节)
+    pub size: u64,
+    /// 最后修改时间
+    pub modified: Option<SystemTime>,
 }
 
-fn scan_dir_recursive(dir: &Path, books: &mut Vec<BookInfo>, next_id: &mut i64) -> Result<()> {
-    if !dir.is_dir() {
-        return Ok(());
+impl BookHit {
+    /// 人类可读的文件大小, 例如 "1.2 MB"
+    pub fn size_human(&self) -> String {
+        human_size(self.size)
     }
-
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            scan_dir_recursive(&path, books, next_id)?;
-        } else if is_book_file(&path) {
-            let file_path = path.to_string_lossy().to_string();
-            let file_type = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            let file_size = std::fs::metadata(&path)
-                .map(|m| m.len())
-                .unwrap_or(0);
-            let (title, author) = extract_metadata(&path);
-
-            // Normalize author empty string to None
-            let author = author.filter(|a| !a.is_empty());
-
-            *next_id += 1;
-            books.push(BookInfo {
-                id: *next_id,
-                title,
-                author,
-                file_path,
-                file_type,
-                file_size,
-            });
-        }
-    }
-
-    Ok(())
 }
 
-/// Search books in-memory by title or author.
+/// 书籍搜索器。
 ///
-/// The query is matched as a case-insensitive substring against both the
-/// original title and its simplified-Chinese form, so searching in either
-/// simplified or traditional Chinese will find matching titles.
-pub fn search_books(books: &[BookInfo], query: &str, limit: usize) -> SearchResult {
-    let query = query.trim();
-    if query.is_empty() {
-        let total = books.len();
-        let results: Vec<BookInfo> = books
-            .iter()
-            .take(limit)
-            .cloned()
+/// 无内部状态, 可随意克隆; 搜索为阻塞调用, 建议放到后台线程执行。
+#[derive(Clone, Default)]
+pub struct BookSearcher {}
+
+impl BookSearcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 归一化文本: 转小写 → 转为简体 → 去掉空白与常见分隔/标点。
+    ///
+    /// 这样「繁體文件名」和「简体搜索词」(或反过来) 也能互相匹配,
+    /// 例如: `三體` → `三体`, `机器-学习导论` → `机器学习导论`。
+    pub fn normalize(&self, text: &str) -> String {
+        let lower = text.to_lowercase();
+        let simplified = zhconv::zhconv(&lower, zhconv::Variant::ZhCN);
+        let mut out = String::with_capacity(simplified.len());
+        for ch in simplified.chars() {
+            if !ch.is_whitespace() && !is_separator(ch) {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    /// 执行搜索(阻塞)。返回按匹配质量排序后的结果。
+    pub fn search(&self, options: &SearchOptions) -> Result<Vec<BookHit>> {
+        let dir = &options.dir;
+        if !dir.is_dir() {
+            anyhow::bail!("目录不存在: {}", dir.display());
+        }
+
+        let extensions: Vec<String> = match &options.extensions {
+            Some(list) if !list.is_empty() => list
+                .iter()
+                .map(|s| s.trim_start_matches('.').to_lowercase())
+                .collect(),
+            _ => BOOK_EXTENSIONS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        };
+
+        let query = options.query.trim();
+        let terms: Vec<String> = if query.is_empty() {
+            Vec::new()
+        } else {
+            query
+                .split_whitespace()
+                .map(|t| self.normalize(t))
+                .filter(|t| !t.is_empty())
+                .collect()
+        };
+
+        // 用 (匹配质量, 命中) 暂存, 便于排序后丢弃质量字段
+        let mut scored: Vec<(u8, BookHit)> = Vec::new();
+        self.walk(dir, dir, options.recursive, 0, &extensions, &terms, &mut scored)?;
+
+        scored.sort_by(|(qa, a), (qb, b)| {
+            qa.cmp(qb).then_with(|| {
+                a.file_name
+                    .to_lowercase()
+                    .cmp(&b.file_name.to_lowercase())
+            })
+        });
+
+        let mut hits: Vec<BookHit> = scored
+            .into_iter()
+            .map(|(_, h)| h)
             .collect();
-        return SearchResult {
-            total,
-            books: results,
+        hits.truncate(options.limit);
+        Ok(hits)
+    }
+
+    /// 递归遍历目录, 收集匹配的书籍文件
+    #[allow(clippy::too_many_arguments)]
+    fn walk(&self, root: &Path, dir: &Path, recursive: bool, depth: usize, extensions: &[String], terms: &[String], out: &mut Vec<(u8, BookHit)>) -> Result<()> {
+        if depth > MAX_DEPTH {
+            return Ok(());
+        }
+
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::debug!(path = %dir.display(), "跳过不可读目录: {err}");
+                return Ok(());
+            }
         };
-    }
 
-    // Pre-compute query variants: original, simplified, traditional
-    let query_lower = query.to_lowercase();
-    let query_s = to_simplified(&query_lower);
-    let query_t = to_traditional(&query_lower);
-
-    let matched: Vec<BookInfo> = books
-        .iter()
-        .filter(|b| {
-            let title_lower = b.title.to_lowercase();
-            let title_s = to_simplified(&title_lower);
-
-            // Check original title
-            if title_lower.contains(&query_lower) || title_s.contains(&query_s) {
-                return true;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry
+                .file_name()
+                .to_string_lossy()
+                .to_string();
+            if name.starts_with('.') {
+                continue; // 跳过隐藏文件/目录
             }
 
-            // Check traditional query against simplified title
-            if query_t != query_s && title_s.contains(&query_t) {
-                return true;
-            }
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
 
-            // Also check author if present, with the same S/T conversion
-            if let Some(ref author) = b.author {
-                let author_lower = author.to_lowercase();
-                let author_s = to_simplified(&author_lower);
-                if author_lower.contains(&query_lower) || author_s.contains(&query_s) || (query_t != query_s && author_s.contains(&query_t)) {
-                    return true;
+            if file_type.is_dir() {
+                if recursive {
+                    self.walk(root, &path, recursive, depth + 1, extensions, terms, out)?;
                 }
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
             }
 
-            false
-        })
-        .take(limit)
-        .cloned()
-        .collect();
+            let Some(ext) = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+            else {
+                continue;
+            };
+            if !extensions.iter().any(|e| *e == ext) {
+                continue;
+            }
 
-    let total = matched.len();
-    SearchResult {
-        books: matched,
-        total,
+            let stem = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let relative_path = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+
+            let stem_norm = self.normalize(&stem);
+            let path_norm = self.normalize(&relative_path);
+            if !matches_terms(terms, &stem_norm, &path_norm) {
+                continue;
+            }
+
+            let meta = match fs::metadata(&path) {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+
+            let quality = match_quality(&terms.join(""), &stem_norm, &path_norm);
+            out.push((
+                quality,
+                BookHit {
+                    path,
+                    relative_path,
+                    file_name: name,
+                    stem,
+                    extension: ext,
+                    size: meta.len(),
+                    modified: meta.modified().ok(),
+                },
+            ));
+        }
+        Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_metadata_ascii_parens() {
-        let path = Path::new("/books/三体 (刘慈欣).epub");
-        let (title, author) = extract_metadata(path);
-        assert_eq!(title, "三体");
-        assert_eq!(author.as_deref(), Some("刘慈欣"));
+/// 关键字是否全部命中(AND 语义)。
+/// 空关键字表示不限制(匹配所有)。
+fn matches_terms(terms: &[String], stem: &str, path: &str) -> bool {
+    if terms.is_empty() {
+        return true;
     }
+    terms
+        .iter()
+        .all(|t| stem.contains(t.as_str()) || path.contains(t.as_str()))
+}
 
-    #[test]
-    fn test_extract_metadata_fullwidth_parens() {
-        let path = Path::new("/books/三体（刘慈欣）.epub");
-        let (title, author) = extract_metadata(path);
-        assert_eq!(title, "三体");
-        assert_eq!(author.as_deref(), Some("刘慈欣"));
+/// 匹配质量(数值越小越靠前):
+/// 0 = 文件名(不含扩展名)与关键字完全相等
+/// 1 = 文件名以关键字开头
+/// 2 = 文件名包含关键字
+/// 3 = 仅相对路径包含关键字
+fn match_quality(query: &str, stem: &str, _path: &str) -> u8 {
+    if query.is_empty() {
+        return 0;
     }
-
-    #[test]
-    fn test_extract_metadata_dash() {
-        let path = Path::new("/books/三体 - 刘慈欣.pdf");
-        let (title, author) = extract_metadata(path);
-        assert_eq!(title, "三体");
-        assert_eq!(author.as_deref(), Some("刘慈欣"));
-    }
-
-    #[test]
-    fn test_extract_metadata_bracket() {
-        let path = Path::new("/books/[刘慈欣] 三体.txt");
-        let (title, author) = extract_metadata(path);
-        assert_eq!(title, "三体");
-        assert_eq!(author.as_deref(), Some("刘慈欣"));
-    }
-
-    #[test]
-    fn test_extract_metadata_title_only() {
-        let path = Path::new("/books/三体.pdf");
-        let (title, author) = extract_metadata(path);
-        assert_eq!(title, "三体");
-        assert_eq!(author, None);
-    }
-
-    #[test]
-    fn test_search_simplified_finds_traditional() {
-        let books = vec![BookInfo {
-            id: 1,
-            title: "中國歷史".to_string(),
-            author: None,
-            file_path: "/books/中國歷史.pdf".to_string(),
-            file_type: "pdf".to_string(),
-            file_size: 100,
-        }];
-
-        // Search in simplified should find traditional title
-        let result = search_books(&books, "中国", 10);
-        assert_eq!(result.total, 1);
-    }
-
-    #[test]
-    fn test_search_traditional_finds_simplified() {
-        let books = vec![BookInfo {
-            id: 1,
-            title: "中国历史".to_string(),
-            author: None,
-            file_path: "/books/中国历史.pdf".to_string(),
-            file_type: "pdf".to_string(),
-            file_size: 100,
-        }];
-
-        // Search in traditional should find simplified title
-        let result = search_books(&books, "中國", 10);
-        assert_eq!(result.total, 1);
-    }
-
-    #[test]
-    fn test_search_partial_match() {
-        let books = vec![BookInfo {
-            id: 1,
-            title: "中国历史长卷".to_string(),
-            author: None,
-            file_path: "/books/test.pdf".to_string(),
-            file_type: "pdf".to_string(),
-            file_size: 100,
-        }];
-
-        let result = search_books(&books, "历史", 10);
-        assert_eq!(result.total, 1);
-    }
-
-    #[test]
-    fn test_search_empty_query_returns_all() {
-        let books = vec![
-            BookInfo {
-                id: 1,
-                title: "A".to_string(),
-                author: None,
-                file_path: "/a.pdf".to_string(),
-                file_type: "pdf".to_string(),
-                file_size: 100,
-            },
-            BookInfo {
-                id: 2,
-                title: "B".to_string(),
-                author: None,
-                file_path: "/b.pdf".to_string(),
-                file_type: "pdf".to_string(),
-                file_size: 100,
-            },
-        ];
-
-        let result = search_books(&books, "", 10);
-        assert_eq!(result.total, 2);
-    }
-
-    #[test]
-    fn test_to_traditional_and_simplified() {
-        assert_eq!(to_traditional("计算机"), "計算機");
-        assert_eq!(to_simplified("計算機"), "计算机");
+    if stem == query {
+        0
+    } else if stem.starts_with(query) {
+        1
+    } else if stem.contains(query) {
+        2
+    } else {
+        3 // 只有相对路径命中
     }
 }
+
+/// 常见的分隔/标点, 归一化时会被去掉(对查询词与文件名一视同仁)
+fn is_separator(c: char) -> bool {
+    matches!(
+        c,
+        '，' | '。'
+            | '、'
+            | '；'
+            | '：'
+            | '？'
+            | '！'
+            | '「'
+            | '」'
+            | '『'
+            | '』'
+            | '《'
+            | '》'
+            | '〈'
+            | '〉'
+            | '（'
+            | '）'
+            | '【'
+            | '】'
+            | '〔'
+            | '〕'
+            | '…'
+            | '—'
+            | '·'
+            | '"'
+            | '\''
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | ','
+            | '.'
+            | ';'
+            | ':'
+            | '?'
+            | '!'
+            | '-'
+            | '_'
+            | '`'
+            | '~'
+            | '@'
+            | '#'
+            | '$'
+            | '%'
+            | '^'
+            | '&'
+            | '*'
+            | '+'
+            | '='
+            | '|'
+            | '\\'
+            | '/'
+            | '<'
+            | '>'
+    )
+}
+
+/// 人类可读的文件大小
+pub fn human_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    if bytes as f64 >= GB {
+        format!("{:.1} GB", bytes as f64 / GB)
+    } else if bytes as f64 >= MB {
+        format!("{:.1} MB", bytes as f64 / MB)
+    } else if bytes as f64 >= KB {
+        format!("{:.1} KB", bytes as f64 / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+pub mod epub;

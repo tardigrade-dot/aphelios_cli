@@ -4,6 +4,7 @@ pub mod sensevoice;
 pub mod silerovad;
 pub mod text_match;
 pub mod whisper;
+pub mod qwenrsasr;
 
 pub const QWEN3_ASR_MODEL_ID: &str = "Qwen/Qwen3-ASR-0.6B";
 const QWEN_ALIGNER_MODEL_ID: &str = "Qwen/Qwen3-ForcedAligner-0.6B";

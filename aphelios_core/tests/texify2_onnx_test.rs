@@ -249,7 +249,7 @@ fn main() -> Result<()> {
     // File paths
     let encoder_file = Path::new(TEXIFY2_MODEL_ENCODER_PATH);
     let decoder_file = Path::new(TEXIFY2_MODEL_DECODER_PATH);
-    let test_image = Path::new("/Users/larry/coderesp/aphelios_cli/test_data/texify2_test.png");
+    let test_image = Path::new("/Users/larry/codehub/aphelios_cli/test_data/texify2_test.png");
     let tokenizer_file = Path::new(TEXIFY2_TOKENIZER_PATH);
 
     // Verify files exist

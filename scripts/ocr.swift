@@ -36,4 +36,4 @@ if CommandLine.arguments.count > 1 {
     print("用法: swift ocr.swift <图片路径> \n example: swift /path/to/ocr.swift /path/to/page_32.png | pbcopy")
 }
 
-// swift /Users/larry/coderesp/aphelios_cli/scripts/ocr.swift /Users/larry/Documents/resources/page_32.png | pbcopy
+// swift /Users/larry/codehub/aphelios_cli/scripts/ocr.swift /Users/larry/Documents/resources/page_32.png | pbcopy

@@ -20,7 +20,7 @@ logging.basicConfig(
 # ==========================================
 # 1. 读取 WAV 文件 (得到 Numpy 数组)
 # ==========================================
-noisy_waveform_np, sr = sf.read('/Users/larry/coderesp/RE-USE/noisy_audio/mQlxALUw3h4-12s-16k.wav')
+noisy_waveform_np, sr = sf.read('/Users/larry/codehub/RE-USE/noisy_audio/mQlxALUw3h4-12s-16k.wav')
 
 # 确保是单声道 (T,) 格式。如果是立体声 (T, 2)，将其转为单声道
 if noisy_waveform_np.ndim > 1:

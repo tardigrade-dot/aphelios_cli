@@ -63,7 +63,7 @@ fn preprocess_img(img: &DynamicImage) -> Result<Array4<f32>> {
 
     // 可选：调试保存，检查图片是否居中
     let i = Instant::now().elapsed().as_micros();
-    canvas.save(format!("/Users/larry/coderesp/aphelios_cli/output/debug_centered_input-{}.png", i))?;
+    canvas.save(format!("/Users/larry/codehub/aphelios_cli/output/debug_centered_input-{}.png", i))?;
 
     Ok(array)
 }
@@ -338,7 +338,7 @@ fn draw_bboxes_and_save(img: &DynamicImage, bboxes: &[([u32; 4], String)], save_
 fn start_ocr() -> Result<()> {
     let encoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/encoder_model.onnx");
     let decoder_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/decoder_model.onnx");
-    let test_image = Path::new("/Users/larry/coderesp/aphelios_cli/test_data/page_32.png");
+    let test_image = Path::new("/Users/larry/codehub/aphelios_cli/test_data/page_32.png");
     let tokenizer_file = Path::new("/Volumes/sw/onnx_models/Dolphin-1.5-onnx/tokenizer.json");
 
     // Expected output format:
@@ -419,7 +419,7 @@ fn start_ocr() -> Result<()> {
     }
 
     // Draw bboxes on image
-    let output_dir = Path::new("/Users/larry/coderesp/aphelios_cli/output");
+    let output_dir = Path::new("/Users/larry/codehub/aphelios_cli/output");
     let _ = std::fs::create_dir_all(output_dir);
     let output_path = output_dir.join("dolphin_layout.png");
 

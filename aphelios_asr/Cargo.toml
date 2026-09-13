@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 aphelios_core = { path = "../aphelios_core" }
 
+qwen-asr = "0.11"
 ort = { workspace = true }
 ndarray = { workspace = true }
 anyhow = { workspace = true }

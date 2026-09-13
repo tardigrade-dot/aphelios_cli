@@ -10,7 +10,7 @@ async fn test_pdf_load_images() -> Result<()> {
     init_test_logging();
 
     // 获取当前工作目录，并尝试定位测试文件
-    let mut pdf_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/extracted_pages.pdf");
+    let mut pdf_path = PathBuf::from("/Users/larry/codehub/aphelios_cli/test_data/extracted_pages.pdf");
 
     if !pdf_path.exists() {
         // 尝试从项目根目录定位
@@ -71,7 +71,7 @@ const BIG_TEST_PDF: &str = "/Users/larry/Downloads/test_layout.pdf";
 fn test_pdf_extract_from() {
     init_test_logging();
     let pdf_path = PathBuf::from(BIG_TEST_PDF);
-    let output_path = PathBuf::from("/Users/larry/coderesp/aphelios_cli/test_data/test_pdf2.pdf");
+    let output_path = PathBuf::from("/Users/larry/codehub/aphelios_cli/test_data/test_pdf2.pdf");
     dolphin_utils::pdf_extract_from(&pdf_path, 9, 90, &output_path).unwrap();
     info!("Extracted page from {:?} to {:?}", pdf_path, output_path);
 }
@@ -81,7 +81,7 @@ fn test_pdf_page_to_png() {
     init_test_logging();
     let num = 2;
     let pdf_path = PathBuf::from(BIG_TEST_PDF);
-    let output_path = PathBuf::from(format!("/Users/larry/coderesp/aphelios_cli/output/example_page_{}.png", num));
+    let output_path = PathBuf::from(format!("/Users/larry/codehub/aphelios_cli/output/example_page_{}.png", num));
     dolphin_utils::pdf_page_to_png(&pdf_path, num, &output_path).unwrap();
     info!("Saved page {} from {:?} to {:?}", num, pdf_path, output_path);
 }

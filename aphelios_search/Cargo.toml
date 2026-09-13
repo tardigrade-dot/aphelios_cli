@@ -6,9 +6,13 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+
+jieba-rs = { workspace = true }
 anyhow = { workspace = true }
-zhconv = "0.4"
 tracing = { workspace = true }
+zhconv = { workspace = true }
+roxmltree = "0.21"
+rbook = "0.7"
 
 [features]
 profiling = []

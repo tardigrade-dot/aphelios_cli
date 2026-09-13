@@ -46,7 +46,6 @@ async-stream = { workspace = true }
 futures-util = { workspace = true }
 tracing-test = { workspace = true }
 imara-diff = { workspace = true }
-jieba-rs = { workspace = true }
 hf-hub = { workspace = true }
 itertools = { workspace = true }
 measureme = { workspace = true }

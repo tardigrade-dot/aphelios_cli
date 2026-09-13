@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     let mut use_sdpa = true;
     let mut model_path = "/Volumes/sw/pretrained_models/Qwen3-TTS-12Hz-0.6B-Base";
-    let mut ref_audio_path = "/Users/larry/coderesp/aphelios_cli/test_data/newvoice.wav";
+    let mut ref_audio_path = "/Users/larry/codehub/aphelios_cli/test_data/newvoice.wav";
     let mut record_output: Option<String> = None;
 
     let mut i = 1;
@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     // 清理文本：移除空行和多余空白
     let raw_text = r"
     近来研究表明，那种庞大、复杂、联合式的宗族在中国并不普遍，可能只存在于华南及江南的某些地区。
-    
+
     研究者发现，北方那样的多族共居村庄在新界殖民地仍很普遍。对旧的宗族研究范式的批评甚至比这些论点还要深入。
     斯蒂芬·桑格伦对莫利斯·弗雷德曼以及休·贝克提出的男系宗族占主要地位的观点提出激烈的批评，
     他认为以前对中国宗族的研究只是从各种规定及法理思想出发的，而未分析宗族的实际结构、职能及运作效果。
