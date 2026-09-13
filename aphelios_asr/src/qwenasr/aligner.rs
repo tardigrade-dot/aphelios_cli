@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use aphelios_core::utils::common::get_device;
+use crate::device::get_device;
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{embedding, linear_no_bias, ops::softmax_last_dim, rms_norm, rotary_emb::rope, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config as Qwen3Config;

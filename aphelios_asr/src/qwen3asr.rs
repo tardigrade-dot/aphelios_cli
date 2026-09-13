@@ -18,7 +18,7 @@ pub use streaming::{StreamingOptions, StreamingState};
 use std::path::Path;
 
 use anyhow::Context;
-use aphelios_core::{measure_time, utils::common::get_device};
+use crate::{device::get_device, measure_time};
 use tracing::info;
 
 use crate::qwenasr::{generate_srt_from_aligned_batches, AlignedBatch};
@@ -109,7 +109,7 @@ pub async fn qwen3asr_with_vad(
             .to_str()
             .unwrap()
             .to_string();
-        let _ = crate::whisper::generate_vad(&segments, &output_path).await;
+        let _ = crate::srt::generate_vad_srt(&segments, &output_path).await;
         info!("[profiling] Generated VAD SRT at {}", output_path);
     }
     info!("[Phase 1] Detected {} speech segments", segments.len());

@@ -6,8 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-aphelios_core = { path = "../aphelios_core" }
-
 qwen-asr = "0.11"
 ort = { workspace = true }
 ndarray = { workspace = true }
@@ -40,21 +38,21 @@ ureq = { workspace = true }
 opusic-sys = { workspace = true }
 similar = { workspace = true }
 chinese-number = { workspace = true }
+hf-hub = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
 test-log = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
-default = ["metal", "profiling"]
-profiling = ["aphelios_core/profiling",]
-cpu = ["aphelios_core/cpu"]
+default = ["profiling"]
+profiling = []
+cpu = []
 metal = [
-    "aphelios_core/metal",
     "ort/coreml",
 ]
 cuda = [
-    "aphelios_core/cuda",
     "candle-core/cuda",
     "candle-nn/cuda",
     "candle-transformers/cuda",

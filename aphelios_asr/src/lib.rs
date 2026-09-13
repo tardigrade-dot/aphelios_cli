@@ -1,13 +1,18 @@
+pub mod audio;
+pub mod device;
+pub mod hub;
+pub mod pipeline;
 pub mod qwen3asr;
 pub mod qwenasr;
+pub mod qwenrsasr;
 pub mod sensevoice;
 pub mod silerovad;
+pub mod srt;
 pub mod text_match;
-pub mod whisper;
-pub mod qwenrsasr;
+pub mod timer;
 
 pub const QWEN3_ASR_MODEL_ID: &str = "Qwen/Qwen3-ASR-0.6B";
-const QWEN_ALIGNER_MODEL_ID: &str = "Qwen/Qwen3-ForcedAligner-0.6B";
+pub const QWEN_ALIGNER_MODEL_ID: &str = "Qwen/Qwen3-ForcedAligner-0.6B";
 
 /// Voice activity detection segment (time in milliseconds)
 #[derive(Debug, Clone)]

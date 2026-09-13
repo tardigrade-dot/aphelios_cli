@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use aphelios_core::audio::loader::AudioLoader;
-use aphelios_core::audio::types::AudioBuffer;
+use crate::audio::{AudioBuffer, AudioLoader};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Async, FixedAsync, Indexing, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use rustfft::{num_complex::Complex, FftPlanner};

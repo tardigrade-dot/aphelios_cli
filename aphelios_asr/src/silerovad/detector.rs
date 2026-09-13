@@ -3,10 +3,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use aphelios_core::{
-    audio::{MonoBuffer, ResampleQuality},
+use crate::{
+    audio::{AudioLoader, MonoBuffer, ResampleQuality, Resampler},
     hub::load_file_local_or_download,
-    AudioLoader, Resampler,
 };
 use tracing::info;
 

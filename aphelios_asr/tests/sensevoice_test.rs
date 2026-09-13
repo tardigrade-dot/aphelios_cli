@@ -1,7 +1,10 @@
 use anyhow::Result;
 use aphelios_asr::sensevoice::{sensevoice_asr, SenseVoiceConfig};
-use aphelios_core::init_logging;
 use tracing::info;
+
+fn init_logging() {
+    let _ = tracing_subscriber::fmt::try_init();
+}
 
 #[test]
 fn sensevoice_test() -> Result<()> {

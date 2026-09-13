@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use aphelios_core::hub::load_or_download;
-use aphelios_core::utils::common::get_device;
+use crate::hub::load_or_download;
+use crate::device::get_device;
 use candle_core::{DType, Device, Tensor};
 use thiserror::Error;
 use tracing::info;

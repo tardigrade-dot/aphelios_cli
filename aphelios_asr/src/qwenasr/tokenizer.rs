@@ -1,4 +1,4 @@
-use aphelios_core::hub::load_or_download;
+use crate::hub::load_or_download;
 use std::collections::HashMap;
 use thiserror::Error;
 use tokenizers::decoders::byte_level::ByteLevel as BLDecoder;

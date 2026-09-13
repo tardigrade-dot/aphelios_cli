@@ -1,16 +1,17 @@
 use std::path::Path;
 
 use anyhow::Result;
-use aphelios_core::{
-    measure_time,
-    utils::common::truncate_by_chars,
-};
 use candle_core::{Context, Tensor};
 use tracing::error;
 use tracing::info;
+use crate::measure_time;
+
+fn truncate_by_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}
 
 #[cfg(feature = "profiling")]
-use crate::whisper::generate_vad;
+use crate::srt::generate_vad_srt as generate_vad;
 use crate::{
     qwenasr::{
         aligner::{tokenize_for_alignment, AlignItem, ForcedAligner},

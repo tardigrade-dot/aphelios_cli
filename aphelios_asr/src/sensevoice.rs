@@ -96,7 +96,6 @@ pub fn extract_tags(text: &str) -> (String, Vec<String>) {
 }
 
 use anyhow::Result;
-use aphelios_core::init_logging;
 use ndarray::Axis;
 use std::{path::PathBuf, time::Instant};
 use tracing::{debug, error, info, warn};
@@ -119,8 +118,6 @@ pub struct SenseVoiceResult {
 }
 
 pub fn sensevoice_asr(sensevoice_model_path: &str, audio_path: &str, sense_voice_config: SenseVoiceConfig) -> Result<SenseVoiceResult> {
-    init_logging();
-
     let input_audio = PathBuf::from(audio_path);
 
     let encoder_path = PathBuf::from(sensevoice_model_path).join("model.int8.onnx");

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use aphelios_core::hub::{load_file_local_or_download, load_or_download};
+use crate::hub::load_or_download;
 use candle_core::{DType, Device, Tensor};
 use log::{debug, info};
 use std::collections::HashMap;

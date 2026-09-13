@@ -2,7 +2,7 @@ use crate::qwenasr::audio::AudioConfig;
 use crate::qwenasr::encoder::EncoderConfig;
 use crate::qwenasr::model::ModelConfig;
 use crate::QWEN3_ASR_MODEL_ID;
-use aphelios_core::hub::load_or_download;
+use crate::hub::load_or_download;
 use candle_transformers::models::qwen3::Config as Qwen3Config;
 
 pub enum ModelPreset {
